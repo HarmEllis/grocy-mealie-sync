@@ -9,11 +9,18 @@ if (process.env.NODE_ENV !== 'production') {
 
 logger.info('Retrieving units from Mealie');
 
-(async () => {
+async function main(): void {
   try {
     const units = await getAllUnits();
+    if (units.length === 0) {
+      logger.warn('No units found in Mealie');
+    } else {
+      logger.info(`Retrieved ${units.length} units from Mealie`);
+      logger.debug('Units:', units);
+    }
   } catch (error) {
     logger.error('Error retrieving units from Mealie:', error);
   }
   logger.info('Units retrieved successfully');
-})();
+}
+main();
