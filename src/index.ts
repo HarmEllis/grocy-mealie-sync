@@ -1,4 +1,5 @@
 import logger from './helpers/logger';
+import { getAllUnits } from './mealie/mealie';
 
 if (process.env.NODE_ENV !== 'production') {
   // The .env is only used in development
@@ -6,4 +7,6 @@ if (process.env.NODE_ENV !== 'production') {
   require('dotenv').config();
 }
 
-logger.info('Hello, world!');
+logger.info('Retrieving units from Mealie');
+
+getAllUnits();
