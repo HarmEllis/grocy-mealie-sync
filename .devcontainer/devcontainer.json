@@ -17,5 +17,6 @@
   },
   "forwardPorts": [3000],
   "postCreateCommand": "npm install",
-  "remoteUser": "node"
+  "remoteUser": "node",
+  "runArgs": ["--network=grocy-mealie-sync"]
 }

@@ -19,6 +19,8 @@ A TypeScript application that synchronizes data between Mealie and Grocy applica
 4. When prompted, click "Reopen in Container" or run the command `Remote-Containers: Reopen in Container`
 5. The container will be built and your development environment will be ready
 
+> Note, you should run `docker network create grocy-mealie-sync` if the container fails to start.
+
 ### Local Setup (Alternative)
 
 1. Clone this repository
@@ -57,18 +59,22 @@ npm test
 ## API Endpoints
 
 ### Webhook Endpoints
+
 - POST `/webhook/mealie/grocerylist` - Webhook endpoint for Mealie grocery list changes
 
 ### Sync Endpoints
+
 - POST `/sync/units` - Sync units from Mealie to Grocy
 - POST `/sync/product-groups` - Sync product groups from Mealie to Grocy
 - POST `/sync/products` - Sync products from Mealie to Grocy
 
 ### Health Check
+
 - GET `/health` - Check if the service is running
 
 ## Setting up Mealie Webhooks
 
 In your Mealie instance, set up the following webhook:
+
 - URL: `http://your-server:3000/webhook/mealie/grocerylist`
 - Events: Shopping List Item Created, Shopping List Item Updated, Shopping List Item Deleted
