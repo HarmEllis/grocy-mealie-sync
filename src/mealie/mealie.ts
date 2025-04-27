@@ -26,9 +26,8 @@ async function request<T extends z.ZodTypeAny>(
   if (!data) {
     throw new Error(`No data returned from ${resource}`);
   } else {
-    console.debug(
-      'Mealie:',
-      ` Retreived object from ${resource} with the following keys:`,
+    logger.silly(
+      `Mealie: Retrieved object from resource ${resource} with the following keys:`,
       Object.keys(data),
     );
   }
@@ -39,15 +38,13 @@ export async function getAllUnits(): Promise<Unit[]> {
   try {
     const response: ResponseList<Unit> = await request('units', {}, ResponseListSchema(UnitSchema));
 
-    const units: Unit[] = response.items; // Not parsed correctly and therefore always empty
+    const units: Unit[] = z.array(UnitSchema).parse(response.items);
     if (!units) {
       throw new Error('No units defined in Mealie');
     }
-    logger.debug('Mealie:', ` Retrieved ${units.length} units`);
-
     return units;
   } catch (error) {
-    logger.error('Mealie:', 'Error fetching units', error);
+    logger.error('Mealie: Error fetching units', error);
     throw new Error(`Error fetching units: ${error}`);
   }
 }
