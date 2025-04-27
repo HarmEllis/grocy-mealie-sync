@@ -9,4 +9,11 @@ if (process.env.NODE_ENV !== 'production') {
 
 logger.info('Retrieving units from Mealie');
 
-getAllUnits();
+(async () => {
+  try {
+    const units = await getAllUnits();
+  } catch (error) {
+    logger.error('Error retrieving units from Mealie:', error);
+  }
+  logger.info('Units retrieved successfully');
+})();

@@ -1,24 +1,30 @@
-export type ResponseList<T> = {
-  page: number;
-  per_page: number;
-  total: number;
-  total_pages: number;
-  items: T[];
-  next: string | null;
-  previous: string | null;
-};
+import { z } from 'zod';
 
-export type Unit = {
-  id: string;
-  name: string;
-  pluralName: string | null;
-  description: string;
-  extras: object;
-  fraction: boolean;
-  abbreviation: string;
-  pluralAbbreviation: string;
-  useAbbreviation: boolean;
-  aliases: string[];
-  createdAt: Date | null;
-  updatedAt: Date | null;
-};
+export const ResponseListSchema = <T>(itemsSchema: z.ZodType<T>) =>
+  z.object({
+    page: z.number(),
+    per_page: z.number(),
+    total: z.number(),
+    total_pages: z.number(),
+    items: z.array(itemsSchema),
+    next: z.string().nullable(),
+    previous: z.string().nullable(),
+  });
+
+export type ResponseList<T> = z.infer<ReturnType<typeof ResponseListSchema<T>>>;
+
+export const UnitSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  pluralName: z.string().nullable(),
+  description: z.string(),
+  extras: z.object({}).passthrough(),
+  fraction: z.boolean(),
+  abbreviation: z.string(),
+  pluralAbbreviation: z.string(),
+  useAbbreviation: z.boolean(),
+  aliases: z.array(z.string()),
+  createdAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+});
+export type Unit = z.infer<typeof UnitSchema>;

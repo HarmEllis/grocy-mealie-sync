@@ -1,8 +1,13 @@
+import { z } from 'zod';
 import { getEnvironmentVariable } from '../helpers/environment';
 import logger from '../helpers/logger';
-import { ResponseList, Unit } from '../types/mealie';
+import { ResponseList, ResponseListSchema, Unit, UnitSchema } from '../types/mealie';
 
-async function request<T>(resource: string, params: object): Promise<T> {
+async function request<T extends z.ZodTypeAny>(
+  resource: string,
+  params: object,
+  schema: T,
+): Promise<z.infer<T>> {
   const url = getEnvironmentVariable('MEALIE_URL');
   const apiKey = getEnvironmentVariable('MEALIE_API_KEY');
 
@@ -20,18 +25,25 @@ async function request<T>(resource: string, params: object): Promise<T> {
   const data = await new Response(response.body).json();
   if (!data) {
     throw new Error(`No data returned from ${resource}`);
+  } else {
+    console.debug(
+      'Mealie:',
+      ` Retreived object from ${resource} with the following keys:`,
+      Object.keys(data),
+    );
   }
-  return data as T;
+  return schema.parse(data);
 }
 
 export async function getAllUnits(): Promise<Unit[]> {
   try {
-    const response = await request<ResponseList<Unit>>('units', {});
-    const units = response.items;
+    const response: ResponseList<Unit> = await request('units', {}, ResponseListSchema(UnitSchema));
+
+    const units: Unit[] = response.items; // Not parsed correctly and therefore always empty
     if (!units) {
       throw new Error('No units defined in Mealie');
     }
-    logger.debug('Mealie:', ` Retreived ${units.length} units`);
+    logger.debug('Mealie:', ` Retrieved ${units.length} units`);
 
     return units;
   } catch (error) {
