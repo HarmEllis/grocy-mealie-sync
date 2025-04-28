@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { getEnvironmentVariable } from '../helpers/environment';
 import logger from '../helpers/logger';
-import { ResponseList, ResponseListSchema, Unit, UnitSchema } from '../types/mealie';
+import { IngredientUnitPagination, IngredientUnit_Output } from '../types/mealie';
 
 async function request<T extends z.ZodTypeAny>(
   resource: string,
@@ -34,11 +34,11 @@ async function request<T extends z.ZodTypeAny>(
   return schema.parse(data);
 }
 
-export async function getAllUnits(): Promise<Unit[]> {
+export async function getAllUnits(): Promise<IngredientUnit_Output[]> {
   try {
-    const response: ResponseList<Unit> = await request('units', {}, ResponseListSchema(UnitSchema));
+    const response: IngredientUnitPagination = await request('units', {}, IngredientUnitPagination);
 
-    const units: Unit[] = z.array(UnitSchema).parse(response.items);
+    const units: IngredientUnit_Output[] = z.array(IngredientUnit_Output).parse(response.items);
     if (!units) {
       throw new Error('No units defined in Mealie');
     }
