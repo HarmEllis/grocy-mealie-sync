@@ -10,7 +10,8 @@
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "update": "npx npm-check-updates -u"
+    "update": "npx npm-check-updates -u",
+    "typegen": "npx typed-openapi http://mealie:9000/openapi.json -o src/types/mealie.ts -r zod && npx typed-openapi OpenAPI/grocy.json -o src/types/grocy.ts -r zod"
   },
   "keywords": [
     "Grocy",
