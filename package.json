@@ -11,7 +11,8 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "test": "echo \"Error: no test specified\" && exit 1",
     "update": "npx npm-check-updates -u",
-    "typegen": "npx typed-openapi http://mealie:9000/openapi.json -o src/types/mealie.ts -r zod && npx typed-openapi OpenAPI/grocy.json -o src/types/grocy.ts -r zod"
+    "clientgen-mealie": "npx @hey-api/openapi-ts -i http://mealie:9000/openapi.json -o src/clients/mealie -c @hey-api/client-fetch",
+    "clientgen-grocy": "npx @hey-api/openapi-ts -i OpenAPI/grocy.json -o src/clients/grocy -c @hey-api/client-fetch"
   },
   "keywords": [
     "Grocy",
@@ -21,6 +22,7 @@
   "author": "Harm Ellis",
   "license": "MIT",
   "devDependencies": {
+    "@hey-api/openapi-ts": "^0.66.7",
     "@types/express": "^5.0.1",
     "@types/node": "^22.15.2",
     "@typescript-eslint/eslint-plugin": "^8.31.0",
@@ -34,8 +36,8 @@
     "typescript": "^5.8.3"
   },
   "dependencies": {
+    "@hey-api/client-fetch": "^0.10.0",
     "fastify": "^5.3.2",
-    "winston": "^3.17.0",
-    "zod": "^3.24.3"
+    "winston": "^3.17.0"
   }
 }
