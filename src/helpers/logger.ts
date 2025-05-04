@@ -1,6 +1,7 @@
 import winston from 'winston';
+import { getEnvironmentVariable } from './environment';
 
-const loglevel = process.env.LOG_LEVEL || 'info'; // Default to 'info' if not set
+const loglevel = getEnvironmentVariable('LOG_LEVEL');
 
 const logger = winston.createLogger({
   level: loglevel, // Set the default log level to 'info'
