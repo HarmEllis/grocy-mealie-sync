@@ -1,4 +1,4 @@
-# Mealie-Grocy Sync
+# [WIP] Mealie-Grocy Sync
 
 A TypeScript application that synchronizes data between Mealie and Grocy applications.
 
