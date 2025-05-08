@@ -1,10 +1,20 @@
-import { HttpValidationError } from '../clients/mealie/types.gen';
+import {
+  HttpValidationError,
+  OrderByNullPosition,
+  OrderDirection,
+} from '../clients/mealie/types.gen';
 import logger from './logger';
 
-type GetDataRequest = {
+export type DataQuery = {
   query?: {
+    orderBy?: string;
+    orderByNullPosition?: OrderByNullPosition;
+    orderDirection?: OrderDirection;
+    queryFilter?: string;
+    paginationSeed?: string;
     page?: number;
     perPage?: number;
+    search?: string;
   };
 };
 
@@ -16,7 +26,7 @@ type PaginatedResponse<T> = {
 };
 
 type FetchPaginatedPage<T> = (
-  options: GetDataRequest,
+  options: DataQuery,
 ) => Promise<{ data: PaginatedResponse<T> | undefined; error: HttpValidationError | undefined }>;
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -26,14 +36,14 @@ const DEFAULT_PAGE_SIZE = 50;
  */
 export async function fetchAllPaginatedItems<TItem>(
   fetchPage: FetchPaginatedPage<TItem>,
-  baseParams: Omit<GetDataRequest, 'query.page'> & { query: { perPage?: number } },
+  baseParams: Omit<DataQuery, 'query.page'>,
 ): Promise<TItem[]> {
   let allItems: TItem[] = [];
   let page = 1;
-  const perPage = baseParams.query.perPage ?? DEFAULT_PAGE_SIZE;
+  const perPage = baseParams.query?.perPage ?? DEFAULT_PAGE_SIZE;
 
   while (true) {
-    const params = { ...baseParams, query: { page, perPage } };
+    const params = { ...baseParams, query: { ...baseParams.query, page, perPage } };
     const result = await fetchPage(params);
     if (result.error) throw new Error(result.error.detail?.join(', '));
     const data = result.data as PaginatedResponse<TItem>;
