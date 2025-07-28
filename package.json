@@ -9,7 +9,7 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest",
     "update": "npx npm-check-updates -u",
     "clientgen-mealie": "npx @hey-api/openapi-ts -i http://mealie:9000/openapi.json -o src/clients/mealie -c @hey-api/client-fetch",
     "clientgen-grocy": "npx @hey-api/openapi-ts -i OpenAPI/grocy.json -o src/clients/grocy -c @hey-api/client-fetch"
@@ -33,7 +33,8 @@
     "eslint-plugin-prettier": "^5.2.6",
     "prettier": "^3.5.3",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.3"
   },
   "dependencies": {
     "@hey-api/client-fetch": "^0.10.0",
