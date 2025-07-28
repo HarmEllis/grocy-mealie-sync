@@ -20,7 +20,7 @@ class MealieApp implements FoodApp {
   async getAllUnits(): Promise<Unit[]> {
     // Implementation to fetch all units from Mealie
     logger.info('Retrieving units from Mealie');
-    const unitOptions = { query: { orderBy: 'name', orderDirection: 'asc' } };
+    const unitOptions: DataQuery = { query: { orderBy: 'name', orderDirection: 'asc' } };
     const units: IngredientUnitOutput[] = await fetchAllPaginatedItems<IngredientUnitOutput>(
       getAllApiUnitsGet,
       unitOptions,
