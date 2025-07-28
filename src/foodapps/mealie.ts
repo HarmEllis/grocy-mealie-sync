@@ -36,15 +36,29 @@ class MealieApp implements FoodApp {
   }
 
   async getUnitById(id: string): Promise<Unit | null> {
-    // Implementation to fetch a unit by ID from Mealie
-    return null;
+    const units = await this.getUnitsByQuery({
+      orderBy: 'id',
+      orderDirection: 'asc',
+      queryFilter: `id = "${id}"`,
+    });
+    if (units.length > 1) throw new Error(`Multiple units found with id ${id}, expected one`);
+    return units.shift() || null;
   }
 
   async getUnitByName(name: string): Promise<Unit | null> {
-    // Implementation to fetch a unit by name from Mealie
-    logger.info(`Searching for unit '${name}' in Mealie`);
+    const units = await this.getUnitsByQuery({
+      orderBy: 'name',
+      orderDirection: 'asc',
+      queryFilter: `name = "${name}"`,
+    });
+    if (units.length > 1) throw new Error(`Multiple units found with name ${name}, expected one`);
+    return units.shift() || null;
+  }
+
+  private async getUnitsByQuery(query: DataQuery['query']): Promise<Unit[]> {
+    logger.info(`Searching for unit with query '${JSON.stringify(query)}' in Mealie`);
     const unitOptions: DataQuery = {
-      query: { orderBy: 'name', orderDirection: 'asc', queryFilter: `name = "${name}"` },
+      query: query,
     };
     const units: IngredientUnitOutput[] = await fetchAllPaginatedItems<IngredientUnitOutput>(
       getAllApiUnitsGet,
@@ -54,12 +68,12 @@ class MealieApp implements FoodApp {
     if (!units) {
       logger.error('No units in response from Mealie');
     } else {
-      logger.debug(`Found ${units.length} units named '${name}' Mealie`);
+      logger.debug(`Found ${units.length} units in Mealie`);
       if (logger.isSillyEnabled()) {
         units.forEach((unit) => logger.silly('Unit:', unit));
       }
     }
-    return units.pop() || null;
+    return units;
   }
 }
 export default MealieApp;
