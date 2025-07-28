@@ -9,6 +9,7 @@ async function main(): Promise<void> {
 
   const grocy = new GrocyApp();
   const grocyUnits = await grocy.getAllUnits();
+  const grocyUnit = await grocy.getUnitByName('zakje');
 
   logger.info('Exiting...');
   process.exit(0);
