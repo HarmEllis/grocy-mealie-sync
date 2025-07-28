@@ -34,6 +34,11 @@ A TypeScript application that synchronizes data between Mealie and Grocy applica
    ```
 4. Edit `.env` file with your Mealie and Grocy URLs and API keys
 
+### Run Grocy and Mealie locally for development purposes
+
+1. In a local terminal, run `docker compose -f compose-dev.yml up`
+2. Quit the apps when done with `ctrl + c`
+
 ## Development Commands
 
 ```bash
