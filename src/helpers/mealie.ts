@@ -45,7 +45,7 @@ export async function fetchAllPaginatedItems<TItem>(
   while (true) {
     const params = { ...baseParams, query: { ...baseParams.query, page, perPage } };
     const result = await fetchPage(params);
-    if (result.error) throw new Error(result.error.detail?.join(', '));
+    if (result.error) throw new Error(JSON.stringify(result.error.detail));
     const data = result.data as PaginatedResponse<TItem>;
     logger.debug('Using params: ', params);
     allItems = allItems.concat(data.items ?? []);
