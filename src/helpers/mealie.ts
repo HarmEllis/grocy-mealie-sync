@@ -1,8 +1,10 @@
 import {
   HttpValidationError,
+  IngredientUnitOutput,
   OrderByNullPosition,
   OrderDirection,
 } from '../clients/mealie/types.gen';
+import { Unit } from '../types/foodapptypes';
 import logger from './logger';
 
 export type DataQuery = {
@@ -58,4 +60,21 @@ export async function fetchAllPaginatedItems<TItem>(
   }
 
   return allItems;
+}
+
+export function unitToMealieUnit(unit: Unit): IngredientUnitOutput {
+  return {
+    id: unit.id,
+    name: unit.name,
+    pluralName: unit.pluralName,
+    description: unit.description,
+    extras: unit.extras,
+    fraction: unit.fraction,
+    abbreviation: unit.abbreviation,
+    pluralAbbreviation: unit.pluralAbbreviation,
+    useAbbreviation: unit.useAbbreviation,
+    aliases: unit.aliases?.map((alias) => ({ name: alias.name })),
+    createdAt: unit.createdAt,
+    updatedAt: unit.updatedAt,
+  };
 }
