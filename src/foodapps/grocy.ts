@@ -2,6 +2,10 @@ import {
   getObjectsByEntity,
   GetObjectsByEntityData,
   Options,
+  postObjectsByEntity,
+  PostObjectsByEntityData,
+  putObjectsByEntityByObjectId,
+  PutObjectsByEntityByObjectIdData,
   QuantityUnit,
 } from '../clients/grocy';
 import { client } from '../clients/grocy/client.gen';
@@ -9,7 +13,7 @@ import { getEnvironmentVariable } from '../helpers/environment';
 import logger from '../helpers/logger';
 import { Unit } from '../types/foodapptypes';
 import { FoodApp } from './abstracts/foodapp';
-import { GrocyUnitToUnit, GrocyUnitsToUnits } from '../helpers/grocy';
+import { GrocyUnitToUnit, GrocyUnitsToUnits, unitToGrocyUnit } from '../helpers/grocy';
 
 class GrocyApp implements FoodApp {
   constructor() {
@@ -21,6 +25,9 @@ class GrocyApp implements FoodApp {
         'GROCY-API-KEY': `${getEnvironmentVariable('GROCY_API_KEY')}`,
       },
     });
+  }
+  toString(): string {
+    return 'Grocy';
   }
   async getAllUnits(): Promise<Unit[]> {
     const options: Options<GetObjectsByEntityData, true> = {
@@ -47,6 +54,58 @@ class GrocyApp implements FoodApp {
     if (units.length > 1) throw new Error(`Multiple units found with name ${name}, expected one`);
     return units.shift() || null;
   }
+
+  async focUnit(name: string, pluralName: string): Promise<Unit> {
+    logger.debug(`Fetch or creating unit with name: ${name}`);
+    const unit = await this.getUnitByName(name);
+    if (unit) {
+      return unit;
+    }
+    // If the unit does not exist, create it
+    const newQuantityUnit: QuantityUnit = {
+      name,
+      name_plural: pluralName,
+    };
+    const options: Options<PostObjectsByEntityData, true> = {
+      path: {
+        entity: 'quantity_units',
+      },
+      body: newQuantityUnit,
+    };
+    logger.debug(`Not found, creating unit request: ${JSON.stringify(options)}`);
+    const result = await postObjectsByEntity(options);
+    if (!result.data.created_object_id) throw new Error(`Failed to create unit with name ${name}`);
+    const newUnit = await this.getUnitById(result.data.created_object_id.toString());
+    if (!newUnit) throw new Error(`Failed to create unit with name ${name}`);
+    return newUnit;
+  }
+
+  async updateUnit(unit: Unit): Promise<void> {
+    logger.info(`Updating unit with name: ${unit.name}`);
+    const grocyUnit = unitToGrocyUnit(unit);
+    if (!grocyUnit.id) throw new Error(`Unit with name ${unit.name} does not have an ID`);
+    const options: Options<PutObjectsByEntityByObjectIdData, true> = {
+      body: grocyUnit,
+      path: {
+        entity: 'quantity_units',
+        objectId: grocyUnit.id,
+      },
+    };
+    await putObjectsByEntityByObjectId(options);
+  }
+
+  async syncTo(foodApp: FoodApp): Promise<void> {
+    logger.info(`Syncing units to ${foodApp.toString()}`);
+    const units = await this.getAllUnits();
+    for (const unit of units) {
+      logger.debug(`Syncing unit: ${unit.name}`);
+      const focUnit = await foodApp.focUnit(unit.name, unit.pluralName || '');
+      unit.id = focUnit.id; // Ensure the unit has an ID for updating
+      await foodApp.updateUnit(unit);
+    }
+    logger.info(`Syncing completed to ${foodApp.toString()}`);
+  }
+
   private async getUnitsByQuery(query: string[]): Promise<Unit[]> {
     const options: Options<GetObjectsByEntityData, true> = {
       path: {

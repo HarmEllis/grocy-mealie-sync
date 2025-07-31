@@ -13,3 +13,12 @@ export function GrocyUnitToUnit(grocyUnit: QuantityUnit): Unit {
     description: grocyUnit.description,
   };
 }
+
+export function unitToGrocyUnit(unit: Unit): QuantityUnit {
+  return {
+    id: Number(unit.id),
+    name: unit.name,
+    name_plural: unit.pluralName || '',
+    description: unit.description,
+  };
+}
