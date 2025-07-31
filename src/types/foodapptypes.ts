@@ -1,5 +1,5 @@
 export type Unit = {
-  id: string;
+  id?: string;
   name: string;
   pluralName?: string | null;
   description?: string;
