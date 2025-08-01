@@ -81,7 +81,7 @@ class GrocyApp implements FoodAppBase {
   }
 
   async updateUnit(unit: Unit): Promise<void> {
-    logger.info(`Updating unit with name: ${unit.name}`);
+    logger.debug(`Updating unit with name: ${unit.name}`);
     const grocyUnit = unitToGrocyUnit(unit);
     if (!grocyUnit.id) throw new Error(`Unit with name ${unit.name} does not have an ID`);
     const options: Options<PutObjectsByEntityByObjectIdData, true> = {

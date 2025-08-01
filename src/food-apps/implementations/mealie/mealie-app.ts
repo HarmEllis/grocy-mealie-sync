@@ -27,8 +27,7 @@ class MealieApp implements FoodAppBase {
   }
 
   async getAllUnits(): Promise<Unit[]> {
-    // Implementation to fetch all units from Mealie
-    logger.info('Retrieving units from Mealie');
+    logger.debug('Retrieving units from Mealie');
     const unitOptions: DataQuery = { query: { orderBy: 'name', orderDirection: 'asc' } };
     const units: IngredientUnitOutput[] = await fetchAllPaginatedItems<IngredientUnitOutput>(
       getAllApiUnitsGet,
@@ -38,8 +37,8 @@ class MealieApp implements FoodAppBase {
     if (!units) {
       logger.error('No units in response from Mealie');
     } else {
-      logger.info(`Retrieved ${units.length} units from Mealie`);
-      logger.debug('Example unit:', units.pop());
+      logger.debug(`Retrieved ${units.length} units from Mealie`);
+      logger.silly('Example unit:', units.pop());
     }
     return units;
   }
@@ -65,7 +64,7 @@ class MealieApp implements FoodAppBase {
   }
 
   async updateUnit(unit: Unit): Promise<void> {
-    logger.info(`Updating unit with name: ${unit.name}`);
+    logger.debug(`Updating unit with name: ${unit.name}`);
     if (!unit.id) throw new Error(`Unit with name ${unit.name} does not have an ID`);
     const mealieUnit = unitToMealieUnit(unit);
     const options = {
@@ -79,7 +78,7 @@ class MealieApp implements FoodAppBase {
   }
 
   async focUnit(name: string, pluralName?: string): Promise<Unit> {
-    logger.info(`Fetching unit with name: ${name} and pluralName: ${pluralName}`);
+    logger.debug(`Fetching unit with name: ${name} and pluralName: ${pluralName}`);
     const unit = await this.getUnitByName(name);
     if (unit) return unit;
     logger.debug(`Unit with name ${name} not found, creating new unit`);
@@ -99,7 +98,7 @@ class MealieApp implements FoodAppBase {
   }
 
   private async getUnitsByQuery(query: DataQuery['query']): Promise<Unit[]> {
-    logger.info(`Searching for unit with query '${JSON.stringify(query)}' in Mealie`);
+    logger.debug(`Searching for unit with query '${JSON.stringify(query)}' in Mealie`);
     const unitOptions: DataQuery = {
       query: query,
     };
