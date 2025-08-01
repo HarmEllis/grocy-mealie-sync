@@ -1,35 +1,7 @@
-import {
-  HttpValidationError,
-  IngredientUnitOutput,
-  OrderByNullPosition,
-  OrderDirection,
-} from '../clients/mealie/types.gen';
-import { Unit } from '../types/foodapptypes';
-import logger from './logger';
-
-export type DataQuery = {
-  query?: {
-    orderBy?: string;
-    orderByNullPosition?: OrderByNullPosition;
-    orderDirection?: OrderDirection;
-    queryFilter?: string;
-    paginationSeed?: string;
-    page?: number;
-    perPage?: number;
-    search?: string;
-  };
-};
-
-type PaginatedResponse<T> = {
-  items: T[];
-  next?: string | null;
-  page?: number;
-  total_pages?: number;
-};
-
-type FetchPaginatedPage<T> = (
-  options: DataQuery,
-) => Promise<{ data: PaginatedResponse<T> | undefined; error: HttpValidationError | undefined }>;
+import { IngredientUnitOutput } from '../../../api-clients/mealie/types.gen';
+import { Unit } from '../../base/food-app-types';
+import logger from '../../../utils/logger';
+import { FetchPaginatedPage, DataQuery, PaginatedResponse } from './mealie-types';
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -63,6 +35,7 @@ export async function fetchAllPaginatedItems<TItem>(
 }
 
 export function unitToMealieUnit(unit: Unit): IngredientUnitOutput {
+  if (!unit.id) throw new Error('Unit must have an id');
   return {
     id: unit.id,
     name: unit.name,

@@ -1,5 +1,5 @@
 import winston from 'winston';
-import { getEnvironmentVariable } from './environment';
+import { getEnvironmentVariable } from './env';
 
 const loglevel = getEnvironmentVariable('LOG_LEVEL');
 

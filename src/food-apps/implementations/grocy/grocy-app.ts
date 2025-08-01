@@ -7,15 +7,15 @@ import {
   putObjectsByEntityByObjectId,
   PutObjectsByEntityByObjectIdData,
   QuantityUnit,
-} from '../clients/grocy';
-import { client } from '../clients/grocy/client.gen';
-import { getEnvironmentVariable } from '../helpers/environment';
-import logger from '../helpers/logger';
-import { Unit } from '../types/foodapptypes';
-import { FoodApp } from './abstracts/foodapp';
-import { GrocyUnitToUnit, GrocyUnitsToUnits, unitToGrocyUnit } from '../helpers/grocy';
+} from '../../../api-clients/grocy';
+import { client } from '../../../api-clients/grocy/client.gen';
+import { getEnvironmentVariable } from '../../../utils/env';
+import logger from '../../../utils/logger';
+import { Unit } from '../../base/food-app-types';
+import { FoodAppBase } from '../../base/food-app';
+import { GrocyUnitsToUnits, unitToGrocyUnit } from './grocy-utils';
 
-class GrocyApp implements FoodApp {
+class GrocyApp implements FoodAppBase {
   constructor() {
     // Note that the Grocy API client does not return an error if the API key is invalid,
     // it will just return an empty response
@@ -92,18 +92,6 @@ class GrocyApp implements FoodApp {
       },
     };
     await putObjectsByEntityByObjectId(options);
-  }
-
-  async syncUnitsTo(foodApp: FoodApp): Promise<void> {
-    logger.info(`Syncing units to ${foodApp.toString()}`);
-    const units = await this.getAllUnits();
-    for (const unit of units) {
-      logger.debug(`Syncing unit: ${unit.name}`);
-      const focUnit = await foodApp.focUnit(unit.name, unit.pluralName || '');
-      unit.id = focUnit.id; // Ensure the unit has an ID for updating
-      await foodApp.updateUnit(unit);
-    }
-    logger.info(`Syncing completed to ${foodApp.toString()}`);
   }
 
   private async getUnitsByQuery(query: string[]): Promise<Unit[]> {

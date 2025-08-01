@@ -1,5 +1,5 @@
-import { QuantityUnit } from '../clients/grocy/types.gen';
-import { Unit } from '../types/foodapptypes';
+import { QuantityUnit } from '../../../api-clients/grocy/types.gen';
+import { Unit } from '../../base/food-app-types';
 
 export function GrocyUnitsToUnits(grocyUnits: QuantityUnit[]): Unit[] {
   return grocyUnits.map((unit) => GrocyUnitToUnit(unit));

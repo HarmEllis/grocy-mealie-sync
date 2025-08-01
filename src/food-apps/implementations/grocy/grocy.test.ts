@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 
-import GrocyApp from './grocy';
+import GrocyApp from './grocy-app';
 
 const grocy = new GrocyApp();
 

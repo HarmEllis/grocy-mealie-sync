@@ -1,21 +1,15 @@
-import logger from './helpers/logger';
-import MealieApp from './foodapps/mealie';
-import GrocyApp from './foodapps/grocy';
+import logger from './utils/logger';
+import MealieApp from './food-apps/implementations/mealie/mealie-app';
+import GrocyApp from './food-apps/implementations/grocy/grocy-app';
+import { formatUnits, syncUnits } from './food-apps/base/food-app-utils';
 
 async function main(): Promise<void> {
   const mealie = new MealieApp();
-  // const units = await mealie.getAllUnits();
-  // const unit = await mealie.getUnitByName('bakje');
-  await mealie.formatUnits();
-  // const newUnit = await mealie.focUnit('emmer', 'emmers');
-
   const grocy = new GrocyApp();
-  await mealie.syncUnitsTo(grocy);
-  // const grocyUnits = await grocy.getAllUnits();
-  // const grocyUnit = await grocy.getUnitByName('zakje');
-  // const grocyFocUnit = await grocy.focUnit(unit?.name!, unit?.pluralName!);
+
+  await formatUnits(mealie);
+  await syncUnits(mealie, grocy);
 
   logger.info('Exiting...');
-  process.exit(0);
 }
 main();

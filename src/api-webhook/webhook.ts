@@ -1,8 +1,8 @@
 import Fastify from 'fastify';
-import logger from '../helpers/logger';
+import logger from '../utils/logger';
 
 const fastify = Fastify({ logger: false });
 
 fastify.ready(() => {
-  logger.error('Hello, fastify!');
+  logger.info('Webhook server is ready');
 });

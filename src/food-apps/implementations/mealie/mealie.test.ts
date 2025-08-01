@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 
-import MealieApp from './mealie';
+import MealieApp from './mealie-app';
 
 const mealie = new MealieApp();
 
@@ -16,7 +16,7 @@ test('Mealie Get All Units', async () => {
 
 test('Mealie Get Unit By Id', async () => {
   const units = await mealie.getAllUnits();
-  const unit = await mealie.getUnitById(units[0].id);
+  const unit = await mealie.getUnitById(units[0].id!);
   expect(unit).toBeDefined();
   expect(unit?.id).toBe(units[0].id);
 });

@@ -1,23 +1,18 @@
-import { client } from '../clients/mealie/client.gen';
+import { client } from '../../../api-clients/mealie/client.gen';
 import {
   getAllApiUnitsGet,
   updateOneApiUnitsItemIdPut,
   createOneApiUnitsPost,
-  createOneApiHouseholdsShoppingItemsPost,
-  Options,
-} from '../clients/mealie/sdk.gen';
-import {
-  CreateIngredientUnit,
-  CreateOneApiUnitsPostData,
-  IngredientUnitOutput,
-} from '../clients/mealie/types.gen';
-import { getEnvironmentVariable } from '../helpers/environment';
-import logger from '../helpers/logger';
-import { DataQuery, fetchAllPaginatedItems, unitToMealieUnit } from '../helpers/mealie';
-import { Unit } from '../types/foodapptypes';
-import { FoodApp } from './abstracts/foodapp';
+} from '../../../api-clients/mealie/sdk.gen';
+import { IngredientUnitOutput } from '../../../api-clients/mealie/types.gen';
+import { getEnvironmentVariable } from '../../../utils/env';
+import logger from '../../../utils/logger';
+import { fetchAllPaginatedItems, unitToMealieUnit } from './mealie-utils';
+import { Unit } from '../../base/food-app-types';
+import { FoodAppBase } from '../../base/food-app';
+import { DataQuery } from './mealie-types';
 
-class MealieApp implements FoodApp {
+class MealieApp implements FoodAppBase {
   constructor() {
     client.setConfig({
       baseUrl: getEnvironmentVariable('MEALIE_URL'),
@@ -101,33 +96,6 @@ class MealieApp implements FoodApp {
       throw new Error(`Failed to create unit with name ${name}: ${createdUnit.error.detail}`);
 
     return createdUnit.data;
-  }
-
-  async formatUnits(): Promise<void> {
-    const units = await this.getAllUnits();
-    const unitsToFormat = units.filter(
-      (unit) =>
-        unit?.name.toLocaleLowerCase().localeCompare(unit?.name) ||
-        unit?.pluralName?.toLocaleLowerCase().localeCompare(unit?.pluralName),
-    );
-    for (const unit of unitsToFormat) {
-      logger.debug(`Formatting unit: ${unit.name}`);
-      unit.name = unit.name.toLocaleLowerCase();
-      unit.pluralName = unit.pluralName?.toLocaleLowerCase();
-      await this.updateUnit(unit);
-    }
-  }
-
-  async syncUnitsTo(foodApp: FoodApp): Promise<void> {
-    logger.info(`Syncing units to ${foodApp.toString()}`);
-    const units = await this.getAllUnits();
-    for (const unit of units) {
-      logger.debug(`Syncing unit: ${unit.name}`);
-      const focUnit = await foodApp.focUnit(unit.name, unit.pluralName || '');
-      unit.id = focUnit.id; // Ensure the unit has an ID for updating
-      await foodApp.updateUnit(unit);
-    }
-    logger.info(`Syncing completed to ${foodApp.toString()}`);
   }
 
   private async getUnitsByQuery(query: DataQuery['query']): Promise<Unit[]> {
