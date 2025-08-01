@@ -7,5 +7,5 @@ export abstract class FoodApp {
   abstract getUnitByName(name: string): Promise<Unit | null>;
   abstract focUnit(name: string, pluralName: string): Promise<Unit>;
   abstract updateUnit(unit: Unit): Promise<void>;
-  abstract syncTo(foodApp: FoodApp): Promise<void>;
+  abstract syncUnitsTo(foodApp: FoodApp): Promise<void>;
 }

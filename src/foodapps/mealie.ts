@@ -118,7 +118,7 @@ class MealieApp implements FoodApp {
     }
   }
 
-  async syncTo(foodApp: FoodApp): Promise<void> {
+  async syncUnitsTo(foodApp: FoodApp): Promise<void> {
     logger.info(`Syncing units to ${foodApp.toString()}`);
     const units = await this.getAllUnits();
     for (const unit of units) {
