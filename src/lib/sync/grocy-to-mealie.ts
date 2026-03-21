@@ -32,33 +32,34 @@ export async function pollGrocyForMissingStock(): Promise<void> {
     // 1. Newly missing → add to Mealie
     const newlyMissing = missingProducts.filter(mp => !(mp.id in previousAmounts));
     for (const mp of newlyMissing) {
-      await upsertMealieShoppingItem(mp.id, mp.amount_missing);
+      await adjustMealieShoppingItem(mp.id, mp.amount_missing);
     }
 
-    // 2. Still missing, amount changed → update quantity in Mealie
+    // 2. Still missing, amount changed → adjust by delta
     const amountChanged = missingProducts.filter(mp =>
       mp.id in previousAmounts && previousAmounts[mp.id] !== mp.amount_missing
     );
     for (const mp of amountChanged) {
-      await upsertMealieShoppingItem(mp.id, mp.amount_missing);
+      const delta = mp.amount_missing - previousAmounts[mp.id];
+      await adjustMealieShoppingItem(mp.id, delta);
     }
 
-    // 3. No longer missing → remove from Mealie
+    // 3. No longer missing → subtract Grocy's contribution
     const noLongerMissing = Object.keys(previousAmounts)
       .map(Number)
       .filter(id => !(id in currentAmounts));
     for (const grocyProductId of noLongerMissing) {
-      await removeMealieShoppingItem(grocyProductId);
+      await adjustMealieShoppingItem(grocyProductId, -previousAmounts[grocyProductId]);
     }
 
     if (newlyMissing.length > 0) {
       log.info(`[Grocy→Mealie] ${newlyMissing.length} newly missing product(s) added`);
     }
     if (amountChanged.length > 0) {
-      log.info(`[Grocy→Mealie] ${amountChanged.length} product(s) quantity updated`);
+      log.info(`[Grocy→Mealie] ${amountChanged.length} product(s) quantity adjusted`);
     }
     if (noLongerMissing.length > 0) {
-      log.info(`[Grocy→Mealie] ${noLongerMissing.length} product(s) no longer missing, removed from list`);
+      log.info(`[Grocy→Mealie] ${noLongerMissing.length} product(s) restocked, adjusting Mealie list`);
     }
 
     state.grocyBelowMinStock = currentAmounts;
@@ -69,7 +70,12 @@ export async function pollGrocyForMissingStock(): Promise<void> {
   }
 }
 
-async function upsertMealieShoppingItem(grocyProductId: number, amountMissing: number): Promise<void> {
+/**
+ * Adjust a Mealie shopping list item's quantity by a delta.
+ * Positive delta: increase quantity (or create item).
+ * Negative delta: decrease quantity (or remove item if result ≤ 0).
+ */
+async function adjustMealieShoppingItem(grocyProductId: number, delta: number): Promise<void> {
   const mappings = await db.select()
     .from(productMappings)
     .where(eq(productMappings.grocyProductId, grocyProductId))
@@ -94,7 +100,7 @@ async function upsertMealieShoppingItem(grocyProductId: number, amountMissing: n
     }
   }
 
-  // Check for existing unchecked item
+  // Find existing unchecked item on the list
   const existingItems = await HouseholdsShoppingListItemsService.getAllApiHouseholdsShoppingItemsGet(
     undefined, undefined, undefined,
     `shoppingListId=${config.mealieShoppingListId}`,
@@ -107,57 +113,36 @@ async function upsertMealieShoppingItem(grocyProductId: number, amountMissing: n
   );
 
   if (existingItem) {
-    log.info(`[Grocy→Mealie] Updating "${mapping.mealieFoodName}" quantity: ${existingItem.quantity} → ${amountMissing}`);
+    const currentQty = existingItem.quantity || 0;
+    const newQty = currentQty + delta;
 
-    await HouseholdsShoppingListItemsService.updateOneApiHouseholdsShoppingItemsItemIdPut(
-      existingItem.id,
-      {
-        shoppingListId: config.mealieShoppingListId,
-        quantity: amountMissing,
-        foodId: mapping.mealieFoodId,
-        unitId: unitId || undefined,
-      }
-    );
-  } else {
-    log.info(`[Grocy→Mealie] Adding "${mapping.mealieFoodName}" to Mealie shopping list (qty: ${amountMissing})`);
-
+    if (newQty <= 0) {
+      // Remove item entirely
+      await HouseholdsShoppingListItemsService.deleteOneApiHouseholdsShoppingItemsItemIdDelete(existingItem.id);
+      log.info(`[Grocy→Mealie] Removed "${mapping.mealieFoodName}" from list (qty ${currentQty} → 0)`);
+    } else {
+      // Update quantity
+      log.info(`[Grocy→Mealie] Adjusting "${mapping.mealieFoodName}" quantity: ${currentQty} → ${newQty} (delta: ${delta > 0 ? '+' : ''}${delta})`);
+      await HouseholdsShoppingListItemsService.updateOneApiHouseholdsShoppingItemsItemIdPut(
+        existingItem.id,
+        {
+          shoppingListId: config.mealieShoppingListId,
+          quantity: newQty,
+          foodId: mapping.mealieFoodId,
+          unitId: unitId || undefined,
+        }
+      );
+    }
+  } else if (delta > 0) {
+    // No existing item, create new one
+    log.info(`[Grocy→Mealie] Adding "${mapping.mealieFoodName}" to Mealie shopping list (qty: ${delta})`);
     await HouseholdsShoppingListItemsService.createOneApiHouseholdsShoppingItemsPost({
       shoppingListId: config.mealieShoppingListId,
       foodId: mapping.mealieFoodId,
       unitId: unitId || undefined,
-      quantity: amountMissing,
+      quantity: delta,
       checked: false,
     });
   }
-}
-
-async function removeMealieShoppingItem(grocyProductId: number): Promise<void> {
-  const mappings = await db.select()
-    .from(productMappings)
-    .where(eq(productMappings.grocyProductId, grocyProductId))
-    .limit(1);
-
-  if (mappings.length === 0) return;
-
-  const mapping = mappings[0];
-
-  try {
-    const existingItems = await HouseholdsShoppingListItemsService.getAllApiHouseholdsShoppingItemsGet(
-      undefined, undefined, undefined,
-      `shoppingListId=${config.mealieShoppingListId}`,
-      undefined, 1, 500
-    );
-
-    const items = existingItems.items || [];
-    const matchingItem = items.find(item =>
-      item.foodId === mapping.mealieFoodId && !item.checked
-    );
-
-    if (matchingItem) {
-      await HouseholdsShoppingListItemsService.deleteOneApiHouseholdsShoppingItemsItemIdDelete(matchingItem.id);
-      log.info(`[Grocy→Mealie] Removed "${mapping.mealieFoodName}" from Mealie shopping list (stock replenished)`);
-    }
-  } catch (error) {
-    log.warn(`[Grocy→Mealie] Could not remove "${mapping.mealieFoodName}" from Mealie:`, error);
-  }
+  // If no existing item and delta ≤ 0, nothing to do
 }
