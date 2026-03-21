@@ -10,8 +10,6 @@ async function getStatus() {
     const [unitCount] = await db.select({ count: count() }).from(unitMappings);
 
     return {
-      schedulerRunning: state.schedulerRunning,
-      schedulerStartedAt: state.schedulerStartedAt,
       lastGrocyPoll: state.lastGrocyPoll,
       lastMealiePoll: state.lastMealiePoll,
       grocyBelowMinStockCount: state.grocyBelowMinStock.length,

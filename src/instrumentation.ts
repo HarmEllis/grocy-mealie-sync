@@ -11,6 +11,6 @@ export async function register() {
 
     // Start the polling scheduler
     const { startScheduler } = await import('./lib/sync/scheduler');
-    await startScheduler();
+    startScheduler();
   }
 }

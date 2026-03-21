@@ -7,8 +7,6 @@ export interface SyncStateData {
   lastMealiePoll: Date | null;
   grocyBelowMinStock: number[];
   mealieCheckedItems: Record<string, boolean>;
-  schedulerRunning: boolean;
-  schedulerStartedAt: Date | null;
 }
 
 const STATE_ID = 'singleton';
@@ -21,8 +19,6 @@ export async function getSyncState(): Promise<SyncStateData> {
       lastMealiePoll: null,
       grocyBelowMinStock: [],
       mealieCheckedItems: {},
-      schedulerRunning: false,
-      schedulerStartedAt: null,
     };
   }
   
@@ -32,8 +28,6 @@ export async function getSyncState(): Promise<SyncStateData> {
     lastMealiePoll: state.lastMealiePoll ? new Date(state.lastMealiePoll) : null,
     grocyBelowMinStock: state.grocyBelowMinStock || [],
     mealieCheckedItems: state.mealieCheckedItems || {},
-    schedulerRunning: state.schedulerRunning || false,
-    schedulerStartedAt: state.schedulerStartedAt ? new Date(state.schedulerStartedAt) : null,
   };
 }
 
@@ -43,8 +37,6 @@ export async function saveSyncState(state: SyncStateData) {
     lastMealiePoll: state.lastMealiePoll?.toISOString() || null,
     grocyBelowMinStock: state.grocyBelowMinStock,
     mealieCheckedItems: state.mealieCheckedItems,
-    schedulerRunning: state.schedulerRunning,
-    schedulerStartedAt: state.schedulerStartedAt?.toISOString() || null,
   });
 
   const records = await db.select().from(syncState).where(eq(syncState.id, STATE_ID)).limit(1);

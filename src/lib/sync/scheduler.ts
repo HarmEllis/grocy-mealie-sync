@@ -2,18 +2,12 @@ import { config } from '../config';
 import { runFullProductSync } from './product-sync';
 import { pollGrocyForMissingStock } from './grocy-to-mealie';
 import { pollMealieForCheckedItems } from './mealie-to-grocy';
-import { getSyncState, saveSyncState } from './state';
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let productSyncTimer: ReturnType<typeof setInterval> | null = null;
 
-export async function startScheduler(): Promise<void> {
+export function startScheduler(): void {
   if (pollTimer) return;
-
-  const state = await getSyncState();
-  state.schedulerRunning = true;
-  state.schedulerStartedAt = new Date();
-  await saveSyncState(state);
 
   console.log('[Scheduler] Starting sync scheduler');
   console.log(`[Scheduler] Poll interval: ${config.pollIntervalSeconds}s`);
@@ -51,7 +45,7 @@ export async function startScheduler(): Promise<void> {
   }, productSyncMs);
 }
 
-export async function stopScheduler(): Promise<void> {
+export function stopScheduler(): void {
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
@@ -60,9 +54,5 @@ export async function stopScheduler(): Promise<void> {
     clearInterval(productSyncTimer);
     productSyncTimer = null;
   }
-
-  const state = await getSyncState();
-  state.schedulerRunning = false;
-  await saveSyncState(state);
   console.log('[Scheduler] Stopped');
 }
