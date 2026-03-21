@@ -8,9 +8,9 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 let productSyncTimer: ReturnType<typeof setInterval> | null = null;
 
 export async function startScheduler(): Promise<void> {
-  const state = await getSyncState();
-  if (state.schedulerRunning) return;
+  if (pollTimer) return;
 
+  const state = await getSyncState();
   state.schedulerRunning = true;
   state.schedulerStartedAt = new Date();
   await saveSyncState(state);
