@@ -11,6 +11,13 @@ services:
     ports:
       - 9001:80
     restart: unless-stopped
+    ## Uncomment the following lines to be able to run the grocy container and clear/ restore a config backup
+    ## sudo docker compose -f compose-dev.yml down -v grocy # removes volume
+    ## sudo docker compose -f compose-dev.yml up -d grocy # first uncomment the entrypoint and command override
+    ## sudo docker compose -f compose-dev.yml cp configbackup/. grocy:/config/ # Restore a local backup to the container volume
+    ## sudo docker compose -f compose-dev.yml up -d grocy # first comment the entrypoint and command override out
+    # entrypoint: ["/bin/sh", "-c"]
+    # command: ["sleep infinity"]
 
   mealie:
     image: ghcr.io/mealie-recipes/mealie:latest
