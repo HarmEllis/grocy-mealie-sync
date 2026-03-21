@@ -1,7 +1,7 @@
 import { db } from '../db';
 import { productMappings, unitMappings } from '../db/schema';
-import { StockService, GenericEntityInteractionsService } from '../grocy/client';
-import { HouseholdsShoppingListItemsService } from '../mealie/client';
+import { StockService, GenericEntityInteractionsService } from '../grocy';
+import { HouseholdsShoppingListItemsService } from '../mealie';
 import type { ShoppingListItemOut_Output } from '../mealie/client/models/ShoppingListItemOut_Output';
 import { config } from '../config';
 import { log } from '../logger';

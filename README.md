@@ -51,6 +51,8 @@ MEALIE_SHOPPING_LIST_ID=uuid-of-target-shopping-list
 # Sync Settings
 POLL_INTERVAL_SECONDS=60             # How often to poll (default: 60)
 PRODUCT_SYNC_INTERVAL_HOURS=6        # How often to re-sync products (default: 6)
+# GROCY_DEFAULT_UNIT_ID=3            # Fallback unit ID for new Grocy products (optional, can be set in web UI)
+STOCK_ONLY_MIN_STOCK=true            # Only add stock for products with min_stock_amount > 0
 
 # Database
 DATABASE_PATH=./data/sync.db         # SQLite database path
@@ -98,20 +100,21 @@ The app runs on `http://localhost:3000`.
 
 ## Verifying it works
 
-1. Open `http://localhost:3000` — you should see the status dashboard
+1. Open `http://localhost:3000` — you should see the status dashboard with sync status and settings
 2. Check `GET /api/status`:
-   - `schedulerRunning` should be `true`
    - `productMappings` / `unitMappings` should show counts after the initial sync
    - `lastGrocyPoll` / `lastMealiePoll` should update every poll interval
 
-If `schedulerRunning` is `false`, check the container/server logs for errors (likely API connection issues).
+If polls are not updating, check the container/server logs for errors (likely API connection issues).
 
 ## API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/health` | Health check |
-| `GET` | `/api/status` | Scheduler state, poll timestamps, mapping counts |
+| `GET` | `/api/status` | Poll timestamps, mapping counts |
+| `GET` | `/api/settings` | Current settings and available units |
+| `PUT` | `/api/settings` | Update settings (e.g. default unit) |
 | `GET` | `/api/mappings/products` | All product mappings (Mealie food ↔ Grocy product) |
 | `GET` | `/api/mappings/units` | All unit mappings (Mealie unit ↔ Grocy unit) |
 | `POST` | `/api/sync/products` | Manually trigger product & unit sync |
@@ -140,6 +143,14 @@ Manual triggers are useful for testing. The scheduler runs these automatically.
 - Un-checking an item is ignored (no stock removal)
 - Items without a linked food (ad-hoc notes) are skipped
 
+## Settings
+
+The default unit for newly created Grocy products can be configured in the web UI at `http://localhost:3000`. The dropdown shows units that were synced from Mealie. Resolution priority:
+
+1. **Web UI setting** (stored in the database)
+2. **`GROCY_DEFAULT_UNIT_ID`** environment variable (fallback)
+3. **First available unit** (if neither is set)
+
 ## Grocy setup tips
 
 For the Grocy → Mealie flow to work, your Grocy products need a `min_stock_amount` greater than 0. When current stock falls below this, the product appears in `missing_products` and gets synced to Mealie.
@@ -149,6 +160,6 @@ For the Grocy → Mealie flow to work, your Grocy products need a `min_stock_amo
 All sync state is stored in a SQLite database at the configured `DATABASE_PATH`. The database contains:
 - **product_mappings** — Links between Mealie foods and Grocy products
 - **unit_mappings** — Links between Mealie units and Grocy quantity units
-- **sync_state** — Last poll timestamps, scheduler state, tracked checked items
+- **sync_state** — Last poll timestamps, tracked checked items, app settings
 
 The database is created automatically on first run.

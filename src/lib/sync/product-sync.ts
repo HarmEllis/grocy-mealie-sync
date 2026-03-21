@@ -1,9 +1,10 @@
 import { db } from '../db';
 import { productMappings, unitMappings } from '../db/schema';
-import { GenericEntityInteractionsService } from '../grocy/client';
-import { RecipesFoodsService, RecipesUnitsService } from '../mealie/client';
+import { GenericEntityInteractionsService } from '../grocy';
+import { RecipesFoodsService, RecipesUnitsService } from '../mealie';
 import { config } from '../config';
 import { log } from '../logger';
+import { getSettings } from '../settings';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
@@ -15,9 +16,19 @@ async function findUnitMappingByGrocyId(grocyUnitId: number): Promise<string> {
   return rows.length > 0 ? rows[0].id : '';
 }
 
-function resolveDefaultGrocyUnitId(allUnitMappings: { grocyUnitId: number }[]): number {
-  if (config.grocyDefaultUnitId) return config.grocyDefaultUnitId;
-  return allUnitMappings.length > 0 ? allUnitMappings[0].grocyUnitId : 1;
+async function resolveDefaultUnit(allUnitMappings: { id: string; grocyUnitId: number }[]): Promise<{ grocyUnitId: number; unitMappingId: string } | null> {
+  // Priority: 1. DB setting (from UI), 2. env var. Returns null if neither is configured.
+  const settings = await getSettings();
+  if (settings.defaultUnitMappingId) {
+    const match = allUnitMappings.find(u => u.id === settings.defaultUnitMappingId);
+    if (match) return { grocyUnitId: match.grocyUnitId, unitMappingId: match.id };
+  }
+  if (config.grocyDefaultUnitId) {
+    const match = allUnitMappings.find(u => u.grocyUnitId === config.grocyDefaultUnitId);
+    if (match) return { grocyUnitId: config.grocyDefaultUnitId, unitMappingId: match.id };
+    return { grocyUnitId: config.grocyDefaultUnitId, unitMappingId: '' };
+  }
+  return null;
 }
 
 export async function syncUnits() {
@@ -87,6 +98,7 @@ export async function syncProducts() {
 
   let created = 0;
   let linked = 0;
+  let skipped = 0;
 
   for (const mFood of mealieFoods) {
     if (!mFood.id) continue;
@@ -99,9 +111,13 @@ export async function syncProducts() {
     let unitMappingId = '';
 
     if (!gProd) {
-      // New product: use configurable default unit
-      const defaultQuId = resolveDefaultGrocyUnitId(allUnitMappings);
-      unitMappingId = await findUnitMappingByGrocyId(defaultQuId);
+      // New product: requires an explicitly configured default unit
+      const defaultUnit = await resolveDefaultUnit(allUnitMappings);
+      if (!defaultUnit) {
+        skipped++;
+        continue;
+      }
+      unitMappingId = defaultUnit.unitMappingId;
 
       try {
         const result = await GenericEntityInteractionsService.postObjects(
@@ -109,8 +125,8 @@ export async function syncProducts() {
           {
             name: mFood.name || 'Unknown',
             min_stock_amount: 0,
-            qu_id_purchase: defaultQuId,
-            qu_id_stock: defaultQuId,
+            qu_id_purchase: defaultUnit.grocyUnitId,
+            qu_id_stock: defaultUnit.grocyUnitId,
             location_id: 1,
           } as any,
         );
@@ -163,7 +179,10 @@ export async function syncProducts() {
     }
   }
 
-  log.info(`[ProductSync] Products done: ${created} created, ${linked} linked`);
+  if (skipped > 0) {
+    log.warn(`[ProductSync] ${skipped} product(s) skipped — set a default unit in the web UI or via GROCY_DEFAULT_UNIT_ID`);
+  }
+  log.info(`[ProductSync] Products done: ${created} created, ${linked} linked, ${skipped} skipped`);
 }
 
 export async function runFullProductSync() {

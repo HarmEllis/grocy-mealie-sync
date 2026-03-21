@@ -2,6 +2,8 @@ import { getSyncState } from '@/lib/sync/state';
 import { db } from '@/lib/db';
 import { productMappings, unitMappings } from '@/lib/db/schema';
 import { count } from 'drizzle-orm';
+import SettingsForm from './settings-form';
+import SyncButtons from './sync-buttons';
 
 async function getStatus() {
   try {
@@ -40,6 +42,12 @@ export default async function Home() {
       ) : (
         <p>Could not fetch status. The sync service may not be running.</p>
       )}
+
+      <h2>Settings</h2>
+      <SettingsForm />
+
+      <h2>Manual Sync</h2>
+      <SyncButtons />
 
       <h2>API Endpoints</h2>
       <ul>

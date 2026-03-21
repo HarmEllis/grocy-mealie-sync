@@ -1,7 +1,7 @@
 import { db } from '../db';
 import { productMappings, unitMappings } from '../db/schema';
-import { StockService } from '../grocy/client';
-import { HouseholdsShoppingListItemsService } from '../mealie/client';
+import { StockService } from '../grocy';
+import { HouseholdsShoppingListItemsService } from '../mealie';
 import { config } from '../config';
 import { log } from '../logger';
 import { getSyncState, saveSyncState } from './state';

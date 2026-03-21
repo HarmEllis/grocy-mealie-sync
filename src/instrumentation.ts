@@ -12,8 +12,10 @@ export async function register() {
     // Log config warnings
     const { config } = await import('./lib/config');
     const { log } = await import('./lib/logger');
-    if (!config.grocyDefaultUnitId) {
-      log.warn('[Config] GROCY_DEFAULT_UNIT_ID not set — new products will use the first available unit as default');
+    const { getSettings } = await import('./lib/settings');
+    const settings = await getSettings();
+    if (!settings.defaultUnitMappingId && !config.grocyDefaultUnitId) {
+      log.warn('[Config] No default unit configured — new Mealie products will not be created in Grocy until a default unit is set in the web UI or via GROCY_DEFAULT_UNIT_ID');
     }
 
     // Start the polling scheduler
