@@ -9,6 +9,13 @@ export async function register() {
     const { db } = await import('./lib/db');
     migrate(db, { migrationsFolder: './drizzle' });
 
+    // Log config warnings
+    const { config } = await import('./lib/config');
+    const { log } = await import('./lib/logger');
+    if (!config.grocyDefaultUnitId) {
+      log.warn('[Config] GROCY_DEFAULT_UNIT_ID not set — new products will use the first available unit as default');
+    }
+
     // Start the polling scheduler
     const { startScheduler } = await import('./lib/sync/scheduler');
     startScheduler();
