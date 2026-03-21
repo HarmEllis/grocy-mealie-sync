@@ -15,14 +15,19 @@ async function findUnitMappingByGrocyId(grocyUnitId: number): Promise<string> {
   return rows.length > 0 ? rows[0].id : '';
 }
 
+let defaultUnitWarningLogged = false;
+
 function resolveDefaultGrocyUnitId(allUnitMappings: { grocyUnitId: number }[]): number {
   if (config.grocyDefaultUnitId) return config.grocyDefaultUnitId;
-  if (allUnitMappings.length > 0) {
-    log.warn('[ProductSync] GROCY_DEFAULT_UNIT_ID not set, falling back to first available unit');
-    return allUnitMappings[0].grocyUnitId;
+  if (!defaultUnitWarningLogged) {
+    if (allUnitMappings.length > 0) {
+      log.warn('[ProductSync] GROCY_DEFAULT_UNIT_ID not set, falling back to first available unit');
+    } else {
+      log.warn('[ProductSync] GROCY_DEFAULT_UNIT_ID not set and no unit mappings exist, using unit ID 1');
+    }
+    defaultUnitWarningLogged = true;
   }
-  log.warn('[ProductSync] GROCY_DEFAULT_UNIT_ID not set and no unit mappings exist, using unit ID 1');
-  return 1;
+  return allUnitMappings.length > 0 ? allUnitMappings[0].grocyUnitId : 1;
 }
 
 export async function syncUnits() {
