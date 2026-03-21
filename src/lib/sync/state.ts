@@ -5,7 +5,7 @@ import { eq } from 'drizzle-orm';
 export interface SyncStateData {
   lastGrocyPoll: Date | null;
   lastMealiePoll: Date | null;
-  grocyBelowMinStock: number[];
+  grocyBelowMinStock: Record<number, number>;
   mealieCheckedItems: Record<string, boolean>;
 }
 
@@ -17,7 +17,7 @@ export async function getSyncState(): Promise<SyncStateData> {
     return {
       lastGrocyPoll: null,
       lastMealiePoll: null,
-      grocyBelowMinStock: [],
+      grocyBelowMinStock: {},
       mealieCheckedItems: {},
     };
   }
@@ -26,7 +26,7 @@ export async function getSyncState(): Promise<SyncStateData> {
   return {
     lastGrocyPoll: state.lastGrocyPoll ? new Date(state.lastGrocyPoll) : null,
     lastMealiePoll: state.lastMealiePoll ? new Date(state.lastMealiePoll) : null,
-    grocyBelowMinStock: state.grocyBelowMinStock || [],
+    grocyBelowMinStock: state.grocyBelowMinStock || {},
     mealieCheckedItems: state.mealieCheckedItems || {},
   };
 }

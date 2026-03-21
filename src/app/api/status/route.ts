@@ -12,7 +12,7 @@ export async function GET() {
   return NextResponse.json({
     lastGrocyPoll: state.lastGrocyPoll,
     lastMealiePoll: state.lastMealiePoll,
-    grocyBelowMinStockCount: state.grocyBelowMinStock.length,
+    grocyBelowMinStockCount: Object.keys(state.grocyBelowMinStock).length,
     mealieTrackedItemsCount: Object.keys(state.mealieCheckedItems).length,
     productMappings: productCount.count,
     unitMappings: unitCount.count,

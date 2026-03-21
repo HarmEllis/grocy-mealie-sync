@@ -21,25 +21,46 @@ export async function pollGrocyForMissingStock(): Promise<void> {
     const missingProducts: MissingProduct[] = volatile.missing_products || [];
 
     const state = await getSyncState();
-    const previouslyMissing = new Set(state.grocyBelowMinStock);
+    const previousAmounts = state.grocyBelowMinStock; // Record<number, number>
 
-    const currentlyMissing = new Set<number>();
+    const currentAmounts: Record<number, number> = {};
     for (const mp of missingProducts) {
-      currentlyMissing.add(mp.id);
+      currentAmounts[mp.id] = mp.amount_missing;
     }
 
-    // Find newly missing products (not in previous poll)
-    const newlyMissing = missingProducts.filter(mp => !previouslyMissing.has(mp.id));
+    // 1. Newly missing → add to Mealie
+    const newlyMissing = missingProducts.filter(mp => !(mp.id in previousAmounts));
+    for (const mp of newlyMissing) {
+      await upsertMealieShoppingItem(mp.id, mp.amount_missing);
+    }
+
+    // 2. Still missing, amount changed → update quantity in Mealie
+    const amountChanged = missingProducts.filter(mp =>
+      mp.id in previousAmounts && previousAmounts[mp.id] !== mp.amount_missing
+    );
+    for (const mp of amountChanged) {
+      await upsertMealieShoppingItem(mp.id, mp.amount_missing);
+    }
+
+    // 3. No longer missing → remove from Mealie
+    const noLongerMissing = Object.keys(previousAmounts)
+      .map(Number)
+      .filter(id => !(id in currentAmounts));
+    for (const grocyProductId of noLongerMissing) {
+      await removeMealieShoppingItem(grocyProductId);
+    }
 
     if (newlyMissing.length > 0) {
-      console.log(`[Grocy→Mealie] ${newlyMissing.length} newly missing product(s) detected`);
-      for (const mp of newlyMissing) {
-        await addToMealieShoppingList(mp);
-      }
+      console.log(`[Grocy→Mealie] ${newlyMissing.length} newly missing product(s) added`);
+    }
+    if (amountChanged.length > 0) {
+      console.log(`[Grocy→Mealie] ${amountChanged.length} product(s) quantity updated`);
+    }
+    if (noLongerMissing.length > 0) {
+      console.log(`[Grocy→Mealie] ${noLongerMissing.length} product(s) no longer missing, removed from list`);
     }
 
-    // Update state
-    state.grocyBelowMinStock = Array.from(currentlyMissing);
+    state.grocyBelowMinStock = currentAmounts;
     state.lastGrocyPoll = new Date();
     await saveSyncState(state);
   } catch (error) {
@@ -47,31 +68,18 @@ export async function pollGrocyForMissingStock(): Promise<void> {
   }
 }
 
-async function addToMealieShoppingList(missingProduct: MissingProduct): Promise<void> {
-  // Look up product mapping
+async function upsertMealieShoppingItem(grocyProductId: number, amountMissing: number): Promise<void> {
   const mappings = await db.select()
     .from(productMappings)
-    .where(eq(productMappings.grocyProductId, missingProduct.id))
+    .where(eq(productMappings.grocyProductId, grocyProductId))
     .limit(1);
 
   if (mappings.length === 0) {
-    console.warn(`[Grocy→Mealie] No mapping found for Grocy product ${missingProduct.name} (ID: ${missingProduct.id}), skipping`);
+    console.warn(`[Grocy→Mealie] No mapping found for Grocy product ID ${grocyProductId}, skipping`);
     return;
   }
 
   const mapping = mappings[0];
-
-  // Check for existing unchecked item on Mealie shopping list to avoid duplicates (B2.3)
-  const existingItems = await HouseholdsShoppingListItemsService.getAllApiHouseholdsShoppingItemsGet(
-    undefined, undefined, undefined,
-    `shoppingListId=${config.mealieShoppingListId}`,
-    undefined, 1, 500
-  );
-
-  const items = existingItems.items || [];
-  const existingItem = items.find(item =>
-    item.foodId === mapping.mealieFoodId && !item.checked
-  );
 
   // Resolve Mealie unit from mapping
   let unitId: string | undefined;
@@ -85,29 +93,70 @@ async function addToMealieShoppingList(missingProduct: MissingProduct): Promise<
     }
   }
 
+  // Check for existing unchecked item
+  const existingItems = await HouseholdsShoppingListItemsService.getAllApiHouseholdsShoppingItemsGet(
+    undefined, undefined, undefined,
+    `shoppingListId=${config.mealieShoppingListId}`,
+    undefined, 1, 500
+  );
+
+  const items = existingItems.items || [];
+  const existingItem = items.find(item =>
+    item.foodId === mapping.mealieFoodId && !item.checked
+  );
+
   if (existingItem) {
-    // Update quantity instead of creating duplicate
-    const newQuantity = (existingItem.quantity || 0) + missingProduct.amount_missing;
-    console.log(`[Grocy→Mealie] Updating existing item "${mapping.mealieFoodName}" quantity: ${existingItem.quantity} → ${newQuantity}`);
+    console.log(`[Grocy→Mealie] Updating "${mapping.mealieFoodName}" quantity: ${existingItem.quantity} → ${amountMissing}`);
 
     await HouseholdsShoppingListItemsService.updateOneApiHouseholdsShoppingItemsItemIdPut(
       existingItem.id,
       {
         shoppingListId: config.mealieShoppingListId,
-        quantity: newQuantity,
+        quantity: amountMissing,
         foodId: mapping.mealieFoodId,
         unitId: unitId || undefined,
       }
     );
   } else {
-    console.log(`[Grocy→Mealie] Adding "${mapping.mealieFoodName}" to Mealie shopping list (qty: ${missingProduct.amount_missing})`);
+    console.log(`[Grocy→Mealie] Adding "${mapping.mealieFoodName}" to Mealie shopping list (qty: ${amountMissing})`);
 
     await HouseholdsShoppingListItemsService.createOneApiHouseholdsShoppingItemsPost({
       shoppingListId: config.mealieShoppingListId,
       foodId: mapping.mealieFoodId,
       unitId: unitId || undefined,
-      quantity: missingProduct.amount_missing,
+      quantity: amountMissing,
       checked: false,
     });
+  }
+}
+
+async function removeMealieShoppingItem(grocyProductId: number): Promise<void> {
+  const mappings = await db.select()
+    .from(productMappings)
+    .where(eq(productMappings.grocyProductId, grocyProductId))
+    .limit(1);
+
+  if (mappings.length === 0) return;
+
+  const mapping = mappings[0];
+
+  try {
+    const existingItems = await HouseholdsShoppingListItemsService.getAllApiHouseholdsShoppingItemsGet(
+      undefined, undefined, undefined,
+      `shoppingListId=${config.mealieShoppingListId}`,
+      undefined, 1, 500
+    );
+
+    const items = existingItems.items || [];
+    const matchingItem = items.find(item =>
+      item.foodId === mapping.mealieFoodId && !item.checked
+    );
+
+    if (matchingItem) {
+      await HouseholdsShoppingListItemsService.deleteOneApiHouseholdsShoppingItemsItemIdDelete(matchingItem.id);
+      console.log(`[Grocy→Mealie] Removed "${mapping.mealieFoodName}" from Mealie shopping list (stock replenished)`);
+    }
+  } catch (error) {
+    console.warn(`[Grocy→Mealie] Could not remove "${mapping.mealieFoodName}" from Mealie:`, error);
   }
 }
