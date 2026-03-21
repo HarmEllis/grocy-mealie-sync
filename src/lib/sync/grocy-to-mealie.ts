@@ -37,35 +37,38 @@ export async function pollGrocyForMissingStock(): Promise<void> {
 
     // 1. Newly missing → add to Mealie
     const newlyMissing = missingProducts.filter(mp => !(mp.id in previousAmounts));
+    let newlyAdded = 0;
     for (const mp of newlyMissing) {
-      await adjustMealieShoppingItem(mp.id, mp.amount_missing, shoppingListId);
+      if (await adjustMealieShoppingItem(mp.id, mp.amount_missing, shoppingListId)) newlyAdded++;
     }
 
     // 2. Still missing, amount changed → adjust by delta
     const amountChanged = missingProducts.filter(mp =>
       mp.id in previousAmounts && previousAmounts[mp.id] !== mp.amount_missing
     );
+    let adjusted = 0;
     for (const mp of amountChanged) {
       const delta = mp.amount_missing - previousAmounts[mp.id];
-      await adjustMealieShoppingItem(mp.id, delta, shoppingListId);
+      if (await adjustMealieShoppingItem(mp.id, delta, shoppingListId)) adjusted++;
     }
 
     // 3. No longer missing → subtract Grocy's contribution
     const noLongerMissing = Object.keys(previousAmounts)
       .map(Number)
       .filter(id => !(id in currentAmounts));
+    let restocked = 0;
     for (const grocyProductId of noLongerMissing) {
-      await adjustMealieShoppingItem(grocyProductId, -previousAmounts[grocyProductId], shoppingListId);
+      if (await adjustMealieShoppingItem(grocyProductId, -previousAmounts[grocyProductId], shoppingListId)) restocked++;
     }
 
     if (newlyMissing.length > 0) {
-      log.info(`[Grocy→Mealie] ${newlyMissing.length} newly missing product(s) added`);
+      log.info(`[Grocy→Mealie] ${newlyAdded}/${newlyMissing.length} newly missing product(s) added to shopping list`);
     }
     if (amountChanged.length > 0) {
-      log.info(`[Grocy→Mealie] ${amountChanged.length} product(s) quantity adjusted`);
+      log.info(`[Grocy→Mealie] ${adjusted}/${amountChanged.length} product(s) quantity adjusted`);
     }
     if (noLongerMissing.length > 0) {
-      log.info(`[Grocy→Mealie] ${noLongerMissing.length} product(s) restocked, adjusting Mealie list`);
+      log.info(`[Grocy→Mealie] ${restocked}/${noLongerMissing.length} restocked product(s) adjusted on shopping list`);
     }
 
     state.grocyBelowMinStock = currentAmounts;
@@ -81,7 +84,7 @@ export async function pollGrocyForMissingStock(): Promise<void> {
  * Positive delta: increase quantity (or create item).
  * Negative delta: decrease quantity (or remove item if result ≤ 0).
  */
-async function adjustMealieShoppingItem(grocyProductId: number, delta: number, shoppingListId: string): Promise<void> {
+async function adjustMealieShoppingItem(grocyProductId: number, delta: number, shoppingListId: string): Promise<boolean> {
   const mappings = await db.select()
     .from(productMappings)
     .where(eq(productMappings.grocyProductId, grocyProductId))
@@ -89,7 +92,7 @@ async function adjustMealieShoppingItem(grocyProductId: number, delta: number, s
 
   if (mappings.length === 0) {
     log.warn(`[Grocy→Mealie] No mapping found for Grocy product ID ${grocyProductId}, skipping`);
-    return;
+    return false;
   }
 
   const mapping = mappings[0];
@@ -149,6 +152,9 @@ async function adjustMealieShoppingItem(grocyProductId: number, delta: number, s
       quantity: delta,
       checked: false,
     });
+  } else {
+    // No existing item and delta ≤ 0, nothing to do
+    return true;
   }
-  // If no existing item and delta ≤ 0, nothing to do
+  return true;
 }
