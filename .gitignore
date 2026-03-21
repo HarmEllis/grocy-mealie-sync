@@ -4,3 +4,4 @@ data/
 .env
 tsconfig.tsbuildinfo
 next-env.d.ts
+.claude*
