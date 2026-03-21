@@ -1,0 +1,104 @@
+import { db } from '../db';
+import { productMappings, unitMappings } from '../db/schema';
+import { StockService, GenericEntityInteractionsService } from '../grocy/client';
+import { HouseholdsShoppingListItemsService } from '../mealie/client';
+import type { ShoppingListItemOut_Output } from '../mealie/client/models/ShoppingListItemOut_Output';
+import { config } from '../config';
+import { getSyncState, saveSyncState } from './state';
+import { eq } from 'drizzle-orm';
+
+export async function pollMealieForCheckedItems(): Promise<void> {
+  console.log('[Mealie→Grocy] Polling for checked items...');
+
+  try {
+    // Fetch all items on the configured shopping list
+    const itemsRes = await HouseholdsShoppingListItemsService.getAllApiHouseholdsShoppingItemsGet(
+      undefined, undefined, undefined,
+      `shoppingListId=${config.mealieShoppingListId}`,
+      undefined, 1, 500
+    );
+
+    const items = itemsRes.items || [];
+    const state = await getSyncState();
+    const previousCheckedState = state.mealieCheckedItems;
+    const newCheckedState: Record<string, boolean> = {};
+
+    for (const item of items) {
+      const checked = item.checked ?? false;
+      newCheckedState[item.id] = checked;
+
+      // Detect newly checked items (B3.1):
+      // Was unchecked (or unknown) before, now checked
+      const wasChecked = previousCheckedState[item.id];
+      if (checked && wasChecked !== true) {
+        await processCheckedItem(item);
+      }
+      // B3 edge case: un-checking is ignored (Scenario 10)
+    }
+
+    state.mealieCheckedItems = newCheckedState;
+    state.lastMealiePoll = new Date();
+    await saveSyncState(state);
+  } catch (error) {
+    console.error('[Mealie→Grocy] Error polling Mealie:', error);
+  }
+}
+
+async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<void> {
+  const foodId = item.foodId;
+  if (!foodId) {
+    // Ad-hoc item without mapped food — skip gracefully (Scenario 11)
+    console.log(`[Mealie→Grocy] Skipping unmapped item "${item.note || item.display || item.id}" (no foodId)`);
+    return;
+  }
+
+  // Look up product mapping
+  const mappings = await db.select()
+    .from(productMappings)
+    .where(eq(productMappings.mealieFoodId, foodId))
+    .limit(1);
+
+  if (mappings.length === 0) {
+    console.warn(`[Mealie→Grocy] No mapping found for Mealie food ${foodId}, skipping`);
+    return;
+  }
+
+  const mapping = mappings[0];
+  const quantity = item.quantity || 1;
+
+  // B3.2: Add stock in Grocy
+  console.log(`[Mealie→Grocy] Adding stock: "${mapping.grocyProductName}" qty=${quantity} to Grocy`);
+
+  try {
+    await StockService.postStockProductsAdd(mapping.grocyProductId, {
+      amount: quantity,
+      transaction_type: 'purchase' as any,
+    });
+  } catch (error) {
+    console.error(`[Mealie→Grocy] Failed to add stock for "${mapping.grocyProductName}":`, error);
+    // Don't mark as processed — will retry on next poll
+    throw error;
+  }
+
+  // B3.4: Remove from Grocy shopping list
+  try {
+    const grocyShoppingItems = await GenericEntityInteractionsService.getObjects(
+      'shopping_list' as any,
+    ) as any[];
+
+    const matchingItems = grocyShoppingItems.filter(
+      (si: any) => si.product_id === mapping.grocyProductId
+    );
+
+    for (const si of matchingItems) {
+      await GenericEntityInteractionsService.deleteObjects(
+        'shopping_list' as any,
+        si.id,
+      );
+      console.log(`[Mealie→Grocy] Removed "${mapping.grocyProductName}" from Grocy shopping list`);
+    }
+  } catch (error) {
+    // Non-critical: log but don't fail the whole operation
+    console.warn(`[Mealie→Grocy] Could not clean Grocy shopping list for "${mapping.grocyProductName}":`, error);
+  }
+}
