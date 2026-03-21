@@ -4,11 +4,12 @@ import { StockService, GenericEntityInteractionsService } from '../grocy/client'
 import { HouseholdsShoppingListItemsService } from '../mealie/client';
 import type { ShoppingListItemOut_Output } from '../mealie/client/models/ShoppingListItemOut_Output';
 import { config } from '../config';
+import { log } from '../logger';
 import { getSyncState, saveSyncState } from './state';
 import { eq } from 'drizzle-orm';
 
 export async function pollMealieForCheckedItems(): Promise<void> {
-  console.log('[Mealie→Grocy] Polling for checked items...');
+  log.info('[Mealie→Grocy] Polling for checked items...');
 
   try {
     // Fetch all items on the configured shopping list
@@ -40,7 +41,7 @@ export async function pollMealieForCheckedItems(): Promise<void> {
     state.lastMealiePoll = new Date();
     await saveSyncState(state);
   } catch (error) {
-    console.error('[Mealie→Grocy] Error polling Mealie:', error);
+    log.error('[Mealie→Grocy] Error polling Mealie:', error);
   }
 }
 
@@ -48,7 +49,7 @@ async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<voi
   const foodId = item.foodId;
   if (!foodId) {
     // Ad-hoc item without mapped food — skip gracefully (Scenario 11)
-    console.log(`[Mealie→Grocy] Skipping unmapped item "${item.note || item.display || item.id}" (no foodId)`);
+    log.info(`[Mealie→Grocy] Skipping unmapped item "${item.note || item.display || item.id}" (no foodId)`);
     return;
   }
 
@@ -59,7 +60,7 @@ async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<voi
     .limit(1);
 
   if (mappings.length === 0) {
-    console.warn(`[Mealie→Grocy] No mapping found for Mealie food ${foodId}, skipping`);
+    log.warn(`[Mealie→Grocy] No mapping found for Mealie food ${foodId}, skipping`);
     return;
   }
 
@@ -67,7 +68,7 @@ async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<voi
   const quantity = item.quantity || 1;
 
   // B3.2: Add stock in Grocy
-  console.log(`[Mealie→Grocy] Adding stock: "${mapping.grocyProductName}" qty=${quantity} to Grocy`);
+  log.info(`[Mealie→Grocy] Adding stock: "${mapping.grocyProductName}" qty=${quantity} to Grocy`);
 
   try {
     await StockService.postStockProductsAdd(mapping.grocyProductId, {
@@ -75,7 +76,7 @@ async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<voi
       transaction_type: 'purchase' as any,
     });
   } catch (error) {
-    console.error(`[Mealie→Grocy] Failed to add stock for "${mapping.grocyProductName}":`, error);
+    log.error(`[Mealie→Grocy] Failed to add stock for "${mapping.grocyProductName}":`, error);
     // Don't mark as processed — will retry on next poll
     throw error;
   }
@@ -95,10 +96,10 @@ async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<voi
         'shopping_list' as any,
         si.id,
       );
-      console.log(`[Mealie→Grocy] Removed "${mapping.grocyProductName}" from Grocy shopping list`);
+      log.info(`[Mealie→Grocy] Removed "${mapping.grocyProductName}" from Grocy shopping list`);
     }
   } catch (error) {
     // Non-critical: log but don't fail the whole operation
-    console.warn(`[Mealie→Grocy] Could not clean Grocy shopping list for "${mapping.grocyProductName}":`, error);
+    log.warn(`[Mealie→Grocy] Could not clean Grocy shopping list for "${mapping.grocyProductName}":`, error);
   }
 }

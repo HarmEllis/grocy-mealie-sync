@@ -1,4 +1,5 @@
 import { config } from '../config';
+import { log } from '../logger';
 import { runFullProductSync } from './product-sync';
 import { pollGrocyForMissingStock } from './grocy-to-mealie';
 import { pollMealieForCheckedItems } from './mealie-to-grocy';
@@ -9,13 +10,13 @@ let productSyncTimer: ReturnType<typeof setInterval> | null = null;
 export function startScheduler(): void {
   if (pollTimer) return;
 
-  console.log('[Scheduler] Starting sync scheduler');
-  console.log(`[Scheduler] Poll interval: ${config.pollIntervalSeconds}s`);
-  console.log(`[Scheduler] Product sync interval: ${config.productSyncIntervalHours}h`);
+  log.info('[Scheduler] Starting sync scheduler');
+  log.info(`[Scheduler] Poll interval: ${config.pollIntervalSeconds}s`);
+  log.info(`[Scheduler] Product sync interval: ${config.productSyncIntervalHours}h`);
 
   // Run initial product sync on startup
   runFullProductSync().catch(err => {
-    console.error('[Scheduler] Initial product sync failed:', err);
+    log.error('[Scheduler] Initial product sync failed:', err);
   });
 
   // Start polling loop for Grocy→Mealie and Mealie→Grocy
@@ -24,12 +25,12 @@ export function startScheduler(): void {
     try {
       await pollGrocyForMissingStock();
     } catch (err) {
-      console.error('[Scheduler] Grocy poll error:', err);
+      log.error('[Scheduler] Grocy poll error:', err);
     }
     try {
       await pollMealieForCheckedItems();
     } catch (err) {
-      console.error('[Scheduler] Mealie poll error:', err);
+      log.error('[Scheduler] Mealie poll error:', err);
     }
   }, pollMs);
 
@@ -37,10 +38,10 @@ export function startScheduler(): void {
   const productSyncMs = config.productSyncIntervalHours * 60 * 60 * 1000;
   productSyncTimer = setInterval(async () => {
     try {
-      console.log('[Scheduler] Running periodic product sync');
+      log.info('[Scheduler] Running periodic product sync');
       await runFullProductSync();
     } catch (err) {
-      console.error('[Scheduler] Product sync error:', err);
+      log.error('[Scheduler] Product sync error:', err);
     }
   }, productSyncMs);
 }
@@ -54,5 +55,5 @@ export function stopScheduler(): void {
     clearInterval(productSyncTimer);
     productSyncTimer = null;
   }
-  console.log('[Scheduler] Stopped');
+  log.info('[Scheduler] Stopped');
 }

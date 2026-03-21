@@ -3,6 +3,7 @@ import { productMappings, unitMappings } from '../db/schema';
 import { GenericEntityInteractionsService } from '../grocy/client';
 import { RecipesFoodsService, RecipesUnitsService } from '../mealie/client';
 import { config } from '../config';
+import { log } from '../logger';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
@@ -17,15 +18,15 @@ async function findUnitMappingByGrocyId(grocyUnitId: number): Promise<string> {
 function resolveDefaultGrocyUnitId(allUnitMappings: { grocyUnitId: number }[]): number {
   if (config.grocyDefaultUnitId) return config.grocyDefaultUnitId;
   if (allUnitMappings.length > 0) {
-    console.warn('[ProductSync] GROCY_DEFAULT_UNIT_ID not set, falling back to first available unit');
+    log.warn('[ProductSync] GROCY_DEFAULT_UNIT_ID not set, falling back to first available unit');
     return allUnitMappings[0].grocyUnitId;
   }
-  console.warn('[ProductSync] GROCY_DEFAULT_UNIT_ID not set and no unit mappings exist, using unit ID 1');
+  log.warn('[ProductSync] GROCY_DEFAULT_UNIT_ID not set and no unit mappings exist, using unit ID 1');
   return 1;
 }
 
 export async function syncUnits() {
-  console.log('[ProductSync] Starting unit sync');
+  log.info('[ProductSync] Starting unit sync');
 
   const mealieUnitsRes = await RecipesUnitsService.getAllApiUnitsGet(
     undefined, undefined, undefined, undefined, undefined, undefined, 1, 1000
@@ -75,11 +76,11 @@ export async function syncUnits() {
     });
   }
 
-  console.log(`[ProductSync] Units done: ${created} created, ${linked} linked`);
+  log.info(`[ProductSync] Units done: ${created} created, ${linked} linked`);
 }
 
 export async function syncProducts() {
-  console.log('[ProductSync] Starting product sync');
+  log.info('[ProductSync] Starting product sync');
 
   const mealieFoodsRes = await RecipesFoodsService.getAllApiFoodsGet(
     undefined, undefined, undefined, undefined, undefined, undefined, 1, 10000
@@ -123,7 +124,7 @@ export async function syncProducts() {
         grocyProducts.push(gProd);
         created++;
       } catch (e) {
-        console.error(`[ProductSync] Failed to create Grocy product for "${mFood.name}":`, e);
+        log.error(`[ProductSync] Failed to create Grocy product for "${mFood.name}":`, e);
         continue;
       }
     } else {
@@ -150,7 +151,7 @@ export async function syncProducts() {
   // Backfill: update existing mappings that have empty unitMappingId
   const emptyMappings = await db.select().from(productMappings).where(eq(productMappings.unitMappingId, ''));
   if (emptyMappings.length > 0) {
-    console.log(`[ProductSync] Backfilling ${emptyMappings.length} product mapping(s) with missing unit`);
+    log.info(`[ProductSync] Backfilling ${emptyMappings.length} product mapping(s) with missing unit`);
     for (const mapping of emptyMappings) {
       const gProd = grocyProducts.find((gp: any) => Number(gp.id) === mapping.grocyProductId);
       if (gProd) {
@@ -167,11 +168,11 @@ export async function syncProducts() {
     }
   }
 
-  console.log(`[ProductSync] Products done: ${created} created, ${linked} linked`);
+  log.info(`[ProductSync] Products done: ${created} created, ${linked} linked`);
 }
 
 export async function runFullProductSync() {
   await syncUnits();
   await syncProducts();
-  console.log('[ProductSync] Full sync complete');
+  log.info('[ProductSync] Full sync complete');
 }

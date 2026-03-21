@@ -3,6 +3,7 @@ import { productMappings, unitMappings } from '../db/schema';
 import { StockService } from '../grocy/client';
 import { HouseholdsShoppingListItemsService } from '../mealie/client';
 import { config } from '../config';
+import { log } from '../logger';
 import { getSyncState, saveSyncState } from './state';
 import { eq } from 'drizzle-orm';
 
@@ -14,7 +15,7 @@ interface MissingProduct {
 }
 
 export async function pollGrocyForMissingStock(): Promise<void> {
-  console.log('[Grocy→Mealie] Polling for missing stock...');
+  log.info('[Grocy→Mealie] Polling for missing stock...');
 
   try {
     const volatile = await StockService.getStockVolatile() as any;
@@ -51,20 +52,20 @@ export async function pollGrocyForMissingStock(): Promise<void> {
     }
 
     if (newlyMissing.length > 0) {
-      console.log(`[Grocy→Mealie] ${newlyMissing.length} newly missing product(s) added`);
+      log.info(`[Grocy→Mealie] ${newlyMissing.length} newly missing product(s) added`);
     }
     if (amountChanged.length > 0) {
-      console.log(`[Grocy→Mealie] ${amountChanged.length} product(s) quantity updated`);
+      log.info(`[Grocy→Mealie] ${amountChanged.length} product(s) quantity updated`);
     }
     if (noLongerMissing.length > 0) {
-      console.log(`[Grocy→Mealie] ${noLongerMissing.length} product(s) no longer missing, removed from list`);
+      log.info(`[Grocy→Mealie] ${noLongerMissing.length} product(s) no longer missing, removed from list`);
     }
 
     state.grocyBelowMinStock = currentAmounts;
     state.lastGrocyPoll = new Date();
     await saveSyncState(state);
   } catch (error) {
-    console.error('[Grocy→Mealie] Error polling Grocy:', error);
+    log.error('[Grocy→Mealie] Error polling Grocy:', error);
   }
 }
 
@@ -75,7 +76,7 @@ async function upsertMealieShoppingItem(grocyProductId: number, amountMissing: n
     .limit(1);
 
   if (mappings.length === 0) {
-    console.warn(`[Grocy→Mealie] No mapping found for Grocy product ID ${grocyProductId}, skipping`);
+    log.warn(`[Grocy→Mealie] No mapping found for Grocy product ID ${grocyProductId}, skipping`);
     return;
   }
 
@@ -106,7 +107,7 @@ async function upsertMealieShoppingItem(grocyProductId: number, amountMissing: n
   );
 
   if (existingItem) {
-    console.log(`[Grocy→Mealie] Updating "${mapping.mealieFoodName}" quantity: ${existingItem.quantity} → ${amountMissing}`);
+    log.info(`[Grocy→Mealie] Updating "${mapping.mealieFoodName}" quantity: ${existingItem.quantity} → ${amountMissing}`);
 
     await HouseholdsShoppingListItemsService.updateOneApiHouseholdsShoppingItemsItemIdPut(
       existingItem.id,
@@ -118,7 +119,7 @@ async function upsertMealieShoppingItem(grocyProductId: number, amountMissing: n
       }
     );
   } else {
-    console.log(`[Grocy→Mealie] Adding "${mapping.mealieFoodName}" to Mealie shopping list (qty: ${amountMissing})`);
+    log.info(`[Grocy→Mealie] Adding "${mapping.mealieFoodName}" to Mealie shopping list (qty: ${amountMissing})`);
 
     await HouseholdsShoppingListItemsService.createOneApiHouseholdsShoppingItemsPost({
       shoppingListId: config.mealieShoppingListId,
@@ -154,9 +155,9 @@ async function removeMealieShoppingItem(grocyProductId: number): Promise<void> {
 
     if (matchingItem) {
       await HouseholdsShoppingListItemsService.deleteOneApiHouseholdsShoppingItemsItemIdDelete(matchingItem.id);
-      console.log(`[Grocy→Mealie] Removed "${mapping.mealieFoodName}" from Mealie shopping list (stock replenished)`);
+      log.info(`[Grocy→Mealie] Removed "${mapping.mealieFoodName}" from Mealie shopping list (stock replenished)`);
     }
   } catch (error) {
-    console.warn(`[Grocy→Mealie] Could not remove "${mapping.mealieFoodName}" from Mealie:`, error);
+    log.warn(`[Grocy→Mealie] Could not remove "${mapping.mealieFoodName}" from Mealie:`, error);
   }
 }
