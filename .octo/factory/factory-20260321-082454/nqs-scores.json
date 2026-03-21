@@ -1,0 +1,1 @@
+{"composite":70,"verdict":"WARN","dimensions":{"completeness":0.6,"clarity":0.85,"testability":0.75,"feasibility":0.85,"specificity":0.8,"structure":0.82,"consistency":0.88,"behavioral_coverage":0.72,"constraint_clarity":0.35,"dependency_completeness":0.78,"acceptance_criteria":0.25,"complexity_match":0.8},"scored_at":"2026-03-21T07:25:18Z"}

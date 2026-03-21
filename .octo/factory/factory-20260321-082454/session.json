@@ -1,0 +1,12 @@
+{
+  "run_id": "factory-20260321-082454",
+  "spec_path": "docs/SPEC.md",
+  "satisfaction_target": 0.85,
+  "complexity": "complex",
+  "behavior_count": 29,
+  "holdout_ratio": 0.20,
+  "max_retries": 1,
+  "maturity": {"level":"Mature","sections":6,"quality_markers":3,"detail":{"purpose":1,"actors":1,"behaviors":1,"constraints":1,"dependencies":1,"acceptance":1,"edge_cases":1,"preconditions":1,"postconditions":1},"assessed_at":"2026-03-21T07:24:54Z"},
+  "status": "initialized",
+  "started_at": "2026-03-21T07:24:54Z"
+}
