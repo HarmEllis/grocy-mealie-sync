@@ -10,15 +10,24 @@ interface UnitOption {
   grocyUnitName: string;
 }
 
+interface ShoppingListOption {
+  id: string;
+  name: string;
+}
+
 interface SettingsData {
   defaultUnitMappingId: string | null;
+  mealieShoppingListId: string | null;
   availableUnits: UnitOption[];
+  availableShoppingLists: ShoppingListOption[];
 }
 
 export default function SettingsForm() {
   const [settings, setSettings] = useState<SettingsData | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState('');
+  const [savingUnit, setSavingUnit] = useState(false);
+  const [savingList, setSavingList] = useState(false);
+  const [unitMessage, setUnitMessage] = useState('');
+  const [listMessage, setListMessage] = useState('');
 
   useEffect(() => {
     fetch('/api/settings')
@@ -28,50 +37,102 @@ export default function SettingsForm() {
   }, []);
 
   if (!settings) return null;
-  if (settings.availableUnits.length === 0) {
-    return <p style={{ color: '#666', fontSize: '0.9rem' }}>No units synced yet. Run a product sync first.</p>;
-  }
 
-  async function handleChange(value: string) {
+  async function handleUnitChange(value: string) {
     const newValue = value || null;
-    setSaving(true);
-    setMessage('');
+    setSavingUnit(true);
+    setUnitMessage('');
     try {
-      await fetch('/api/settings', {
+      const res = await fetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ defaultUnitMappingId: newValue }),
       });
+      if (!res.ok) throw new Error('Save failed');
       setSettings(s => s ? { ...s, defaultUnitMappingId: newValue } : s);
-      setMessage('Saved');
-      setTimeout(() => setMessage(''), 2000);
+      setUnitMessage('Saved');
+      setTimeout(() => setUnitMessage(''), 2000);
     } catch {
-      setMessage('Error saving');
+      setUnitMessage('Error saving');
     } finally {
-      setSaving(false);
+      setSavingUnit(false);
+    }
+  }
+
+  async function handleShoppingListChange(value: string) {
+    const newValue = value || null;
+    setSavingList(true);
+    setListMessage('');
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mealieShoppingListId: newValue }),
+      });
+      if (!res.ok) throw new Error('Save failed');
+      setSettings(s => s ? { ...s, mealieShoppingListId: newValue } : s);
+      setListMessage('Saved');
+      setTimeout(() => setListMessage(''), 2000);
+    } catch {
+      setListMessage('Error saving');
+    } finally {
+      setSavingList(false);
     }
   }
 
   return (
-    <div style={{ marginBottom: '1rem' }}>
-      <label htmlFor="default-unit" style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 'bold' }}>
-        Default unit for new Grocy products
-      </label>
-      <select
-        id="default-unit"
-        value={settings.defaultUnitMappingId || ''}
-        onChange={e => handleChange(e.target.value)}
-        disabled={saving}
-        style={{ padding: '0.5rem', fontSize: '1rem', minWidth: 200 }}
-      >
-        <option value="">-- Not set --</option>
-        {[...settings.availableUnits].sort((a, b) => a.name.localeCompare(b.name)).map(u => (
-          <option key={u.id} value={u.id}>
-            {u.name}{u.abbreviation ? ` (${u.abbreviation})` : ''}
-          </option>
-        ))}
-      </select>
-      {message && <span style={{ marginLeft: '0.5rem', color: message === 'Saved' ? 'green' : 'red' }}>{message}</span>}
+    <div>
+      <div style={{ marginBottom: '1rem' }}>
+        <label htmlFor="shopping-list" style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 'bold' }}>
+          Mealie shopping list
+        </label>
+        {settings.availableShoppingLists.length === 0 ? (
+          <p style={{ color: '#666', fontSize: '0.9rem' }}>Could not load shopping lists from Mealie.</p>
+        ) : (
+          <>
+            <select
+              id="shopping-list"
+              value={settings.mealieShoppingListId || ''}
+              onChange={e => handleShoppingListChange(e.target.value)}
+              disabled={savingList}
+              style={{ padding: '0.5rem', fontSize: '1rem', minWidth: 200 }}
+            >
+              <option value="">-- Not set --</option>
+              {[...settings.availableShoppingLists].sort((a, b) => a.name.localeCompare(b.name)).map(l => (
+                <option key={l.id} value={l.id}>{l.name}</option>
+              ))}
+            </select>
+            {listMessage && <span style={{ marginLeft: '0.5rem', color: listMessage === 'Saved' ? 'green' : 'red' }}>{listMessage}</span>}
+          </>
+        )}
+      </div>
+
+      <div style={{ marginBottom: '1rem' }}>
+        <label htmlFor="default-unit" style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 'bold' }}>
+          Default unit for new Grocy products
+        </label>
+        {settings.availableUnits.length === 0 ? (
+          <p style={{ color: '#666', fontSize: '0.9rem' }}>No units synced yet. Run a product sync first.</p>
+        ) : (
+          <>
+            <select
+              id="default-unit"
+              value={settings.defaultUnitMappingId || ''}
+              onChange={e => handleUnitChange(e.target.value)}
+              disabled={savingUnit}
+              style={{ padding: '0.5rem', fontSize: '1rem', minWidth: 200 }}
+            >
+              <option value="">-- Not set --</option>
+              {[...settings.availableUnits].sort((a, b) => a.name.localeCompare(b.name)).map(u => (
+                <option key={u.id} value={u.id}>
+                  {u.name}{u.abbreviation ? ` (${u.abbreviation})` : ''}
+                </option>
+              ))}
+            </select>
+            {unitMessage && <span style={{ marginLeft: '0.5rem', color: unitMessage === 'Saved' ? 'green' : 'red' }}>{unitMessage}</span>}
+          </>
+        )}
+      </div>
     </div>
   );
 }

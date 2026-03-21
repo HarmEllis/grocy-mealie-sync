@@ -17,6 +17,9 @@ export async function register() {
     if (!settings.defaultUnitMappingId && !config.grocyDefaultUnitId) {
       log.warn('[Config] No default unit configured — new Mealie products will not be created in Grocy until a default unit is set in the web UI or via GROCY_DEFAULT_UNIT_ID');
     }
+    if (!settings.mealieShoppingListId && !config.mealieShoppingListId) {
+      log.warn('[Config] No Mealie shopping list configured — sync cannot add items to a shopping list until one is selected in the web UI or via MEALIE_SHOPPING_LIST_ID');
+    }
 
     // Start the polling scheduler
     const { startScheduler } = await import('./lib/sync/scheduler');

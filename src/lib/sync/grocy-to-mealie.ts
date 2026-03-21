@@ -2,8 +2,8 @@ import { db } from '../db';
 import { productMappings, unitMappings } from '../db/schema';
 import { StockService } from '../grocy';
 import { HouseholdsShoppingListItemsService } from '../mealie';
-import { config } from '../config';
 import { log } from '../logger';
+import { resolveShoppingListId } from '../settings';
 import { getSyncState, saveSyncState } from './state';
 import { eq } from 'drizzle-orm';
 
@@ -16,6 +16,12 @@ interface MissingProduct {
 
 export async function pollGrocyForMissingStock(): Promise<void> {
   log.info('[Grocy→Mealie] Polling for missing stock...');
+
+  const shoppingListId = await resolveShoppingListId();
+  if (!shoppingListId) {
+    log.warn('[Grocy→Mealie] No shopping list configured — skipping poll');
+    return;
+  }
 
   try {
     const volatile = await StockService.getStockVolatile() as any;
@@ -32,7 +38,7 @@ export async function pollGrocyForMissingStock(): Promise<void> {
     // 1. Newly missing → add to Mealie
     const newlyMissing = missingProducts.filter(mp => !(mp.id in previousAmounts));
     for (const mp of newlyMissing) {
-      await adjustMealieShoppingItem(mp.id, mp.amount_missing);
+      await adjustMealieShoppingItem(mp.id, mp.amount_missing, shoppingListId);
     }
 
     // 2. Still missing, amount changed → adjust by delta
@@ -41,7 +47,7 @@ export async function pollGrocyForMissingStock(): Promise<void> {
     );
     for (const mp of amountChanged) {
       const delta = mp.amount_missing - previousAmounts[mp.id];
-      await adjustMealieShoppingItem(mp.id, delta);
+      await adjustMealieShoppingItem(mp.id, delta, shoppingListId);
     }
 
     // 3. No longer missing → subtract Grocy's contribution
@@ -49,7 +55,7 @@ export async function pollGrocyForMissingStock(): Promise<void> {
       .map(Number)
       .filter(id => !(id in currentAmounts));
     for (const grocyProductId of noLongerMissing) {
-      await adjustMealieShoppingItem(grocyProductId, -previousAmounts[grocyProductId]);
+      await adjustMealieShoppingItem(grocyProductId, -previousAmounts[grocyProductId], shoppingListId);
     }
 
     if (newlyMissing.length > 0) {
@@ -75,7 +81,7 @@ export async function pollGrocyForMissingStock(): Promise<void> {
  * Positive delta: increase quantity (or create item).
  * Negative delta: decrease quantity (or remove item if result ≤ 0).
  */
-async function adjustMealieShoppingItem(grocyProductId: number, delta: number): Promise<void> {
+async function adjustMealieShoppingItem(grocyProductId: number, delta: number, shoppingListId: string): Promise<void> {
   const mappings = await db.select()
     .from(productMappings)
     .where(eq(productMappings.grocyProductId, grocyProductId))
@@ -103,7 +109,7 @@ async function adjustMealieShoppingItem(grocyProductId: number, delta: number): 
   // Find existing unchecked item on the list
   const existingItems = await HouseholdsShoppingListItemsService.getAllApiHouseholdsShoppingItemsGet(
     undefined, undefined, undefined,
-    `shoppingListId=${config.mealieShoppingListId}`,
+    `shoppingListId=${shoppingListId}`,
     undefined, 1, 500
   );
 
@@ -126,7 +132,7 @@ async function adjustMealieShoppingItem(grocyProductId: number, delta: number): 
       await HouseholdsShoppingListItemsService.updateOneApiHouseholdsShoppingItemsItemIdPut(
         existingItem.id,
         {
-          shoppingListId: config.mealieShoppingListId,
+          shoppingListId: shoppingListId,
           quantity: newQty,
           foodId: mapping.mealieFoodId,
           unitId: unitId || undefined,
@@ -137,7 +143,7 @@ async function adjustMealieShoppingItem(grocyProductId: number, delta: number): 
     // No existing item, create new one
     log.info(`[Grocy→Mealie] Adding "${mapping.mealieFoodName}" to Mealie shopping list (qty: ${delta})`);
     await HouseholdsShoppingListItemsService.createOneApiHouseholdsShoppingItemsPost({
-      shoppingListId: config.mealieShoppingListId,
+      shoppingListId: shoppingListId,
       foodId: mapping.mealieFoodId,
       unitId: unitId || undefined,
       quantity: delta,

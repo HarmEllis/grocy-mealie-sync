@@ -5,17 +5,24 @@ import { HouseholdsShoppingListItemsService } from '../mealie';
 import type { ShoppingListItemOut_Output } from '../mealie/client/models/ShoppingListItemOut_Output';
 import { config } from '../config';
 import { log } from '../logger';
+import { resolveShoppingListId } from '../settings';
 import { getSyncState, saveSyncState } from './state';
 import { eq } from 'drizzle-orm';
 
 export async function pollMealieForCheckedItems(): Promise<void> {
   log.info('[Mealie→Grocy] Polling for checked items...');
 
+  const shoppingListId = await resolveShoppingListId();
+  if (!shoppingListId) {
+    log.warn('[Mealie→Grocy] No shopping list configured — skipping poll');
+    return;
+  }
+
   try {
     // Fetch all items on the configured shopping list
     const itemsRes = await HouseholdsShoppingListItemsService.getAllApiHouseholdsShoppingItemsGet(
       undefined, undefined, undefined,
-      `shoppingListId=${config.mealieShoppingListId}`,
+      `shoppingListId=${shoppingListId}`,
       undefined, 1, 500
     );
 
