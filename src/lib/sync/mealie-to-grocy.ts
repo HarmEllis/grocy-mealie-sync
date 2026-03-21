@@ -67,6 +67,20 @@ async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<voi
   const mapping = mappings[0];
   const quantity = item.quantity || 1;
 
+  // Check if we should only add stock for products with min_stock_amount > 0
+  if (config.stockOnlyMinStock) {
+    try {
+      const productDetails = await StockService.getStockProducts(mapping.grocyProductId) as any;
+      const minStock = Number(productDetails.product?.min_stock_amount ?? 0);
+      if (minStock <= 0) {
+        log.info(`[Mealie→Grocy] Skipping "${mapping.grocyProductName}" — no min stock set (STOCK_ONLY_MIN_STOCK=true)`);
+        return;
+      }
+    } catch (error) {
+      log.warn(`[Mealie→Grocy] Could not check min_stock for "${mapping.grocyProductName}", proceeding anyway:`, error);
+    }
+  }
+
   // B3.2: Add stock in Grocy
   log.info(`[Mealie→Grocy] Adding stock: "${mapping.grocyProductName}" qty=${quantity} to Grocy`);
 

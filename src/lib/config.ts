@@ -10,5 +10,6 @@ export const config = {
   pollIntervalSeconds: parseInt(process.env.POLL_INTERVAL_SECONDS || '60', 10),
   productSyncIntervalHours: parseInt(process.env.PRODUCT_SYNC_INTERVAL_HOURS || '6', 10),
   grocyDefaultUnitId: process.env.GROCY_DEFAULT_UNIT_ID ? parseInt(process.env.GROCY_DEFAULT_UNIT_ID, 10) : null,
+  stockOnlyMinStock: process.env.STOCK_ONLY_MIN_STOCK === 'true',
   databasePath: process.env.DATABASE_PATH || './data/sync.db',
 };
