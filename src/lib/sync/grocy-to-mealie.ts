@@ -53,11 +53,20 @@ export async function pollGrocyForMissingStock(): Promise<void> {
     }
 
     // 3. No longer missing → subtract Grocy's contribution
+    //    BUT skip products that were restocked by the Mealie→Grocy sync
+    //    (to prevent the feedback loop where sync-added stock triggers list removal)
     const noLongerMissing = Object.keys(previousAmounts)
       .map(Number)
       .filter(id => !(id in currentAmounts));
     let restocked = 0;
+    let skippedSyncRestocked = 0;
     for (const grocyProductId of noLongerMissing) {
+      if (grocyProductId in state.syncRestockedProducts) {
+        log.info(`[Grocy→Mealie] Skipping removal for product ${grocyProductId} — restocked by sync, not manually`);
+        delete state.syncRestockedProducts[grocyProductId];
+        skippedSyncRestocked++;
+        continue;
+      }
       if (await adjustMealieShoppingItem(grocyProductId, -previousAmounts[grocyProductId], shoppingListId)) restocked++;
     }
 
@@ -68,8 +77,21 @@ export async function pollGrocyForMissingStock(): Promise<void> {
       log.info(`[Grocy→Mealie] ${adjusted}/${amountChanged.length} product(s) quantity adjusted`);
     }
     if (noLongerMissing.length > 0) {
-      log.info(`[Grocy→Mealie] ${restocked}/${noLongerMissing.length} restocked product(s) adjusted on shopping list`);
+      const manuallyRestocked = noLongerMissing.length - skippedSyncRestocked;
+      if (manuallyRestocked > 0) {
+        log.info(`[Grocy→Mealie] ${restocked}/${manuallyRestocked} manually restocked product(s) adjusted on shopping list`);
+      }
+      if (skippedSyncRestocked > 0) {
+        log.info(`[Grocy→Mealie] ${skippedSyncRestocked} product(s) skipped (restocked by sync, not user)`);
+      }
     }
+
+    // Clear all syncRestockedProducts entries after processing.
+    // Each entry only needs to survive one Grocy→Mealie poll cycle:
+    // - If the product was "no longer missing", the entry was checked and skip applied
+    // - If the product is still partially missing, no removal was attempted anyway
+    // - Clearing prevents stale entries from blocking future manual restocks
+    state.syncRestockedProducts = {};
 
     state.grocyBelowMinStock = currentAmounts;
     state.lastGrocyPoll = new Date();

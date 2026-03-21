@@ -7,6 +7,11 @@ export interface SyncStateData {
   lastMealiePoll: Date | null;
   grocyBelowMinStock: Record<number, number>;
   mealieCheckedItems: Record<string, boolean>;
+  /** Products recently restocked by Mealie→Grocy sync (grocyProductId as string → ISO timestamp).
+   *  Used to prevent the Grocy→Mealie sync from removing items that were
+   *  restocked automatically rather than manually by the user.
+   *  Keys are strings because JSON serialization converts number keys to strings. */
+  syncRestockedProducts: Record<string, string>;
 }
 
 const STATE_ID = 'singleton';
@@ -19,6 +24,7 @@ export async function getSyncState(): Promise<SyncStateData> {
       lastMealiePoll: null,
       grocyBelowMinStock: {},
       mealieCheckedItems: {},
+      syncRestockedProducts: {},
     };
   }
   
@@ -28,6 +34,7 @@ export async function getSyncState(): Promise<SyncStateData> {
     lastMealiePoll: state.lastMealiePoll ? new Date(state.lastMealiePoll) : null,
     grocyBelowMinStock: state.grocyBelowMinStock || {},
     mealieCheckedItems: state.mealieCheckedItems || {},
+    syncRestockedProducts: state.syncRestockedProducts || {},
   };
 }
 
@@ -37,6 +44,7 @@ export async function saveSyncState(state: SyncStateData) {
     lastMealiePoll: state.lastMealiePoll?.toISOString() || null,
     grocyBelowMinStock: state.grocyBelowMinStock,
     mealieCheckedItems: state.mealieCheckedItems,
+    syncRestockedProducts: state.syncRestockedProducts,
   });
 
   const records = await db.select().from(syncState).where(eq(syncState.id, STATE_ID)).limit(1);

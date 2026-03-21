@@ -39,7 +39,12 @@ export async function pollMealieForCheckedItems(): Promise<void> {
       // Was unchecked (or unknown) before, now checked
       const wasChecked = previousCheckedState[item.id];
       if (checked && wasChecked !== true) {
-        await processCheckedItem(item);
+        const grocyProductId = await processCheckedItem(item);
+        if (grocyProductId !== null) {
+          // Track that this product was restocked by sync, so Grocy→Mealie
+          // won't remove it from the shopping list on the next poll
+          state.syncRestockedProducts[grocyProductId] = new Date().toISOString();
+        }
       }
       // B3 edge case: un-checking is ignored (Scenario 10)
     }
@@ -52,12 +57,14 @@ export async function pollMealieForCheckedItems(): Promise<void> {
   }
 }
 
-async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<void> {
+/** Process a checked item: add stock in Grocy and clean up Grocy shopping list.
+ *  Returns the grocyProductId if stock was successfully added, or null if skipped. */
+async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<number | null> {
   const foodId = item.foodId;
   if (!foodId) {
     // Ad-hoc item without mapped food — skip gracefully (Scenario 11)
     log.info(`[Mealie→Grocy] Skipping unmapped item "${item.note || item.display || item.id}" (no foodId)`);
-    return;
+    return null;
   }
 
   // Look up product mapping
@@ -68,7 +75,7 @@ async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<voi
 
   if (mappings.length === 0) {
     log.warn(`[Mealie→Grocy] No mapping found for Mealie food ${foodId}, skipping`);
-    return;
+    return null;
   }
 
   const mapping = mappings[0];
@@ -81,7 +88,7 @@ async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<voi
       const minStock = Number(productDetails.product?.min_stock_amount ?? 0);
       if (minStock <= 0) {
         log.info(`[Mealie→Grocy] Skipping "${mapping.grocyProductName}" — no min stock set (STOCK_ONLY_MIN_STOCK=true)`);
-        return;
+        return null;
       }
     } catch (error) {
       log.warn(`[Mealie→Grocy] Could not check min_stock for "${mapping.grocyProductName}", proceeding anyway:`, error);
@@ -123,4 +130,6 @@ async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<voi
     // Non-critical: log but don't fail the whole operation
     log.warn(`[Mealie→Grocy] Could not clean Grocy shopping list for "${mapping.grocyProductName}":`, error);
   }
+
+  return mapping.grocyProductId;
 }
