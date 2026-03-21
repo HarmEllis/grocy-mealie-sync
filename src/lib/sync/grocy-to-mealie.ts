@@ -73,6 +73,18 @@ async function addToMealieShoppingList(missingProduct: MissingProduct): Promise<
     item.foodId === mapping.mealieFoodId && !item.checked
   );
 
+  // Resolve Mealie unit from mapping
+  let unitId: string | undefined;
+  if (mapping.unitMappingId) {
+    const units = await db.select()
+      .from(unitMappings)
+      .where(eq(unitMappings.id, mapping.unitMappingId))
+      .limit(1);
+    if (units.length > 0) {
+      unitId = units[0].mealieUnitId;
+    }
+  }
+
   if (existingItem) {
     // Update quantity instead of creating duplicate
     const newQuantity = (existingItem.quantity || 0) + missingProduct.amount_missing;
@@ -84,21 +96,10 @@ async function addToMealieShoppingList(missingProduct: MissingProduct): Promise<
         shoppingListId: config.mealieShoppingListId,
         quantity: newQuantity,
         foodId: mapping.mealieFoodId,
+        unitId: unitId || undefined,
       }
     );
   } else {
-    // Find unit mapping if available
-    let unitId: string | undefined;
-    if (mapping.unitMappingId) {
-      const units = await db.select()
-        .from(unitMappings)
-        .where(eq(unitMappings.id, mapping.unitMappingId))
-        .limit(1);
-      if (units.length > 0) {
-        unitId = units[0].mealieUnitId;
-      }
-    }
-
     console.log(`[Grocy→Mealie] Adding "${mapping.mealieFoodName}" to Mealie shopping list (qty: ${missingProduct.amount_missing})`);
 
     await HouseholdsShoppingListItemsService.createOneApiHouseholdsShoppingItemsPost({
