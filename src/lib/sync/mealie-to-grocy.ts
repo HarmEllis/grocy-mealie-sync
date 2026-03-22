@@ -111,9 +111,10 @@ async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<num
 
   // B3.4: Remove from Grocy shopping list
   try {
-    const grocyShoppingItems = await GenericEntityInteractionsService.getObjects(
+    const grocyShoppingItemsRaw = await GenericEntityInteractionsService.getObjects(
       'shopping_list' as any,
-    ) as any[];
+    );
+    const grocyShoppingItems: any[] = Array.isArray(grocyShoppingItemsRaw) ? grocyShoppingItemsRaw : [];
 
     const matchingItems = grocyShoppingItems.filter(
       (si: any) => si.product_id === mapping.grocyProductId

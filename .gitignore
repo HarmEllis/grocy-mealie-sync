@@ -1,6 +1,6 @@
 node_modules
 .next
-data/
+/data/
 .env
 tsconfig.tsbuildinfo
 next-env.d.ts

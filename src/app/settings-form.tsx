@@ -18,6 +18,8 @@ interface ShoppingListOption {
 interface SettingsData {
   defaultUnitMappingId: string | null;
   mealieShoppingListId: string | null;
+  autoCreateProducts: boolean;
+  autoCreateUnits: boolean;
   availableUnits: UnitOption[];
   availableShoppingLists: ShoppingListOption[];
 }
@@ -26,8 +28,10 @@ export default function SettingsForm() {
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [savingUnit, setSavingUnit] = useState(false);
   const [savingList, setSavingList] = useState(false);
+  const [savingAutoCreate, setSavingAutoCreate] = useState(false);
   const [unitMessage, setUnitMessage] = useState('');
   const [listMessage, setListMessage] = useState('');
+  const [autoCreateMessage, setAutoCreateMessage] = useState('');
 
   useEffect(() => {
     fetch('/api/settings')
@@ -77,6 +81,26 @@ export default function SettingsForm() {
       setListMessage('Error saving');
     } finally {
       setSavingList(false);
+    }
+  }
+
+  async function handleAutoCreateChange(field: 'autoCreateProducts' | 'autoCreateUnits', value: boolean) {
+    setSavingAutoCreate(true);
+    setAutoCreateMessage('');
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [field]: value }),
+      });
+      if (!res.ok) throw new Error('Save failed');
+      setSettings(s => s ? { ...s, [field]: value } : s);
+      setAutoCreateMessage('Saved');
+      setTimeout(() => setAutoCreateMessage(''), 2000);
+    } catch {
+      setAutoCreateMessage('Error saving');
+    } finally {
+      setSavingAutoCreate(false);
     }
   }
 
@@ -132,6 +156,35 @@ export default function SettingsForm() {
             {unitMessage && <span style={{ marginLeft: '0.5rem', color: unitMessage === 'Saved' ? 'green' : 'red' }}>{unitMessage}</span>}
           </>
         )}
+      </div>
+
+      <div style={{ marginBottom: '1rem' }}>
+        <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+          Auto-create in Grocy
+        </label>
+        <p style={{ color: '#666', fontSize: '0.85rem', margin: '0 0 0.5rem' }}>
+          When enabled, new Mealie items without a match are automatically created in Grocy during sync.
+          Use the Mapping Wizard first to map existing items, then enable these.
+        </p>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={settings.autoCreateUnits}
+            onChange={e => handleAutoCreateChange('autoCreateUnits', e.target.checked)}
+            disabled={savingAutoCreate}
+          />
+          <span style={{ fontSize: '0.9rem' }}>Auto-create units</span>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={settings.autoCreateProducts}
+            onChange={e => handleAutoCreateChange('autoCreateProducts', e.target.checked)}
+            disabled={savingAutoCreate}
+          />
+          <span style={{ fontSize: '0.9rem' }}>Auto-create products</span>
+        </label>
+        {autoCreateMessage && <span style={{ fontSize: '0.85rem', color: autoCreateMessage === 'Saved' ? 'green' : 'red' }}>{autoCreateMessage}</span>}
       </div>
     </div>
   );

@@ -34,15 +34,18 @@ async function resolveDefaultUnit(allUnitMappings: { id: string; grocyUnitId: nu
 export async function syncUnits() {
   log.info('[ProductSync] Starting unit sync');
 
+  const settings = await getSettings();
   const mealieUnitsRes = await RecipesUnitsService.getAllApiUnitsGet(
     undefined, undefined, undefined, undefined, undefined, undefined, 1, 1000
   );
   const mealieUnits = (mealieUnitsRes as any).items || [];
 
-  const grocyUnits = await GenericEntityInteractionsService.getObjects('quantity_units' as any) as any[];
+  const grocyUnitsRaw = await GenericEntityInteractionsService.getObjects('quantity_units' as any);
+  const grocyUnits: any[] = Array.isArray(grocyUnitsRaw) ? grocyUnitsRaw : [];
 
   let created = 0;
   let linked = 0;
+  let skipped = 0;
 
   for (const mUnit of mealieUnits) {
     if (!mUnit.id) continue;
@@ -50,13 +53,17 @@ export async function syncUnits() {
     const existing = await db.select().from(unitMappings).where(eq(unitMappings.mealieUnitId, mUnit.id)).limit(1);
     if (existing.length > 0) continue;
 
-    // B1.4: Match by name or abbreviation
+    // Match by name or abbreviation
     let gUnit = grocyUnits.find((gu: any) =>
       gu.name?.toLowerCase() === mUnit.name?.toLowerCase() ||
       (mUnit.abbreviation && gu.name?.toLowerCase() === mUnit.abbreviation?.toLowerCase())
     );
 
     if (!gUnit) {
+      if (!settings.autoCreateUnits) {
+        skipped++;
+        continue;
+      }
       const result = await GenericEntityInteractionsService.postObjects(
         'quantity_units' as any,
         { name: mUnit.name || 'Unknown', name_plural: mUnit.pluralName || mUnit.name } as any,
@@ -82,7 +89,10 @@ export async function syncUnits() {
     });
   }
 
-  log.info(`[ProductSync] Units done: ${created} created, ${linked} linked`);
+  if (skipped > 0) {
+    log.info(`[ProductSync] ${skipped} unit(s) skipped — enable "Auto-create units" in settings or use the Mapping Wizard`);
+  }
+  log.info(`[ProductSync] Units done: ${created} created, ${linked} linked, ${skipped} skipped`);
 }
 
 export async function syncProducts() {
@@ -93,7 +103,8 @@ export async function syncProducts() {
   );
   const mealieFoods = (mealieFoodsRes as any).items || [];
 
-  const grocyProducts = await GenericEntityInteractionsService.getObjects('products' as any) as any[];
+  const grocyProductsRaw = await GenericEntityInteractionsService.getObjects('products' as any);
+  const grocyProducts: any[] = Array.isArray(grocyProductsRaw) ? grocyProductsRaw : [];
   const allUnitMappings = await db.select().from(unitMappings);
 
   let created = 0;
@@ -111,6 +122,11 @@ export async function syncProducts() {
     let unitMappingId = '';
 
     if (!gProd) {
+      const settings = await getSettings();
+      if (!settings.autoCreateProducts) {
+        skipped++;
+        continue;
+      }
       // New product: requires an explicitly configured default unit
       const defaultUnit = await resolveDefaultUnit(allUnitMappings);
       if (!defaultUnit) {
@@ -180,7 +196,7 @@ export async function syncProducts() {
   }
 
   if (skipped > 0) {
-    log.warn(`[ProductSync] ${skipped} product(s) skipped — set a default unit in the web UI or via GROCY_DEFAULT_UNIT_ID`);
+    log.info(`[ProductSync] ${skipped} product(s) skipped — enable "Auto-create products" in settings or use the Mapping Wizard`);
   }
   log.info(`[ProductSync] Products done: ${created} created, ${linked} linked, ${skipped} skipped`);
 }

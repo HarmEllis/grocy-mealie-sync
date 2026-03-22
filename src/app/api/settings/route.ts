@@ -25,6 +25,8 @@ export async function GET() {
   return NextResponse.json({
     defaultUnitMappingId: settings.defaultUnitMappingId,
     mealieShoppingListId: settings.mealieShoppingListId,
+    autoCreateProducts: settings.autoCreateProducts,
+    autoCreateUnits: settings.autoCreateUnits,
     availableUnits: units.map(u => ({
       id: u.id,
       name: u.mealieUnitName,
@@ -55,6 +57,14 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'mealieShoppingListId must be a string or null' }, { status: 400 });
     }
     settings.mealieShoppingListId = mealieShoppingListId;
+  }
+
+  if ('autoCreateProducts' in body) {
+    settings.autoCreateProducts = !!body.autoCreateProducts;
+  }
+
+  if ('autoCreateUnits' in body) {
+    settings.autoCreateUnits = !!body.autoCreateUnits;
   }
 
   await saveSettings(settings);

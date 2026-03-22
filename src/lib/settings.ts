@@ -5,6 +5,8 @@ import { eq } from 'drizzle-orm';
 export interface AppSettings {
   defaultUnitMappingId: string | null;
   mealieShoppingListId: string | null;
+  autoCreateProducts: boolean;
+  autoCreateUnits: boolean;
 }
 
 const SETTINGS_ID = 'settings';
@@ -12,12 +14,14 @@ const SETTINGS_ID = 'settings';
 export async function getSettings(): Promise<AppSettings> {
   const records = await db.select().from(syncState).where(eq(syncState.id, SETTINGS_ID)).limit(1);
   if (records.length === 0) {
-    return { defaultUnitMappingId: null, mealieShoppingListId: null };
+    return { defaultUnitMappingId: null, mealieShoppingListId: null, autoCreateProducts: false, autoCreateUnits: false };
   }
   const data = JSON.parse(records[0].stateData);
   return {
     defaultUnitMappingId: data.defaultUnitMappingId || null,
     mealieShoppingListId: data.mealieShoppingListId || null,
+    autoCreateProducts: data.autoCreateProducts ?? false,
+    autoCreateUnits: data.autoCreateUnits ?? false,
   };
 }
 

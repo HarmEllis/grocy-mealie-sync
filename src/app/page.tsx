@@ -4,6 +4,7 @@ import { productMappings, unitMappings } from '@/lib/db/schema';
 import { count } from 'drizzle-orm';
 import SettingsForm from './settings-form';
 import SyncButtons from './sync-buttons';
+import MappingWizard from './mapping-wizard';
 
 async function getStatus() {
   try {
@@ -45,6 +46,9 @@ export default async function Home() {
 
       <h2>Settings</h2>
       <SettingsForm />
+
+      <h2>Mapping Wizard</h2>
+      <MappingWizard />
 
       <h2>Manual Sync</h2>
       <SyncButtons />
