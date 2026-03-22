@@ -51,7 +51,7 @@ const th: React.CSSProperties = { textAlign: 'left', padding: '0.5rem', borderBo
 const td: React.CSSProperties = { padding: '0.4rem 0.5rem', borderBottom: '1px solid #eee', verticalAlign: 'middle' };
 const searchInput: React.CSSProperties = {
   padding: '0.4rem 0.6rem', fontSize: '0.9rem', border: '1px solid #d1d5db', borderRadius: 6,
-  width: '100%', maxWidth: 300, marginBottom: '0.75rem',
+  width: '100%', maxWidth: 300,
 };
 const btnPrimary: React.CSSProperties = {
   padding: '0.5rem 1rem', fontSize: '0.9rem', cursor: 'pointer',
@@ -93,6 +93,8 @@ export default function MappingWizard() {
   const [productMaps, setProductMaps] = useState<Record<string, ProductMapping>>({});
   const [unitMaps, setUnitMaps] = useState<Record<string, UnitMapping>>({});
   const [defaultCreateUnitId, setDefaultCreateUnitId] = useState<number | null>(null);
+  const [createProductChecked, setCreateProductChecked] = useState<Record<string, boolean>>({});
+  const [createUnitChecked, setCreateUnitChecked] = useState<Record<string, boolean>>({});
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -160,6 +162,30 @@ export default function MappingWizard() {
     const q = unitSearch.toLowerCase();
     return sorted.filter(u => u.name.toLowerCase().includes(q) || u.abbreviation.toLowerCase().includes(q));
   }, [data, unitSearch]);
+
+  // Unmapped IDs (no Grocy mapping selected) — eligible for "create" checkboxes
+  const unmappedProductIds = useMemo(() =>
+    Object.entries(productMaps).filter(([, m]) => m.grocyProductId === null).map(([id]) => id),
+    [productMaps],
+  );
+  const unmappedUnitIds = useMemo(() =>
+    Object.entries(unitMaps).filter(([, m]) => m.grocyUnitId === null).map(([id]) => id),
+    [unitMaps],
+  );
+  const checkedProductCount = unmappedProductIds.filter(id => createProductChecked[id]).length;
+  const checkedUnitCount = unmappedUnitIds.filter(id => createUnitChecked[id]).length;
+
+  // For select-all in header: only toggle visible (filtered) unmapped items
+  const visibleUnmappedProductIds = useMemo(() => {
+    const unmappedSet = new Set(unmappedProductIds);
+    return filteredFoods.filter(f => unmappedSet.has(f.id)).map(f => f.id);
+  }, [unmappedProductIds, filteredFoods]);
+  const visibleUnmappedUnitIds = useMemo(() => {
+    const unmappedSet = new Set(unmappedUnitIds);
+    return filteredUnits.filter(u => unmappedSet.has(u.id)).map(u => u.id);
+  }, [unmappedUnitIds, filteredUnits]);
+  const allVisibleProductsChecked = visibleUnmappedProductIds.length > 0 && visibleUnmappedProductIds.every(id => createProductChecked[id]);
+  const allVisibleUnitsChecked = visibleUnmappedUnitIds.length > 0 && visibleUnmappedUnitIds.every(id => createUnitChecked[id]);
 
   function showMessage(msg: string) {
     setMessage(msg);
@@ -259,15 +285,24 @@ export default function MappingWizard() {
 
   async function createUnmappedProducts() {
     if (!data) return;
-    const unmappedIds = Object.entries(productMaps).filter(([, m]) => m.grocyProductId === null).map(([id]) => id);
-    if (unmappedIds.length === 0) { showMessage('No unmapped products to create'); return; }
+    const checkedIds = unmappedProductIds.filter(id => createProductChecked[id]);
+    if (checkedIds.length === 0) { showMessage('No products checked for creation'); return; }
     if (!defaultCreateUnitId) { showMessage('Select a default unit first'); return; }
+    const unmappedIds = checkedIds;
 
     await runAction('createProducts', async () => {
       const res = await fetch('/api/mapping-wizard/products/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mealieFoodIds: unmappedIds, defaultGrocyUnitId: defaultCreateUnitId }),
+        body: JSON.stringify({
+          mealieFoodIds: unmappedIds,
+          defaultGrocyUnitId: defaultCreateUnitId,
+          unitOverrides: Object.fromEntries(
+            unmappedIds
+              .filter(id => productMaps[id]?.grocyUnitId != null)
+              .map(id => [id, productMaps[id].grocyUnitId]),
+          ),
+        }),
       });
       const result = await res.json();
       if (!res.ok) throw new Error(result.error);
@@ -320,8 +355,9 @@ export default function MappingWizard() {
 
   async function createUnmappedUnits() {
     if (!data) return;
-    const unmappedIds = Object.entries(unitMaps).filter(([, m]) => m.grocyUnitId === null).map(([id]) => id);
-    if (unmappedIds.length === 0) { showMessage('No unmapped units to create'); return; }
+    const checkedIds = unmappedUnitIds.filter(id => createUnitChecked[id]);
+    if (checkedIds.length === 0) { showMessage('No units checked for creation'); return; }
+    const unmappedIds = checkedIds;
 
     await runAction('createUnits', async () => {
       const res = await fetch('/api/mapping-wizard/units/create', {
@@ -383,6 +419,10 @@ export default function MappingWizard() {
   const isRunning = !!actionRunning;
   const productMappedCount = Object.values(productMaps).filter(m => m.grocyProductId !== null).length;
   const unitMappedCount = Object.values(unitMaps).filter(m => m.grocyUnitId !== null).length;
+  const defaultUnitName = defaultCreateUnitId && data
+    ? data.grocyUnits.find(u => u.id === defaultCreateUnitId)?.name
+    : undefined;
+  const unitPlaceholder = defaultUnitName ? `Default: ${defaultUnitName}` : 'Unit...';
 
   return (
     <>
@@ -455,6 +495,21 @@ export default function MappingWizard() {
                         <table style={table}>
                           <thead>
                             <tr>
+                              <th style={{ ...th, width: 36, textAlign: 'center' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={allVisibleUnitsChecked}
+                                  onChange={e => {
+                                    const checked = e.target.checked;
+                                    setCreateUnitChecked(prev => {
+                                      const next = { ...prev };
+                                      for (const id of visibleUnmappedUnitIds) next[id] = checked;
+                                      return next;
+                                    });
+                                  }}
+                                  title={allVisibleUnitsChecked ? 'Deselect all for creation' : 'Select all for creation'}
+                                />
+                              </th>
                               <th style={th}>Mealie Unit</th>
                               <th style={th}>Abbr.</th>
                               <th style={{ ...th, width: '40%' }}>Grocy Unit</th>
@@ -468,13 +523,28 @@ export default function MappingWizard() {
                               const isAccepted = mapping?.grocyUnitId !== null;
                               return (
                                 <tr key={unit.id} style={{ background: isAccepted ? '#f0fdf4' : undefined }}>
+                                  <td style={{ ...td, textAlign: 'center' }}>
+                                    {!isAccepted && (
+                                      <input
+                                        type="checkbox"
+                                        checked={!!createUnitChecked[unit.id]}
+                                        onChange={e => setCreateUnitChecked(prev => ({ ...prev, [unit.id]: e.target.checked }))}
+                                        title="Create this unit in Grocy"
+                                      />
+                                    )}
+                                  </td>
                                   <td style={td}><strong>{unit.name}</strong></td>
                                   <td style={{ ...td, color: '#666' }}>{unit.abbreviation || '-'}</td>
                                   <td style={td}>
                                     <SearchableSelect
                                       options={grocyUnitOptions}
                                       value={mapping?.grocyUnitId ?? null}
-                                      onChange={val => setUnitMaps(prev => ({ ...prev, [unit.id]: { ...prev[unit.id], grocyUnitId: val } }))}
+                                      onChange={val => {
+                                        setUnitMaps(prev => ({ ...prev, [unit.id]: { ...prev[unit.id], grocyUnitId: val } }));
+                                        if (val !== null) {
+                                          setCreateUnitChecked(prev => { const next = { ...prev }; delete next[unit.id]; return next; });
+                                        }
+                                      }}
                                       placeholder="Select Grocy unit..."
                                       style={{ maxWidth: 280 }}
                                     />
@@ -506,8 +576,8 @@ export default function MappingWizard() {
                     <button style={btnPrimary} onClick={syncUnits} disabled={isRunning || unitMappedCount === 0}>
                       {actionRunning === 'syncUnits' ? 'Syncing...' : `Sync Mapped (${unitMappedCount})`}
                     </button>
-                    <button style={btnSecondary} onClick={createUnmappedUnits} disabled={isRunning}>
-                      {actionRunning === 'createUnits' ? 'Creating...' : 'Create Unmapped in Grocy'}
+                    <button style={btnSecondary} onClick={createUnmappedUnits} disabled={isRunning || checkedUnitCount === 0}>
+                      {actionRunning === 'createUnits' ? 'Creating...' : `Create Checked in Grocy (${checkedUnitCount})`}
                     </button>
                     <button
                       style={btnDanger}
@@ -529,6 +599,27 @@ export default function MappingWizard() {
                     </p>
                   ) : (
                     <>
+                      {/* Default unit setting */}
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: '0.5rem',
+                        padding: '0.5rem 0.75rem', marginBottom: '0.75rem',
+                        background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6,
+                      }}>
+                        <label style={{ fontSize: '0.85rem', color: '#475569', whiteSpace: 'nowrap' }}>
+                          Default unit for new products:
+                        </label>
+                        <SearchableSelect
+                          options={grocyUnitOptions}
+                          value={defaultCreateUnitId}
+                          onChange={setDefaultCreateUnitId}
+                          placeholder="Select unit..."
+                          style={{ minWidth: 160, maxWidth: 220 }}
+                        />
+                        <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                          Used when unit column is empty
+                        </span>
+                      </div>
+
                       {/* Actions bar */}
                       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.75rem' }}>
                         {Object.keys(data.productSuggestions).length > 0 && (
@@ -550,6 +641,21 @@ export default function MappingWizard() {
                         <table style={table}>
                           <thead>
                             <tr>
+                              <th style={{ ...th, width: 36, textAlign: 'center' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={allVisibleProductsChecked}
+                                  onChange={e => {
+                                    const checked = e.target.checked;
+                                    setCreateProductChecked(prev => {
+                                      const next = { ...prev };
+                                      for (const id of visibleUnmappedProductIds) next[id] = checked;
+                                      return next;
+                                    });
+                                  }}
+                                  title={allVisibleProductsChecked ? 'Deselect all for creation' : 'Select all for creation'}
+                                />
+                              </th>
                               <th style={th}>Mealie Product</th>
                               <th style={{ ...th, width: '35%' }}>Grocy Product</th>
                               <th style={{ ...th, width: '20%' }}>Unit</th>
@@ -563,6 +669,16 @@ export default function MappingWizard() {
                               const isAccepted = mapping?.grocyProductId !== null;
                               return (
                                 <tr key={food.id} style={{ background: isAccepted ? '#f0fdf4' : undefined }}>
+                                  <td style={{ ...td, textAlign: 'center' }}>
+                                    {!isAccepted && (
+                                      <input
+                                        type="checkbox"
+                                        checked={!!createProductChecked[food.id]}
+                                        onChange={e => setCreateProductChecked(prev => ({ ...prev, [food.id]: e.target.checked }))}
+                                        title="Create this product in Grocy"
+                                      />
+                                    )}
+                                  </td>
                                   <td style={td}><strong>{food.name}</strong></td>
                                   <td style={td}>
                                     <SearchableSelect
@@ -578,6 +694,9 @@ export default function MappingWizard() {
                                             grocyUnitId: gp?.quIdPurchase || prev[food.id]?.grocyUnitId || null,
                                           },
                                         }));
+                                        if (val !== null) {
+                                          setCreateProductChecked(prev => { const next = { ...prev }; delete next[food.id]; return next; });
+                                        }
                                       }}
                                       placeholder="Select Grocy product..."
                                       style={{ maxWidth: 280 }}
@@ -591,7 +710,7 @@ export default function MappingWizard() {
                                         ...prev,
                                         [food.id]: { ...prev[food.id], grocyUnitId: val },
                                       }))}
-                                      placeholder="Unit..."
+                                      placeholder={unitPlaceholder}
                                       style={{ maxWidth: 180 }}
                                     />
                                   </td>
@@ -622,18 +741,9 @@ export default function MappingWizard() {
                     <button style={btnPrimary} onClick={syncProducts} disabled={isRunning || productMappedCount === 0}>
                       {actionRunning === 'syncProducts' ? 'Syncing...' : `Sync Mapped (${productMappedCount})`}
                     </button>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <SearchableSelect
-                        options={grocyUnitOptions}
-                        value={defaultCreateUnitId}
-                        onChange={setDefaultCreateUnitId}
-                        placeholder="Default unit..."
-                        style={{ minWidth: 160 }}
-                      />
-                      <button style={btnSecondary} onClick={createUnmappedProducts} disabled={isRunning || !defaultCreateUnitId}>
-                        {actionRunning === 'createProducts' ? 'Creating...' : 'Create Unmapped in Grocy'}
-                      </button>
-                    </div>
+                    <button style={btnSecondary} onClick={createUnmappedProducts} disabled={isRunning || !defaultCreateUnitId || checkedProductCount === 0}>
+                      {actionRunning === 'createProducts' ? 'Creating...' : `Create Checked in Grocy (${checkedProductCount})`}
+                    </button>
                     <button
                       style={btnDanger}
                       onClick={() => setConfirmAction('deleteOrphanProducts')}

@@ -10,11 +10,12 @@ import { randomUUID } from 'crypto';
 interface CreateRequest {
   mealieFoodIds: string[];
   defaultGrocyUnitId: number;
+  unitOverrides?: Record<string, number>;
 }
 
 export async function POST(request: Request) {
   try {
-    const { mealieFoodIds, defaultGrocyUnitId } = (await request.json()) as CreateRequest;
+    const { mealieFoodIds, defaultGrocyUnitId, unitOverrides } = (await request.json()) as CreateRequest;
 
     if (!Array.isArray(mealieFoodIds) || mealieFoodIds.length === 0) {
       return NextResponse.json({ error: 'mealieFoodIds array is required' }, { status: 400 });
@@ -50,6 +51,7 @@ export async function POST(request: Request) {
       if (!mFood) continue;
 
       const name = mFood.name || 'Unknown';
+      const grocyUnitId = unitOverrides?.[mealieFoodId] ?? defaultGrocyUnitId;
 
       try {
         const result = await GenericEntityInteractionsService.postObjects(
@@ -57,11 +59,13 @@ export async function POST(request: Request) {
           {
             name,
             min_stock_amount: 0,
-            qu_id_purchase: defaultGrocyUnitId,
-            qu_id_stock: defaultGrocyUnitId,
+            qu_id_purchase: grocyUnitId,
+            qu_id_stock: grocyUnitId,
             location_id: 1,
           } as any,
         );
+
+        const perUnitMapping = allUnitMappings.find(u => u.grocyUnitId === grocyUnitId);
 
         await db.insert(productMappings).values({
           id: randomUUID(),
@@ -69,7 +73,7 @@ export async function POST(request: Request) {
           mealieFoodName: name,
           grocyProductId: Number(result.created_object_id),
           grocyProductName: name,
-          unitMappingId,
+          unitMappingId: perUnitMapping?.id || unitMappingId,
           createdAt: new Date(),
           updatedAt: new Date(),
         });
