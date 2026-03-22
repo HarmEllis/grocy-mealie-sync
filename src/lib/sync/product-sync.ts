@@ -1,22 +1,45 @@
 import { db } from '../db';
 import { productMappings, unitMappings } from '../db/schema';
-import { GenericEntityInteractionsService } from '../grocy';
+import { getGrocyEntities, createGrocyEntity } from '../grocy/types';
+import type { Product, QuantityUnit } from '../grocy/types';
 import { RecipesFoodsService, RecipesUnitsService } from '../mealie';
+import { extractFoods, extractUnits } from '../mealie/types';
 import { config } from '../config';
 import { log } from '../logger';
 import { getSettings } from '../settings';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
-async function findUnitMappingByGrocyId(grocyUnitId: number): Promise<string> {
-  const rows = await db.select()
-    .from(unitMappings)
-    .where(eq(unitMappings.grocyUnitId, grocyUnitId))
-    .limit(1);
-  return rows.length > 0 ? rows[0].id : '';
+// Module-level cache for the first available Grocy location ID
+let cachedLocationId: number | null | undefined = undefined;
+
+async function getDefaultLocationId(): Promise<number | null> {
+  if (cachedLocationId !== undefined) return cachedLocationId;
+  try {
+    const locations = await getGrocyEntities('locations');
+    if (locations.length === 0) {
+      log.error('[ProductSync] No locations found in Grocy — cannot create products without a location');
+      cachedLocationId = null;
+      return null;
+    }
+    cachedLocationId = Number(locations[0].id);
+    return cachedLocationId;
+  } catch (e) {
+    log.error('[ProductSync] Failed to fetch Grocy locations:', e);
+    cachedLocationId = null;
+    return null;
+  }
 }
 
-async function resolveDefaultUnit(allUnitMappings: { id: string; grocyUnitId: number }[]): Promise<{ grocyUnitId: number; unitMappingId: string } | null> {
+function findUnitMappingByGrocyId(
+  allUnitMappings: { id: string; grocyUnitId: number }[],
+  grocyUnitId: number,
+): string | null {
+  const match = allUnitMappings.find(u => u.grocyUnitId === grocyUnitId);
+  return match ? match.id : null;
+}
+
+async function resolveDefaultUnit(allUnitMappings: { id: string; grocyUnitId: number }[]): Promise<{ grocyUnitId: number; unitMappingId: string | null } | null> {
   // Priority: 1. DB setting (from UI), 2. env var. Returns null if neither is configured.
   const settings = await getSettings();
   if (settings.defaultUnitMappingId) {
@@ -26,7 +49,7 @@ async function resolveDefaultUnit(allUnitMappings: { id: string; grocyUnitId: nu
   if (config.grocyDefaultUnitId) {
     const match = allUnitMappings.find(u => u.grocyUnitId === config.grocyDefaultUnitId);
     if (match) return { grocyUnitId: config.grocyDefaultUnitId, unitMappingId: match.id };
-    return { grocyUnitId: config.grocyDefaultUnitId, unitMappingId: '' };
+    return { grocyUnitId: config.grocyDefaultUnitId, unitMappingId: null };
   }
   return null;
 }
@@ -38,10 +61,9 @@ export async function syncUnits() {
   const mealieUnitsRes = await RecipesUnitsService.getAllApiUnitsGet(
     undefined, undefined, undefined, undefined, undefined, undefined, 1, 1000
   );
-  const mealieUnits = (mealieUnitsRes as any).items || [];
+  const mealieUnits = extractUnits(mealieUnitsRes);
 
-  const grocyUnitsRaw = await GenericEntityInteractionsService.getObjects('quantity_units' as any);
-  const grocyUnits: any[] = Array.isArray(grocyUnitsRaw) ? grocyUnitsRaw : [];
+  const grocyUnits: QuantityUnit[] = await getGrocyEntities('quantity_units');
 
   let created = 0;
   let linked = 0;
@@ -54,7 +76,7 @@ export async function syncUnits() {
     if (existing.length > 0) continue;
 
     // Match by name or abbreviation
-    let gUnit = grocyUnits.find((gu: any) =>
+    let gUnit = grocyUnits.find(gu =>
       gu.name?.toLowerCase() === mUnit.name?.toLowerCase() ||
       (mUnit.abbreviation && gu.name?.toLowerCase() === mUnit.abbreviation?.toLowerCase())
     );
@@ -64,10 +86,10 @@ export async function syncUnits() {
         skipped++;
         continue;
       }
-      const result = await GenericEntityInteractionsService.postObjects(
-        'quantity_units' as any,
-        { name: mUnit.name || 'Unknown', name_plural: mUnit.pluralName || mUnit.name } as any,
-      );
+      const result = await createGrocyEntity('quantity_units', {
+        name: mUnit.name || 'Unknown',
+        name_plural: mUnit.pluralName || mUnit.name || 'Unknown',
+      });
 
       gUnit = { id: result.created_object_id, name: mUnit.name || 'Unknown' };
       grocyUnits.push(gUnit);
@@ -82,7 +104,7 @@ export async function syncUnits() {
       mealieUnitName: mUnit.name || 'Unknown',
       mealieUnitAbbreviation: mUnit.abbreviation || '',
       grocyUnitId: Number(gUnit.id),
-      grocyUnitName: gUnit.name,
+      grocyUnitName: gUnit.name || 'Unknown',
       conversionFactor: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -101,11 +123,13 @@ export async function syncProducts() {
   const mealieFoodsRes = await RecipesFoodsService.getAllApiFoodsGet(
     undefined, undefined, undefined, undefined, undefined, undefined, 1, 10000
   );
-  const mealieFoods = (mealieFoodsRes as any).items || [];
+  const mealieFoods = extractFoods(mealieFoodsRes);
 
-  const grocyProductsRaw = await GenericEntityInteractionsService.getObjects('products' as any);
-  const grocyProducts: any[] = Array.isArray(grocyProductsRaw) ? grocyProductsRaw : [];
+  const grocyProducts: Product[] = await getGrocyEntities('products');
   const allUnitMappings = await db.select().from(unitMappings);
+
+  // Hoist settings fetch above the loop (task 7 — avoids N+1 DB calls)
+  const settings = await getSettings();
 
   let created = 0;
   let linked = 0;
@@ -118,11 +142,10 @@ export async function syncProducts() {
     if (existing.length > 0) continue;
 
     // B1.4: Match by name (case-insensitive)
-    let gProd = grocyProducts.find((gp: any) => gp.name?.toLowerCase() === mFood.name?.toLowerCase());
-    let unitMappingId = '';
+    let gProd = grocyProducts.find(gp => gp.name?.toLowerCase() === mFood.name?.toLowerCase());
+    let unitMappingId: string | null = null;
 
     if (!gProd) {
-      const settings = await getSettings();
       if (!settings.autoCreateProducts) {
         skipped++;
         continue;
@@ -135,17 +158,22 @@ export async function syncProducts() {
       }
       unitMappingId = defaultUnit.unitMappingId;
 
+      // Fetch the first available location instead of hardcoding 1 (task 5)
+      const locationId = await getDefaultLocationId();
+      if (locationId === null) {
+        log.error(`[ProductSync] Skipping product "${mFood.name}" — no Grocy location available`);
+        skipped++;
+        continue;
+      }
+
       try {
-        const result = await GenericEntityInteractionsService.postObjects(
-          'products' as any,
-          {
-            name: mFood.name || 'Unknown',
-            min_stock_amount: 0,
-            qu_id_purchase: defaultUnit.grocyUnitId,
-            qu_id_stock: defaultUnit.grocyUnitId,
-            location_id: 1,
-          } as any,
-        );
+        const result = await createGrocyEntity('products', {
+          name: mFood.name || 'Unknown',
+          min_stock_amount: 0,
+          qu_id_purchase: defaultUnit.grocyUnitId,
+          qu_id_stock: defaultUnit.grocyUnitId,
+          location_id: locationId,
+        });
 
         gProd = { id: result.created_object_id, name: mFood.name || 'Unknown' };
         grocyProducts.push(gProd);
@@ -155,10 +183,10 @@ export async function syncProducts() {
         continue;
       }
     } else {
-      // Linked product: read actual unit from Grocy
+      // Linked product: read actual unit from Grocy (use in-memory lookup — task 9)
       const grocyUnitId = Number(gProd.qu_id_purchase || gProd.qu_id_stock);
       if (grocyUnitId) {
-        unitMappingId = await findUnitMappingByGrocyId(grocyUnitId);
+        unitMappingId = findUnitMappingByGrocyId(allUnitMappings, grocyUnitId);
       }
       linked++;
     }
@@ -168,7 +196,7 @@ export async function syncProducts() {
       mealieFoodId: mFood.id,
       mealieFoodName: mFood.name || 'Unknown',
       grocyProductId: Number(gProd.id),
-      grocyProductName: gProd.name,
+      grocyProductName: gProd.name || 'Unknown',
       unitMappingId,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -176,15 +204,19 @@ export async function syncProducts() {
   }
 
   // Backfill: update existing mappings that have empty unitMappingId
-  const emptyMappings = await db.select().from(productMappings).where(eq(productMappings.unitMappingId, ''));
+  const { isNull, or } = await import('drizzle-orm');
+  const emptyMappings = await db.select().from(productMappings).where(
+    or(isNull(productMappings.unitMappingId), eq(productMappings.unitMappingId, ''))
+  );
   if (emptyMappings.length > 0) {
     log.info(`[ProductSync] Backfilling ${emptyMappings.length} product mapping(s) with missing unit`);
     for (const mapping of emptyMappings) {
-      const gProd = grocyProducts.find((gp: any) => Number(gp.id) === mapping.grocyProductId);
+      const gProd = grocyProducts.find(gp => Number(gp.id) === mapping.grocyProductId);
       if (gProd) {
         const grocyUnitId = Number(gProd.qu_id_purchase || gProd.qu_id_stock);
         if (grocyUnitId) {
-          const umId = await findUnitMappingByGrocyId(grocyUnitId);
+          // Use in-memory lookup (task 9)
+          const umId = findUnitMappingByGrocyId(allUnitMappings, grocyUnitId);
           if (umId) {
             await db.update(productMappings)
               .set({ unitMappingId: umId, updatedAt: new Date() })

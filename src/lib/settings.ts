@@ -1,6 +1,7 @@
 import { db } from './db';
 import { syncState } from './db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
+import { log } from './logger';
 
 export interface AppSettings {
   defaultUnitMappingId: string | null;
@@ -11,17 +12,30 @@ export interface AppSettings {
 
 const SETTINGS_ID = 'settings';
 
+const DEFAULT_SETTINGS: AppSettings = {
+  defaultUnitMappingId: null,
+  mealieShoppingListId: null,
+  autoCreateProducts: false,
+  autoCreateUnits: false,
+};
+
 export async function getSettings(): Promise<AppSettings> {
   const records = await db.select().from(syncState).where(eq(syncState.id, SETTINGS_ID)).limit(1);
   if (records.length === 0) {
-    return { defaultUnitMappingId: null, mealieShoppingListId: null, autoCreateProducts: false, autoCreateUnits: false };
+    return { ...DEFAULT_SETTINGS };
   }
-  const data = JSON.parse(records[0].stateData);
+  let data: Record<string, unknown>;
+  try {
+    data = JSON.parse(records[0].stateData);
+  } catch (e) {
+    log.error('Failed to parse settings JSON, returning defaults:', e);
+    return { ...DEFAULT_SETTINGS };
+  }
   return {
-    defaultUnitMappingId: data.defaultUnitMappingId || null,
-    mealieShoppingListId: data.mealieShoppingListId || null,
-    autoCreateProducts: data.autoCreateProducts ?? false,
-    autoCreateUnits: data.autoCreateUnits ?? false,
+    defaultUnitMappingId: (data.defaultUnitMappingId as string) || null,
+    mealieShoppingListId: (data.mealieShoppingListId as string) || null,
+    autoCreateProducts: (data.autoCreateProducts as boolean) ?? false,
+    autoCreateUnits: (data.autoCreateUnits as boolean) ?? false,
   };
 }
 
@@ -36,10 +50,10 @@ export async function resolveShoppingListId(): Promise<string | null> {
 
 export async function saveSettings(settings: AppSettings): Promise<void> {
   const stateData = JSON.stringify(settings);
-  const records = await db.select().from(syncState).where(eq(syncState.id, SETTINGS_ID)).limit(1);
-  if (records.length === 0) {
-    await db.insert(syncState).values({ id: SETTINGS_ID, stateData });
-  } else {
-    await db.update(syncState).set({ stateData }).where(eq(syncState.id, SETTINGS_ID));
-  }
+  await db.insert(syncState)
+    .values({ id: SETTINGS_ID, stateData })
+    .onConflictDoUpdate({
+      target: syncState.id,
+      set: { stateData },
+    });
 }

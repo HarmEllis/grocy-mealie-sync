@@ -1,6 +1,7 @@
 import { db } from '../db';
 import { syncState } from '../db/schema';
 import { eq } from 'drizzle-orm';
+import { log } from '../logger';
 
 export interface SyncStateData {
   lastGrocyPoll: Date | null;
@@ -16,25 +17,34 @@ export interface SyncStateData {
 
 const STATE_ID = 'singleton';
 
+const DEFAULT_STATE: SyncStateData = {
+  lastGrocyPoll: null,
+  lastMealiePoll: null,
+  grocyBelowMinStock: {},
+  mealieCheckedItems: {},
+  syncRestockedProducts: {},
+};
+
 export async function getSyncState(): Promise<SyncStateData> {
   const records = await db.select().from(syncState).where(eq(syncState.id, STATE_ID)).limit(1);
   if (records.length === 0) {
-    return {
-      lastGrocyPoll: null,
-      lastMealiePoll: null,
-      grocyBelowMinStock: {},
-      mealieCheckedItems: {},
-      syncRestockedProducts: {},
-    };
+    return { ...DEFAULT_STATE };
   }
-  
-  const state = JSON.parse(records[0].stateData);
+
+  let state: Record<string, unknown>;
+  try {
+    state = JSON.parse(records[0].stateData);
+  } catch (e) {
+    log.error('Failed to parse sync state JSON, returning defaults:', e);
+    return { ...DEFAULT_STATE };
+  }
+
   return {
-    lastGrocyPoll: state.lastGrocyPoll ? new Date(state.lastGrocyPoll) : null,
-    lastMealiePoll: state.lastMealiePoll ? new Date(state.lastMealiePoll) : null,
-    grocyBelowMinStock: state.grocyBelowMinStock || {},
-    mealieCheckedItems: state.mealieCheckedItems || {},
-    syncRestockedProducts: state.syncRestockedProducts || {},
+    lastGrocyPoll: state.lastGrocyPoll ? new Date(state.lastGrocyPoll as string) : null,
+    lastMealiePoll: state.lastMealiePoll ? new Date(state.lastMealiePoll as string) : null,
+    grocyBelowMinStock: (state.grocyBelowMinStock as Record<number, number>) || {},
+    mealieCheckedItems: (state.mealieCheckedItems as Record<string, boolean>) || {},
+    syncRestockedProducts: (state.syncRestockedProducts as Record<string, string>) || {},
   };
 }
 
@@ -47,15 +57,10 @@ export async function saveSyncState(state: SyncStateData) {
     syncRestockedProducts: state.syncRestockedProducts,
   });
 
-  const records = await db.select().from(syncState).where(eq(syncState.id, STATE_ID)).limit(1);
-  if (records.length === 0) {
-    await db.insert(syncState).values({
-      id: STATE_ID,
-      stateData
+  await db.insert(syncState)
+    .values({ id: STATE_ID, stateData })
+    .onConflictDoUpdate({
+      target: syncState.id,
+      set: { stateData },
     });
-  } else {
-    await db.update(syncState)
-      .set({ stateData })
-      .where(eq(syncState.id, STATE_ID));
-  }
 }

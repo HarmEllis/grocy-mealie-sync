@@ -1,33 +1,43 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { unitMappings } from '@/lib/db/schema';
-import { GenericEntityInteractionsService } from '@/lib/grocy';
+import { getGrocyEntities, updateGrocyEntity } from '@/lib/grocy/types';
 import { RecipesUnitsService } from '@/lib/mealie';
+import { extractUnits } from '@/lib/mealie/types';
 import { log } from '@/lib/logger';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
-
-interface MappingEntry {
-  mealieUnitId: string;
-  grocyUnitId: number;
-}
+import { unitSyncRequestSchema } from '@/lib/validation';
 
 export async function POST(request: Request) {
   try {
-    const { mappings } = (await request.json()) as { mappings: MappingEntry[] };
-
-    if (!Array.isArray(mappings) || mappings.length === 0) {
-      return NextResponse.json({ error: 'mappings array is required' }, { status: 400 });
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
     }
 
-    const [mealieUnitsRes, grocyUnitsRaw] = await Promise.all([
+    const parsed = unitSyncRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Invalid request body', details: parsed.error.issues },
+        { status: 400 },
+      );
+    }
+    const { mappings } = parsed.data;
+
+    if (mappings.length === 0) {
+      return NextResponse.json({ error: 'mappings array must not be empty' }, { status: 400 });
+    }
+
+    const [mealieUnitsRes, grocyUnits] = await Promise.all([
       RecipesUnitsService.getAllApiUnitsGet(
         undefined, undefined, undefined, undefined, undefined, undefined, 1, 1000,
       ),
-      GenericEntityInteractionsService.getObjects('quantity_units' as any),
+      getGrocyEntities('quantity_units'),
     ]);
-    const mealieUnits: any[] = (mealieUnitsRes as any).items || [];
-    const grocyUnits: any[] = Array.isArray(grocyUnitsRaw) ? grocyUnitsRaw : [];
+    const mealieUnits = extractUnits(mealieUnitsRes);
 
     // Pre-fetch existing unit mappings to avoid N+1 queries
     const existingMappings = await db.select().from(unitMappings);
@@ -37,44 +47,41 @@ export async function POST(request: Request) {
     let renamed = 0;
 
     for (const entry of mappings) {
-      const mUnit = mealieUnits.find((u: any) => u.id === entry.mealieUnitId);
-      const gUnit = grocyUnits.find((u: any) => Number(u.id) === entry.grocyUnitId);
+      const mUnit = mealieUnits.find(u => u.id === entry.mealieUnitId);
+      const gUnit = grocyUnits.find(u => Number(u.id) === entry.grocyUnitId);
       if (!mUnit || !gUnit) continue;
 
       const mealieName = mUnit.name || 'Unknown';
       const grocyName = gUnit.name || 'Unknown';
 
-      const existing = existingByMealieUnitId.get(entry.mealieUnitId);
-
-      if (existing) {
-        await db.update(unitMappings).set({
+      const now = new Date();
+      await db.insert(unitMappings).values({
+        id: randomUUID(),
+        mealieUnitId: entry.mealieUnitId,
+        mealieUnitName: mealieName,
+        mealieUnitAbbreviation: mUnit.abbreviation || '',
+        grocyUnitId: entry.grocyUnitId,
+        grocyUnitName: grocyName,
+        conversionFactor: 1,
+        createdAt: now,
+        updatedAt: now,
+      }).onConflictDoUpdate({
+        target: unitMappings.mealieUnitId,
+        set: {
           grocyUnitId: entry.grocyUnitId,
           grocyUnitName: grocyName,
-          updatedAt: new Date(),
-        }).where(eq(unitMappings.mealieUnitId, entry.mealieUnitId));
-      } else {
-        await db.insert(unitMappings).values({
-          id: randomUUID(),
-          mealieUnitId: entry.mealieUnitId,
-          mealieUnitName: mealieName,
-          mealieUnitAbbreviation: mUnit.abbreviation || '',
-          grocyUnitId: entry.grocyUnitId,
-          grocyUnitName: grocyName,
-          conversionFactor: 1,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
-      }
+          updatedAt: now,
+        },
+      });
       synced++;
 
       // Rename Grocy unit to Mealie name
       if (gUnit.name !== mealieName) {
         try {
-          await GenericEntityInteractionsService.putObjects(
-            'quantity_units' as any,
-            entry.grocyUnitId,
-            { name: mealieName, name_plural: mUnit.pluralName || mealieName } as any,
-          );
+          await updateGrocyEntity('quantity_units', entry.grocyUnitId, {
+            name: mealieName,
+            name_plural: mUnit.pluralName || mealieName,
+          });
           renamed++;
         } catch (e) {
           log.error(`[MappingWizard] Failed to rename Grocy unit ${entry.grocyUnitId}:`, e);

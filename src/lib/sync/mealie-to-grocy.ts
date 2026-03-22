@@ -1,12 +1,12 @@
 import { db } from '../db';
-import { productMappings, unitMappings } from '../db/schema';
-import { StockService, GenericEntityInteractionsService } from '../grocy';
-import { HouseholdsShoppingListItemsService } from '../mealie';
+import { productMappings } from '../db/schema';
+import { getGrocyEntities, deleteGrocyEntity, getProductDetails, addProductStock } from '../grocy/types';
 import type { ShoppingListItemOut_Output } from '../mealie/client/models/ShoppingListItemOut_Output';
 import { config } from '../config';
 import { log } from '../logger';
 import { resolveShoppingListId } from '../settings';
 import { getSyncState, saveSyncState } from './state';
+import { fetchAllMealieShoppingItems } from './helpers';
 import { eq } from 'drizzle-orm';
 
 export async function pollMealieForCheckedItems(): Promise<void> {
@@ -19,14 +19,8 @@ export async function pollMealieForCheckedItems(): Promise<void> {
   }
 
   try {
-    // Fetch all items on the configured shopping list
-    const itemsRes = await HouseholdsShoppingListItemsService.getAllApiHouseholdsShoppingItemsGet(
-      undefined, undefined, undefined,
-      `shoppingListId=${shoppingListId}`,
-      undefined, 1, 500
-    );
-
-    const items = itemsRes.items || [];
+    // Fetch all items on the configured shopping list (paginated)
+    const items = await fetchAllMealieShoppingItems(shoppingListId);
     const state = await getSyncState();
     const previousCheckedState = state.mealieCheckedItems;
     const newCheckedState: Record<string, boolean> = {};
@@ -84,7 +78,7 @@ async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<num
   // Check if we should only add stock for products with min_stock_amount > 0
   if (config.stockOnlyMinStock) {
     try {
-      const productDetails = await StockService.getStockProducts(mapping.grocyProductId) as any;
+      const productDetails = await getProductDetails(mapping.grocyProductId);
       const minStock = Number(productDetails.product?.min_stock_amount ?? 0);
       if (minStock <= 0) {
         log.info(`[Mealie→Grocy] Skipping "${mapping.grocyProductName}" — no min stock set (STOCK_ONLY_MIN_STOCK=true)`);
@@ -99,10 +93,7 @@ async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<num
   log.info(`[Mealie→Grocy] Adding stock: "${mapping.grocyProductName}" qty=${quantity} to Grocy`);
 
   try {
-    await StockService.postStockProductsAdd(mapping.grocyProductId, {
-      amount: quantity,
-      transaction_type: 'purchase' as any,
-    });
+    await addProductStock(mapping.grocyProductId, quantity);
   } catch (error) {
     log.error(`[Mealie→Grocy] Failed to add stock for "${mapping.grocyProductName}":`, error);
     // Don't mark as processed — will retry on next poll
@@ -111,21 +102,17 @@ async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<num
 
   // B3.4: Remove from Grocy shopping list
   try {
-    const grocyShoppingItemsRaw = await GenericEntityInteractionsService.getObjects(
-      'shopping_list' as any,
-    );
-    const grocyShoppingItems: any[] = Array.isArray(grocyShoppingItemsRaw) ? grocyShoppingItemsRaw : [];
+    const grocyShoppingItems = await getGrocyEntities('shopping_list');
 
     const matchingItems = grocyShoppingItems.filter(
-      (si: any) => si.product_id === mapping.grocyProductId
+      si => Number(si.product_id) === mapping.grocyProductId
     );
 
     for (const si of matchingItems) {
-      await GenericEntityInteractionsService.deleteObjects(
-        'shopping_list' as any,
-        si.id,
-      );
-      log.info(`[Mealie→Grocy] Removed "${mapping.grocyProductName}" from Grocy shopping list`);
+      if (si.id != null) {
+        await deleteGrocyEntity('shopping_list', si.id);
+        log.info(`[Mealie→Grocy] Removed "${mapping.grocyProductName}" from Grocy shopping list`);
+      }
     }
   } catch (error) {
     // Non-critical: log but don't fail the whole operation

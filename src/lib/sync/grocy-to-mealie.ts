@@ -1,18 +1,14 @@
 import { db } from '../db';
 import { productMappings, unitMappings } from '../db/schema';
-import { StockService } from '../grocy';
+import { getVolatileStock } from '../grocy/types';
+import type { GrocyMissingProduct } from '../grocy/types';
 import { HouseholdsShoppingListItemsService } from '../mealie';
+import type { MealieShoppingItem } from '../mealie/types';
 import { log } from '../logger';
 import { resolveShoppingListId } from '../settings';
 import { getSyncState, saveSyncState } from './state';
+import { fetchAllMealieShoppingItems } from './helpers';
 import { eq } from 'drizzle-orm';
-
-interface MissingProduct {
-  id: number;
-  name: string;
-  amount_missing: number;
-  is_partly_in_stock: number;
-}
 
 export async function pollGrocyForMissingStock(): Promise<void> {
   log.info('[Grocy→Mealie] Polling for missing stock...');
@@ -24,8 +20,8 @@ export async function pollGrocyForMissingStock(): Promise<void> {
   }
 
   try {
-    const volatile = await StockService.getStockVolatile() as any;
-    const missingProducts: MissingProduct[] = volatile.missing_products || [];
+    const volatile = await getVolatileStock();
+    const missingProducts: GrocyMissingProduct[] = volatile.missing_products || [];
 
     const state = await getSyncState();
     const previousAmounts = state.grocyBelowMinStock; // Record<number, number>
@@ -35,11 +31,14 @@ export async function pollGrocyForMissingStock(): Promise<void> {
       currentAmounts[mp.id] = mp.amount_missing;
     }
 
+    // Fetch all Mealie shopping list items once, to be reused across all adjustments
+    const mealieShoppingItems = await fetchAllMealieShoppingItems(shoppingListId);
+
     // 1. Newly missing → add to Mealie
     const newlyMissing = missingProducts.filter(mp => !(mp.id in previousAmounts));
     let newlyAdded = 0;
     for (const mp of newlyMissing) {
-      if (await adjustMealieShoppingItem(mp.id, mp.amount_missing, shoppingListId)) newlyAdded++;
+      if (await adjustMealieShoppingItem(mp.id, mp.amount_missing, shoppingListId, mealieShoppingItems)) newlyAdded++;
     }
 
     // 2. Still missing, amount changed → adjust by delta
@@ -49,7 +48,7 @@ export async function pollGrocyForMissingStock(): Promise<void> {
     let adjusted = 0;
     for (const mp of amountChanged) {
       const delta = mp.amount_missing - previousAmounts[mp.id];
-      if (await adjustMealieShoppingItem(mp.id, delta, shoppingListId)) adjusted++;
+      if (await adjustMealieShoppingItem(mp.id, delta, shoppingListId, mealieShoppingItems)) adjusted++;
     }
 
     // 3. No longer missing → subtract Grocy's contribution
@@ -67,7 +66,7 @@ export async function pollGrocyForMissingStock(): Promise<void> {
         skippedSyncRestocked++;
         continue;
       }
-      if (await adjustMealieShoppingItem(grocyProductId, -previousAmounts[grocyProductId], shoppingListId)) restocked++;
+      if (await adjustMealieShoppingItem(grocyProductId, -previousAmounts[grocyProductId], shoppingListId, mealieShoppingItems)) restocked++;
     }
 
     if (newlyMissing.length > 0) {
@@ -105,8 +104,15 @@ export async function pollGrocyForMissingStock(): Promise<void> {
  * Adjust a Mealie shopping list item's quantity by a delta.
  * Positive delta: increase quantity (or create item).
  * Negative delta: decrease quantity (or remove item if result ≤ 0).
+ *
+ * @param mealieShoppingItems Pre-fetched list of all current Mealie shopping items (avoids N+1 fetches).
  */
-async function adjustMealieShoppingItem(grocyProductId: number, delta: number, shoppingListId: string): Promise<boolean> {
+async function adjustMealieShoppingItem(
+  grocyProductId: number,
+  delta: number,
+  shoppingListId: string,
+  mealieShoppingItems: MealieShoppingItem[],
+): Promise<boolean> {
   const mappings = await db.select()
     .from(productMappings)
     .where(eq(productMappings.grocyProductId, grocyProductId))
@@ -131,15 +137,8 @@ async function adjustMealieShoppingItem(grocyProductId: number, delta: number, s
     }
   }
 
-  // Find existing unchecked item on the list
-  const existingItems = await HouseholdsShoppingListItemsService.getAllApiHouseholdsShoppingItemsGet(
-    undefined, undefined, undefined,
-    `shoppingListId=${shoppingListId}`,
-    undefined, 1, 500
-  );
-
-  const items = existingItems.items || [];
-  const existingItem = items.find(item =>
+  // Find existing unchecked item on the list using pre-fetched items
+  const existingItem = mealieShoppingItems.find(item =>
     item.foodId === mapping.mealieFoodId && !item.checked
   );
 

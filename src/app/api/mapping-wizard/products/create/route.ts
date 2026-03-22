@@ -1,38 +1,59 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { productMappings, unitMappings } from '@/lib/db/schema';
-import { GenericEntityInteractionsService } from '@/lib/grocy';
+import { getGrocyEntities, createGrocyEntity } from '@/lib/grocy/types';
 import { RecipesFoodsService } from '@/lib/mealie';
+import { extractFoods } from '@/lib/mealie/types';
 import { log } from '@/lib/logger';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
-
-interface CreateRequest {
-  mealieFoodIds: string[];
-  defaultGrocyUnitId: number;
-  unitOverrides?: Record<string, number>;
-}
+import { productCreateRequestSchema } from '@/lib/validation';
 
 export async function POST(request: Request) {
   try {
-    const { mealieFoodIds, defaultGrocyUnitId, unitOverrides } = (await request.json()) as CreateRequest;
-
-    if (!Array.isArray(mealieFoodIds) || mealieFoodIds.length === 0) {
-      return NextResponse.json({ error: 'mealieFoodIds array is required' }, { status: 400 });
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
     }
-    if (!defaultGrocyUnitId) {
-      return NextResponse.json({ error: 'defaultGrocyUnitId is required' }, { status: 400 });
+
+    const parsed = productCreateRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Invalid request body', details: parsed.error.issues },
+        { status: 400 },
+      );
+    }
+    const { mealieFoodIds, defaultGrocyUnitId, unitOverrides } = parsed.data;
+
+    if (mealieFoodIds.length === 0) {
+      return NextResponse.json({ error: 'mealieFoodIds array must not be empty' }, { status: 400 });
     }
 
     const mealieFoodsRes = await RecipesFoodsService.getAllApiFoodsGet(
       undefined, undefined, undefined, undefined, undefined, undefined, 1, 10000,
     );
-    const mealieFoods: any[] = (mealieFoodsRes as any).items || [];
+    const mealieFoods = extractFoods(mealieFoodsRes);
 
     // Find unit mapping for the default unit
     const allUnitMappings = await db.select().from(unitMappings);
     const unitMapping = allUnitMappings.find(u => u.grocyUnitId === defaultGrocyUnitId);
-    const unitMappingId = unitMapping?.id || '';
+    const unitMappingId = unitMapping?.id || null;
+
+    // Fetch first available Grocy location (avoids hardcoded location_id: 1)
+    let locationId: number | null = null;
+    try {
+      const locations = await getGrocyEntities('locations');
+      if (locations.length === 0) {
+        log.error('[MappingWizard] No locations found in Grocy — cannot create products without a location');
+        return NextResponse.json({ error: 'No Grocy locations available' }, { status: 500 });
+      }
+      locationId = Number(locations[0].id);
+    } catch (e) {
+      log.error('[MappingWizard] Failed to fetch Grocy locations:', e);
+      return NextResponse.json({ error: 'Failed to fetch Grocy locations' }, { status: 500 });
+    }
 
     // Pre-fetch existing product mappings to avoid N+1 queries
     const existingMappings = await db.select().from(productMappings);
@@ -47,23 +68,20 @@ export async function POST(request: Request) {
         continue;
       }
 
-      const mFood = mealieFoods.find((f: any) => f.id === mealieFoodId);
+      const mFood = mealieFoods.find(f => f.id === mealieFoodId);
       if (!mFood) continue;
 
       const name = mFood.name || 'Unknown';
       const grocyUnitId = unitOverrides?.[mealieFoodId] ?? defaultGrocyUnitId;
 
       try {
-        const result = await GenericEntityInteractionsService.postObjects(
-          'products' as any,
-          {
-            name,
-            min_stock_amount: 0,
-            qu_id_purchase: grocyUnitId,
-            qu_id_stock: grocyUnitId,
-            location_id: 1,
-          } as any,
-        );
+        const result = await createGrocyEntity('products', {
+          name,
+          min_stock_amount: 0,
+          qu_id_purchase: grocyUnitId,
+          qu_id_stock: grocyUnitId,
+          location_id: locationId,
+        });
 
         const perUnitMapping = allUnitMappings.find(u => u.grocyUnitId === grocyUnitId);
 

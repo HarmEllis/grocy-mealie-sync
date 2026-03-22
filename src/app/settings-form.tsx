@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useSaveSetting } from './use-save-setting';
 
 interface UnitOption {
   id: string;
@@ -26,82 +27,84 @@ interface SettingsData {
 
 export default function SettingsForm() {
   const [settings, setSettings] = useState<SettingsData | null>(null);
-  const [savingUnit, setSavingUnit] = useState(false);
-  const [savingList, setSavingList] = useState(false);
-  const [savingAutoCreate, setSavingAutoCreate] = useState(false);
-  const [unitMessage, setUnitMessage] = useState('');
-  const [listMessage, setListMessage] = useState('');
-  const [autoCreateMessage, setAutoCreateMessage] = useState('');
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [fetchLoading, setFetchLoading] = useState(true);
+
+  const unitSave = useSaveSetting();
+  const listSave = useSaveSetting();
+  const autoCreateSave = useSaveSetting();
+
+  const loadSettings = useCallback(async () => {
+    setFetchLoading(true);
+    setFetchError(null);
+    try {
+      const res = await fetch('/api/settings');
+      if (!res.ok) throw new Error(`Failed to load settings (${res.status})`);
+      const data = await res.json();
+      setSettings(data);
+    } catch (e) {
+      setFetchError(e instanceof Error ? e.message : 'Failed to load settings');
+      setSettings(null);
+    } finally {
+      setFetchLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    fetch('/api/settings')
-      .then(r => r.json())
-      .then(setSettings)
-      .catch(() => setSettings(null));
-  }, []);
+    loadSettings();
+  }, [loadSettings]);
+
+  if (fetchLoading) {
+    return <p style={{ color: '#666', fontSize: '0.9rem' }}>Loading settings...</p>;
+  }
+
+  if (fetchError) {
+    return (
+      <div style={{ padding: '0.75rem 1rem', background: '#fee2e2', borderRadius: 6, color: '#991b1b', fontSize: '0.9rem' }}>
+        <p style={{ margin: '0 0 0.5rem' }}>{fetchError}</p>
+        <button
+          onClick={loadSettings}
+          style={{
+            padding: '0.4rem 0.75rem', fontSize: '0.85rem', cursor: 'pointer',
+            background: '#fff', border: '1px solid #d1d5db', borderRadius: 4,
+          }}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   if (!settings) return null;
 
   async function handleUnitChange(value: string) {
     const newValue = value || null;
-    setSavingUnit(true);
-    setUnitMessage('');
-    try {
-      const res = await fetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ defaultUnitMappingId: newValue }),
-      });
-      if (!res.ok) throw new Error('Save failed');
-      setSettings(s => s ? { ...s, defaultUnitMappingId: newValue } : s);
-      setUnitMessage('Saved');
-      setTimeout(() => setUnitMessage(''), 2000);
-    } catch {
-      setUnitMessage('Error saving');
-    } finally {
-      setSavingUnit(false);
-    }
+    const ok = await unitSave.save({ defaultUnitMappingId: newValue });
+    if (ok) setSettings(s => s ? { ...s, defaultUnitMappingId: newValue } : s);
   }
 
   async function handleShoppingListChange(value: string) {
     const newValue = value || null;
-    setSavingList(true);
-    setListMessage('');
-    try {
-      const res = await fetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mealieShoppingListId: newValue }),
-      });
-      if (!res.ok) throw new Error('Save failed');
-      setSettings(s => s ? { ...s, mealieShoppingListId: newValue } : s);
-      setListMessage('Saved');
-      setTimeout(() => setListMessage(''), 2000);
-    } catch {
-      setListMessage('Error saving');
-    } finally {
-      setSavingList(false);
-    }
+    const ok = await listSave.save({ mealieShoppingListId: newValue });
+    if (ok) setSettings(s => s ? { ...s, mealieShoppingListId: newValue } : s);
   }
 
   async function handleAutoCreateChange(field: 'autoCreateProducts' | 'autoCreateUnits', value: boolean) {
-    setSavingAutoCreate(true);
-    setAutoCreateMessage('');
-    try {
-      const res = await fetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [field]: value }),
-      });
-      if (!res.ok) throw new Error('Save failed');
-      setSettings(s => s ? { ...s, [field]: value } : s);
-      setAutoCreateMessage('Saved');
-      setTimeout(() => setAutoCreateMessage(''), 2000);
-    } catch {
-      setAutoCreateMessage('Error saving');
-    } finally {
-      setSavingAutoCreate(false);
-    }
+    const ok = await autoCreateSave.save({ [field]: value });
+    if (ok) setSettings(s => s ? { ...s, [field]: value } : s);
+  }
+
+  function statusSpan(message: string) {
+    if (!message) return null;
+    const isSuccess = message === 'Saved';
+    return (
+      <span
+        className={`status-message ${isSuccess ? 'status-message--success' : 'status-message--error'}`}
+        style={{ display: 'inline', padding: '0.15rem 0.5rem', marginLeft: '0.5rem' }}
+      >
+        {isSuccess ? 'setting updated' : message}
+      </span>
+    );
   }
 
   return (
@@ -118,7 +121,7 @@ export default function SettingsForm() {
               id="shopping-list"
               value={settings.mealieShoppingListId || ''}
               onChange={e => handleShoppingListChange(e.target.value)}
-              disabled={savingList}
+              disabled={listSave.saving}
               style={{ padding: '0.5rem', fontSize: '1rem', minWidth: 200 }}
             >
               <option value="">-- Not set --</option>
@@ -126,7 +129,7 @@ export default function SettingsForm() {
                 <option key={l.id} value={l.id}>{l.name}</option>
               ))}
             </select>
-            {listMessage && <span style={{ marginLeft: '0.5rem', color: listMessage === 'Saved' ? 'green' : 'red' }}>{listMessage}</span>}
+            {statusSpan(listSave.message)}
           </>
         )}
       </div>
@@ -143,7 +146,7 @@ export default function SettingsForm() {
               id="default-unit"
               value={settings.defaultUnitMappingId || ''}
               onChange={e => handleUnitChange(e.target.value)}
-              disabled={savingUnit}
+              disabled={unitSave.saving}
               style={{ padding: '0.5rem', fontSize: '1rem', minWidth: 200 }}
             >
               <option value="">-- Not set --</option>
@@ -153,7 +156,7 @@ export default function SettingsForm() {
                 </option>
               ))}
             </select>
-            {unitMessage && <span style={{ marginLeft: '0.5rem', color: unitMessage === 'Saved' ? 'green' : 'red' }}>{unitMessage}</span>}
+            {statusSpan(unitSave.message)}
           </>
         )}
       </div>
@@ -171,7 +174,7 @@ export default function SettingsForm() {
             type="checkbox"
             checked={settings.autoCreateUnits}
             onChange={e => handleAutoCreateChange('autoCreateUnits', e.target.checked)}
-            disabled={savingAutoCreate}
+            disabled={autoCreateSave.saving}
           />
           <span style={{ fontSize: '0.9rem' }}>Auto-create units</span>
         </label>
@@ -180,11 +183,11 @@ export default function SettingsForm() {
             type="checkbox"
             checked={settings.autoCreateProducts}
             onChange={e => handleAutoCreateChange('autoCreateProducts', e.target.checked)}
-            disabled={savingAutoCreate}
+            disabled={autoCreateSave.saving}
           />
           <span style={{ fontSize: '0.9rem' }}>Auto-create products</span>
         </label>
-        {autoCreateMessage && <span style={{ fontSize: '0.85rem', color: autoCreateMessage === 'Saved' ? 'green' : 'red' }}>{autoCreateMessage}</span>}
+        {statusSpan(autoCreateSave.message)}
       </div>
     </div>
   );

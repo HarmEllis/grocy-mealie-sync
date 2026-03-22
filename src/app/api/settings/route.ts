@@ -1,13 +1,20 @@
 import { NextResponse } from 'next/server';
-import { getSettings, saveSettings } from '@/lib/settings';
+import { getSettings, saveSettings, resolveShoppingListId } from '@/lib/settings';
 import { db } from '@/lib/db';
 import { unitMappings } from '@/lib/db/schema';
 import { HouseholdsShoppingListsService } from '@/lib/mealie';
 import { log } from '@/lib/logger';
+import { settingsUpdateSchema } from '@/lib/validation';
+import { config } from '@/lib/config';
 
 export async function GET() {
   const settings = await getSettings();
   const units = await db.select().from(unitMappings);
+
+  // Resolve effective shopping list ID (DB setting > env var)
+  const effectiveShoppingListId = await resolveShoppingListId();
+  // Resolve effective default unit (DB setting > env var)
+  const effectiveDefaultUnitId = settings.defaultUnitMappingId;
 
   let availableShoppingLists: { id: string; name: string }[] = [];
   try {
@@ -23,8 +30,8 @@ export async function GET() {
   }
 
   return NextResponse.json({
-    defaultUnitMappingId: settings.defaultUnitMappingId,
-    mealieShoppingListId: settings.mealieShoppingListId,
+    defaultUnitMappingId: effectiveDefaultUnitId,
+    mealieShoppingListId: effectiveShoppingListId,
     autoCreateProducts: settings.autoCreateProducts,
     autoCreateUnits: settings.autoCreateUnits,
     availableUnits: units.map(u => ({
@@ -39,32 +46,38 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
-  const body = await request.json();
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
+
+  const parsed = settingsUpdateSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: 'Invalid request body', details: parsed.error.issues },
+      { status: 400 },
+    );
+  }
 
   const settings = await getSettings();
+  const data = parsed.data;
 
-  if ('defaultUnitMappingId' in body) {
-    const { defaultUnitMappingId } = body;
-    if (defaultUnitMappingId !== null && typeof defaultUnitMappingId !== 'string') {
-      return NextResponse.json({ error: 'defaultUnitMappingId must be a string or null' }, { status: 400 });
-    }
-    settings.defaultUnitMappingId = defaultUnitMappingId;
+  if (data.defaultUnitMappingId !== undefined) {
+    settings.defaultUnitMappingId = data.defaultUnitMappingId ?? null;
   }
 
-  if ('mealieShoppingListId' in body) {
-    const { mealieShoppingListId } = body;
-    if (mealieShoppingListId !== null && typeof mealieShoppingListId !== 'string') {
-      return NextResponse.json({ error: 'mealieShoppingListId must be a string or null' }, { status: 400 });
-    }
-    settings.mealieShoppingListId = mealieShoppingListId;
+  if (data.mealieShoppingListId !== undefined) {
+    settings.mealieShoppingListId = data.mealieShoppingListId ?? null;
   }
 
-  if ('autoCreateProducts' in body) {
-    settings.autoCreateProducts = !!body.autoCreateProducts;
+  if (data.autoCreateProducts !== undefined) {
+    settings.autoCreateProducts = data.autoCreateProducts;
   }
 
-  if ('autoCreateUnits' in body) {
-    settings.autoCreateUnits = !!body.autoCreateUnits;
+  if (data.autoCreateUnits !== undefined) {
+    settings.autoCreateUnits = data.autoCreateUnits;
   }
 
   await saveSettings(settings);

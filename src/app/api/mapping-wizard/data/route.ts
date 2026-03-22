@@ -1,15 +1,16 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { productMappings, unitMappings } from '@/lib/db/schema';
-import { GenericEntityInteractionsService } from '@/lib/grocy';
+import { getGrocyEntities } from '@/lib/grocy/types';
 import { RecipesFoodsService, RecipesUnitsService } from '@/lib/mealie';
+import { extractFoods, extractUnits } from '@/lib/mealie/types';
 import { fuzzyMatch } from '@/lib/fuzzy-match';
 import { log } from '@/lib/logger';
 
 export async function GET() {
   try {
     // Fetch all data in parallel
-    const [mealieFoodsRes, mealieUnitsRes, grocyProductsRaw, grocyUnitsRaw, existingProductMappings, existingUnitMappings] =
+    const [mealieFoodsRes, mealieUnitsRes, grocyProducts, grocyUnits, existingProductMappings, existingUnitMappings] =
       await Promise.all([
         RecipesFoodsService.getAllApiFoodsGet(
           undefined, undefined, undefined, undefined, undefined, undefined, 1, 10000,
@@ -17,16 +18,14 @@ export async function GET() {
         RecipesUnitsService.getAllApiUnitsGet(
           undefined, undefined, undefined, undefined, undefined, undefined, 1, 1000,
         ),
-        GenericEntityInteractionsService.getObjects('products' as any),
-        GenericEntityInteractionsService.getObjects('quantity_units' as any),
+        getGrocyEntities('products'),
+        getGrocyEntities('quantity_units'),
         db.select().from(productMappings),
         db.select().from(unitMappings),
       ]);
 
-    const mealieFoods: any[] = (mealieFoodsRes as any).items || [];
-    const mealieUnits: any[] = (mealieUnitsRes as any).items || [];
-    const grocyProducts: any[] = Array.isArray(grocyProductsRaw) ? grocyProductsRaw : [];
-    const grocyUnits: any[] = Array.isArray(grocyUnitsRaw) ? grocyUnitsRaw : [];
+    const mealieFoods = extractFoods(mealieFoodsRes);
+    const mealieUnits = extractUnits(mealieUnitsRes);
 
     // Find unmapped Mealie foods
     const mappedMealieFoodIds = new Set(existingProductMappings.map(m => m.mealieFoodId));
@@ -41,13 +40,13 @@ export async function GET() {
       .map(u => ({ id: u.id, name: u.name || 'Unknown', abbreviation: u.abbreviation || '' }));
 
     // Grocy products/units for dropdowns
-    const grocyProductList = grocyProducts.map((p: any) => ({
+    const grocyProductList = grocyProducts.map(p => ({
       id: Number(p.id),
       name: p.name || 'Unknown',
       quIdPurchase: Number(p.qu_id_purchase || 0),
     }));
 
-    const grocyUnitList = grocyUnits.map((u: any) => ({
+    const grocyUnitList = grocyUnits.map(u => ({
       id: Number(u.id),
       name: u.name || 'Unknown',
     }));
@@ -99,8 +98,8 @@ export async function GET() {
     }
 
     // Orphan counts: Grocy items without a Mealie counterpart
-    const mealieFoodNames = new Set(mealieFoods.map((f: any) => (f.name || '').toLowerCase()));
-    const mealieUnitNames = new Set(mealieUnits.flatMap((u: any) => [
+    const mealieFoodNames = new Set(mealieFoods.map(f => (f.name || '').toLowerCase()));
+    const mealieUnitNames = new Set(mealieUnits.flatMap(u => [
       (u.name || '').toLowerCase(),
       (u.abbreviation || '').toLowerCase(),
     ].filter(Boolean)));
