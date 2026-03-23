@@ -7,7 +7,7 @@ import path from 'path';
 /** Allowed parent directories for the database file. */
 const ALLOWED_DB_DIRS = ['./data', '/app/data'];
 
-function validateDatabasePath(raw: string): string {
+export function validateDatabasePath(raw: string): string {
   const resolved = path.resolve(raw);
   const isAllowed = ALLOWED_DB_DIRS.some((dir) => {
     const allowedResolved = path.resolve(dir);

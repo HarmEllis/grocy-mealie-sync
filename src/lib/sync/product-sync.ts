@@ -19,15 +19,13 @@ async function getDefaultLocationId(): Promise<number | null> {
     const locations = await getGrocyEntities('locations');
     if (locations.length === 0) {
       log.error('[ProductSync] No locations found in Grocy — cannot create products without a location');
-      cachedLocationId = null;
-      return null;
+      return null; // Don't cache — locations might be added later
     }
     cachedLocationId = Number(locations[0].id);
     return cachedLocationId;
   } catch (e) {
     log.error('[ProductSync] Failed to fetch Grocy locations:', e);
-    cachedLocationId = null;
-    return null;
+    return null; // Don't cache — transient error, will retry next sync cycle
   }
 }
 

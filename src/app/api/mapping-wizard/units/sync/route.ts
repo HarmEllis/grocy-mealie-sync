@@ -8,8 +8,15 @@ import { log } from '@/lib/logger';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { unitSyncRequestSchema } from '@/lib/validation';
+import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
 
 export async function POST(request: Request) {
+  if (!acquireSyncLock()) {
+    return NextResponse.json(
+      { error: 'A sync operation is already in progress. Please try again.' },
+      { status: 409 },
+    );
+  }
   try {
     let body: unknown;
     try {
@@ -94,5 +101,7 @@ export async function POST(request: Request) {
   } catch (error) {
     log.error('[MappingWizard] Unit sync failed:', error);
     return NextResponse.json({ error: 'Unit sync failed' }, { status: 500 });
+  } finally {
+    releaseSyncLock();
   }
 }

@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 
 // ---------------------------------------------------------------------------
 // In-memory rate limiter
+//
+// NOTE: Rate limiting relies on the client IP from X-Forwarded-For / X-Real-IP.
+// When deployed behind a trusted reverse proxy (nginx, Traefik, Caddy), the
+// proxy should overwrite these headers so clients cannot spoof them. When
+// directly exposed, rate limiting is best-effort only. This is acceptable for
+// a single-instance homelab deployment.
 // ---------------------------------------------------------------------------
 
 interface RateLimitEntry {
@@ -51,14 +57,32 @@ function checkRateLimit(ip: string, pathname: string): { allowed: boolean; limit
 }
 
 // ---------------------------------------------------------------------------
+// Cookie-based session for the web UI
+//
+// When AUTH_SECRET is set, the middleware issues an HttpOnly session cookie on
+// page loads. API requests are then authenticated via either:
+//   1. Authorization: Bearer <AUTH_SECRET>  (programmatic / external callers)
+//   2. __session cookie                     (browser UI — set automatically)
+//
+// The session token is random and regenerated on each process restart.
+// ---------------------------------------------------------------------------
+
+const SESSION_TOKEN = Array.from(
+  globalThis.crypto.getRandomValues(new Uint8Array(32)),
+).map(b => b.toString(16).padStart(2, '0')).join('');
+
+// ---------------------------------------------------------------------------
 // Auth check
 // ---------------------------------------------------------------------------
 
-function isSameOriginRequest(request: NextRequest): boolean {
-  // Sec-Fetch-Site is set by browsers on all fetch/XHR requests and cannot
-  // be forged by cross-origin scripts (forbidden header).
-  const secFetchSite = request.headers.get('sec-fetch-site');
-  return secFetchSite === 'same-origin';
+function constantTimeEqual(a: string, b: string): boolean {
+  // Pad to equal length to avoid leaking length via timing.
+  const len = Math.max(a.length, b.length);
+  let mismatch = a.length !== b.length ? 1 : 0;
+  for (let i = 0; i < len; i++) {
+    mismatch |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return mismatch === 0;
 }
 
 function checkAuth(request: NextRequest): boolean {
@@ -67,26 +91,20 @@ function checkAuth(request: NextRequest): boolean {
   // If AUTH_SECRET is not set, allow all requests (homelab single-user default)
   if (!authSecret) return true;
 
-  // Same-origin browser requests (the web UI's own fetch calls) are exempt —
-  // the UI is served by the same Next.js process and can't include a Bearer token.
-  if (isSameOriginRequest(request)) return true;
-
+  // Check Authorization: Bearer <token>  (programmatic / external callers)
   const authHeader = request.headers.get('authorization');
-  if (!authHeader) return false;
-
-  // Expect "Bearer <token>"
-  const parts = authHeader.split(' ');
-  if (parts.length !== 2 || parts[0] !== 'Bearer') return false;
-
-  // Constant-time comparison to prevent timing attacks
-  const token = parts[1];
-  if (token.length !== authSecret.length) return false;
-
-  let mismatch = 0;
-  for (let i = 0; i < token.length; i++) {
-    mismatch |= token.charCodeAt(i) ^ authSecret.charCodeAt(i);
+  if (authHeader) {
+    const parts = authHeader.split(' ');
+    if (parts.length === 2 && parts[0] === 'Bearer') {
+      return constantTimeEqual(parts[1], authSecret);
+    }
   }
-  return mismatch === 0;
+
+  // Check session cookie (browser UI — set by middleware on page loads)
+  const sessionCookie = request.cookies.get('__session')?.value;
+  if (sessionCookie && sessionCookie === SESSION_TOKEN) return true;
+
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -96,17 +114,30 @@ function checkAuth(request: NextRequest): boolean {
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Bypass list: health endpoint, web UI, and static assets
+  // Bypass: health endpoint and static assets need no auth or rate limiting
   if (
     pathname === '/api/health' ||
-    pathname === '/' ||
     pathname.startsWith('/_next/') ||
     pathname.startsWith('/favicon')
   ) {
     return NextResponse.next();
   }
 
-  // Only apply auth + rate limiting to API routes
+  // Page requests: set session cookie (for UI auth) and pass through
+  if (pathname === '/') {
+    const response = NextResponse.next();
+    const authSecret = process.env.AUTH_SECRET;
+    if (authSecret) {
+      response.cookies.set('__session', SESSION_TOKEN, {
+        httpOnly: true,
+        sameSite: 'strict',
+        path: '/',
+      });
+    }
+    return response;
+  }
+
+  // API routes: auth + rate limiting
   if (pathname.startsWith('/api/')) {
     // Auth check
     if (!checkAuth(request)) {
@@ -151,7 +182,7 @@ export const config = {
   matcher: [
     // Match all API routes
     '/api/:path*',
-    // Match root page (to bypass auth)
+    // Match root page (to set session cookie for UI auth)
     '/',
   ],
 };

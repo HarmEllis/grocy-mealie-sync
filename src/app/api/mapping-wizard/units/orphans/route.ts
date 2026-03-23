@@ -8,6 +8,7 @@ import { extractUnits } from '@/lib/mealie/types';
 import type { MealieUnit } from '@/lib/mealie/types';
 import { log } from '@/lib/logger';
 import { orphanDeleteRequestSchema } from '@/lib/validation';
+import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
 
 /** GET: List orphan units (Grocy units with no Mealie counterpart) */
 export async function GET() {
@@ -46,6 +47,12 @@ export async function GET() {
 
 /** POST: Delete specified orphan units with confirmation */
 export async function POST(request: Request) {
+  if (!acquireSyncLock()) {
+    return NextResponse.json(
+      { error: 'A sync operation is already in progress. Please try again.' },
+      { status: 409 },
+    );
+  }
   try {
     let body: unknown;
     try {
@@ -66,15 +73,18 @@ export async function POST(request: Request) {
     // Circuit breaker: verify upstream APIs are responding
     let grocyUnits: QuantityUnit[];
     let mealieUnits: MealieUnit[];
+    let existingMappings: { grocyUnitId: number }[];
     try {
-      const [grocyUnitsResult, mealieUnitsRes] = await Promise.all([
+      const [grocyUnitsResult, mealieUnitsRes, mappings] = await Promise.all([
         getGrocyEntities('quantity_units'),
         RecipesUnitsService.getAllApiUnitsGet(
           undefined, undefined, undefined, undefined, undefined, undefined, 1, 1000,
         ),
+        db.select().from(unitMappings),
       ]);
       grocyUnits = grocyUnitsResult;
       mealieUnits = extractUnits(mealieUnitsRes);
+      existingMappings = mappings;
     } catch (upstreamError) {
       log.error('[MappingWizard] Upstream API unavailable during orphan deletion:', upstreamError);
       return NextResponse.json(
@@ -105,10 +115,26 @@ export async function POST(request: Request) {
       );
     }
 
-    // Only delete the specifically requested IDs
-    const idsToDelete = new Set(ids);
+    // Compute actual orphan IDs (same logic as GET handler) to prevent
+    // arbitrary deletion of mapped/active units via forged IDs.
+    const mappedGrocyUnitIds = new Set(existingMappings.map(m => m.grocyUnitId));
+    const mealieUnitNames = new Set(mealieUnits.flatMap(u => [
+      (u.name || '').toLowerCase(),
+      (u.abbreviation || '').toLowerCase(),
+    ].filter(Boolean)));
+    const orphanIds = new Set(
+      grocyUnits
+        .filter(u => !mappedGrocyUnitIds.has(Number(u.id)) && !mealieUnitNames.has((u.name || '').toLowerCase()))
+        .map(u => String(u.id)),
+    );
+    const validIds = ids.filter(id => orphanIds.has(id));
+
+    if (validIds.length < ids.length) {
+      log.warn(`[MappingWizard] Filtered ${ids.length - validIds.length} non-orphan IDs from deletion request`);
+    }
+
     let deleted = 0;
-    for (const id of idsToDelete) {
+    for (const id of validIds) {
       try {
         await deleteGrocyEntity('quantity_units', Number(id));
         deleted++;
@@ -117,10 +143,12 @@ export async function POST(request: Request) {
       }
     }
 
-    log.info(`[MappingWizard] Orphan units deleted: ${deleted}/${idsToDelete.size}`);
-    return NextResponse.json({ deleted, total: idsToDelete.size });
+    log.info(`[MappingWizard] Orphan units deleted: ${deleted}/${validIds.length}`);
+    return NextResponse.json({ deleted, total: validIds.length });
   } catch (error) {
     log.error('[MappingWizard] Orphan unit deletion failed:', error);
     return NextResponse.json({ error: 'Orphan unit deletion failed' }, { status: 500 });
+  } finally {
+    releaseSyncLock();
   }
 }

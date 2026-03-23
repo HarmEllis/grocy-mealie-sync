@@ -61,7 +61,8 @@ export async function pollGrocyForMissingStock(): Promise<void> {
     let skippedSyncRestocked = 0;
     for (const grocyProductId of noLongerMissing) {
       if (grocyProductId in state.syncRestockedProducts) {
-        log.info(`[Grocy→Mealie] Skipping removal for product ${grocyProductId} — restocked by sync, not manually`);
+        const name = await resolveProductName(grocyProductId);
+        log.info(`[Grocy→Mealie] Skipping removal for "${name}" — restocked by sync, not manually`);
         delete state.syncRestockedProducts[grocyProductId];
         skippedSyncRestocked++;
         continue;
@@ -178,4 +179,12 @@ async function adjustMealieShoppingItem(
     return true;
   }
   return true;
+}
+
+async function resolveProductName(grocyProductId: number): Promise<string> {
+  const mappings = await db.select()
+    .from(productMappings)
+    .where(eq(productMappings.grocyProductId, grocyProductId))
+    .limit(1);
+  return mappings.length > 0 ? mappings[0].mealieFoodName : `product #${grocyProductId}`;
 }

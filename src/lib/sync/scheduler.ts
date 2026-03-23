@@ -7,19 +7,29 @@ import { acquireSyncLock, releaseSyncLock } from './mutex';
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let productSyncTimer: ReturnType<typeof setInterval> | null = null;
+let started = false;
 
 export function startScheduler(): void {
-  if (pollTimer) return;
+  if (started) return;
+  started = true;
 
   log.info('[Scheduler] Starting sync scheduler');
   log.info(`[Scheduler] Poll interval: ${config.pollIntervalSeconds}s`);
   log.info(`[Scheduler] Product sync interval: ${config.productSyncIntervalHours}h`);
 
-  // Run initial product sync on startup
-  runFullProductSync().catch(err => {
-    log.error('[Scheduler] Initial product sync failed:', err);
-  });
+  // Run initial product sync, then start poll timers.
+  // No lock needed — timers haven't started yet, so there's no race.
+  (async () => {
+    try {
+      await runFullProductSync();
+    } catch (err) {
+      log.error('[Scheduler] Initial product sync failed:', err);
+    }
+    startTimers();
+  })();
+}
 
+function startTimers(): void {
   // Start polling loop for Mealie→Grocy and Grocy→Mealie
   // Mealie→Grocy runs first so sync-restocked products are recorded before
   // Grocy→Mealie processes the "no longer missing" list (feedback loop guard).
@@ -59,9 +69,12 @@ export function startScheduler(): void {
       releaseSyncLock();
     }
   }, productSyncMs);
+
+  log.info('[Scheduler] Poll timers started');
 }
 
 export function stopScheduler(): void {
+  started = false;
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;

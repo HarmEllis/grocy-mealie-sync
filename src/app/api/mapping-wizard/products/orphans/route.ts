@@ -8,6 +8,7 @@ import { extractFoods } from '@/lib/mealie/types';
 import type { MealieFood } from '@/lib/mealie/types';
 import { log } from '@/lib/logger';
 import { orphanDeleteRequestSchema } from '@/lib/validation';
+import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
 
 /** GET: List orphan products (Grocy products with no Mealie counterpart) */
 export async function GET() {
@@ -43,6 +44,12 @@ export async function GET() {
 
 /** POST: Delete specified orphan products with confirmation */
 export async function POST(request: Request) {
+  if (!acquireSyncLock()) {
+    return NextResponse.json(
+      { error: 'A sync operation is already in progress. Please try again.' },
+      { status: 409 },
+    );
+  }
   try {
     let body: unknown;
     try {
@@ -63,15 +70,18 @@ export async function POST(request: Request) {
     // Circuit breaker: verify upstream APIs are responding
     let grocyProducts: Product[];
     let mealieFoods: MealieFood[];
+    let existingMappings: { grocyProductId: number }[];
     try {
-      const [grocyProductsResult, mealieFoodsRes] = await Promise.all([
+      const [grocyProductsResult, mealieFoodsRes, mappings] = await Promise.all([
         getGrocyEntities('products'),
         RecipesFoodsService.getAllApiFoodsGet(
           undefined, undefined, undefined, undefined, undefined, undefined, 1, 10000,
         ),
+        db.select().from(productMappings),
       ]);
       grocyProducts = grocyProductsResult;
       mealieFoods = extractFoods(mealieFoodsRes);
+      existingMappings = mappings;
     } catch (upstreamError) {
       log.error('[MappingWizard] Upstream API unavailable during orphan deletion:', upstreamError);
       return NextResponse.json(
@@ -102,10 +112,23 @@ export async function POST(request: Request) {
       );
     }
 
-    // Only delete the specifically requested IDs
-    const idsToDelete = new Set(ids);
+    // Compute actual orphan IDs (same logic as GET handler) to prevent
+    // arbitrary deletion of mapped/active products via forged IDs.
+    const mappedGrocyProductIds = new Set(existingMappings.map(m => m.grocyProductId));
+    const mealieFoodNames = new Set(mealieFoods.map(f => (f.name || '').toLowerCase()));
+    const orphanIds = new Set(
+      grocyProducts
+        .filter(p => !mappedGrocyProductIds.has(Number(p.id)) && !mealieFoodNames.has((p.name || '').toLowerCase()))
+        .map(p => String(p.id)),
+    );
+    const validIds = ids.filter(id => orphanIds.has(id));
+
+    if (validIds.length < ids.length) {
+      log.warn(`[MappingWizard] Filtered ${ids.length - validIds.length} non-orphan IDs from deletion request`);
+    }
+
     let deleted = 0;
-    for (const id of idsToDelete) {
+    for (const id of validIds) {
       try {
         await deleteGrocyEntity('products', Number(id));
         deleted++;
@@ -114,10 +137,12 @@ export async function POST(request: Request) {
       }
     }
 
-    log.info(`[MappingWizard] Orphan products deleted: ${deleted}/${idsToDelete.size}`);
-    return NextResponse.json({ deleted, total: idsToDelete.size });
+    log.info(`[MappingWizard] Orphan products deleted: ${deleted}/${validIds.length}`);
+    return NextResponse.json({ deleted, total: validIds.length });
   } catch (error) {
     log.error('[MappingWizard] Orphan product deletion failed:', error);
     return NextResponse.json({ error: 'Orphan product deletion failed' }, { status: 500 });
+  } finally {
+    releaseSyncLock();
   }
 }

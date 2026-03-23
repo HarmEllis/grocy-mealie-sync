@@ -9,7 +9,7 @@ const MEALIE_DEFAULT_URL = 'http://mealie:9925';
  * Validates that a URL starts with http:// or https:// and is non-empty.
  * Returns the validated URL or the fallback default.
  */
-function validateServiceUrl(value: string | undefined, name: string, defaultUrl: string): string {
+export function validateServiceUrl(value: string | undefined, name: string, defaultUrl: string): string {
   if (!value || value.trim() === '') {
     return defaultUrl;
   }
@@ -23,7 +23,7 @@ function validateServiceUrl(value: string | undefined, name: string, defaultUrl:
   return trimmed;
 }
 
-function parseIntOrDefault(value: string | undefined, defaultValue: number): number {
+export function parseIntOrDefault(value: string | undefined, defaultValue: number): number {
   const parsed = parseInt(value || '', 10);
   return isNaN(parsed) ? defaultValue : parsed;
 }

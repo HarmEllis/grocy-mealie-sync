@@ -33,11 +33,18 @@ export async function pollMealieForCheckedItems(): Promise<void> {
       // Was unchecked (or unknown) before, now checked
       const wasChecked = previousCheckedState[item.id];
       if (checked && wasChecked !== true) {
-        const grocyProductId = await processCheckedItem(item);
-        if (grocyProductId !== null) {
-          // Track that this product was restocked by sync, so Grocy→Mealie
-          // won't remove it from the shopping list on the next poll
-          state.syncRestockedProducts[grocyProductId] = new Date().toISOString();
+        try {
+          const grocyProductId = await processCheckedItem(item);
+          if (grocyProductId !== null) {
+            // Track that this product was restocked by sync, so Grocy→Mealie
+            // won't remove it from the shopping list on the next poll
+            state.syncRestockedProducts[String(grocyProductId)] = new Date().toISOString();
+          }
+        } catch (err) {
+          log.error(`[Mealie→Grocy] Failed to process item "${item.id}":`, err);
+          // Remove from newCheckedState so ONLY this item retries next poll.
+          // Other already-processed items are saved normally, preventing double-restocking.
+          delete newCheckedState[item.id];
         }
       }
       // B3 edge case: un-checking is ignored (Scenario 10)
@@ -96,7 +103,8 @@ async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<num
     await addProductStock(mapping.grocyProductId, quantity);
   } catch (error) {
     log.error(`[Mealie→Grocy] Failed to add stock for "${mapping.grocyProductName}":`, error);
-    // Don't mark as processed — will retry on next poll
+    // Propagate to caller — the poll loop catches this per-item and leaves
+    // the item out of newCheckedState so it retries on the next poll.
     throw error;
   }
 
