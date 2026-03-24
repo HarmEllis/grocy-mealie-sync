@@ -25,6 +25,7 @@ interface UnitsTabProps {
   actionRunning: string | null;
   onAcceptAllSuggestions: () => void;
   onAcceptSuggestion: (id: string) => void;
+  onNormalizeUnits: () => void;
 }
 
 export function UnitsTab({
@@ -39,6 +40,7 @@ export function UnitsTab({
   actionRunning,
   onAcceptAllSuggestions,
   onAcceptSuggestion,
+  onNormalizeUnits,
 }: UnitsTabProps) {
   const isRunning = !!actionRunning;
 
@@ -83,6 +85,9 @@ export function UnitsTab({
             Accept All Suggestions ({Object.keys(data.unitSuggestions).length})
           </Button>
         )}
+        <Button variant="outline" size="sm" onClick={onNormalizeUnits} disabled={isRunning}>
+          Normalize (lowercase)
+        </Button>
         <Input
           placeholder="Filter Mealie units..."
           value={unitSearch}

@@ -15,13 +15,13 @@ import {
 // DB mock: drizzle chain db.select().from(table).where(...).limit(n)
 // We track which table is queried via mockFrom so mockLimit can return the
 // appropriate rows.
-const mockLimit = vi.fn();
-const mockWhere = vi.fn(() => ({ limit: mockLimit }));
-const mockFrom = vi.fn(() => ({ where: mockWhere }));
-const mockSelect = vi.fn(() => ({ from: mockFrom }));
+const mockLimit = vi.fn<(...args: any[]) => any>();
+const mockWhere = vi.fn<(...args: any[]) => any>(() => ({ limit: mockLimit }));
+const mockFrom = vi.fn<(...args: any[]) => any>(() => ({ where: mockWhere }));
+const mockSelect = vi.fn<(...args: any[]) => any>(() => ({ from: mockFrom }));
 
 vi.mock('../../db', () => ({
-  db: { select: (...args: unknown[]) => mockSelect(...args) },
+  db: { select: (...args: any[]) => mockSelect(...args) },
 }));
 
 vi.mock('../../grocy/types', () => ({

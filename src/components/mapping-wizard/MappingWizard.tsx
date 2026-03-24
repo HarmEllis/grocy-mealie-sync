@@ -207,6 +207,17 @@ export function MappingWizard() {
 
   // --- Product Actions ---
 
+  async function normalizeProducts() {
+    await runAction('normalizeProducts', async () => {
+      const res = await fetch('/api/mapping-wizard/products/normalize', { method: 'POST' });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Failed to normalize products');
+      const skipped = result.skippedDuplicates?.length ?? 0;
+      toast.success(`Normalized ${result.normalizedMealie} Mealie products and ${result.normalizedGrocy} Grocy products${skipped ? `, ${skipped} skipped` : ''}`);
+      if (skipped) toast.warning(`${skipped} products skipped: a product with the target name already exists in Mealie (duplicates with different casing or trailing spaces). Remove the duplicate in Mealie first.`, { duration: 15000 });
+    });
+  }
+
   async function syncProducts() {
     const filled = Object.values(productMaps).filter(m => m.grocyProductId !== null);
     if (filled.length === 0) { toast.info('No products mapped'); return; }
@@ -303,6 +314,17 @@ export function MappingWizard() {
   }
 
   // --- Unit Actions ---
+
+  async function normalizeUnits() {
+    await runAction('normalizeUnits', async () => {
+      const res = await fetch('/api/mapping-wizard/units/normalize', { method: 'POST' });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Failed to normalize units');
+      const skipped = result.skippedDuplicates?.length ?? 0;
+      toast.success(`Normalized ${result.normalizedMealie} Mealie units and ${result.normalizedGrocy} Grocy units${skipped ? `, ${skipped} skipped` : ''}`);
+      if (skipped) toast.warning(`${skipped} units skipped: a unit with the target name already exists in Mealie (duplicates with different casing or trailing spaces). Remove the duplicate in Mealie first.`, { duration: 15000 });
+    });
+  }
 
   async function syncUnits() {
     const filled = Object.values(unitMaps).filter(m => m.grocyUnitId !== null);
@@ -443,6 +465,7 @@ export function MappingWizard() {
                     actionRunning={actionRunning}
                     onAcceptAllSuggestions={acceptAllUnitSuggestions}
                     onAcceptSuggestion={acceptUnitSuggestion}
+                    onNormalizeUnits={normalizeUnits}
                   />
                 </TabsContent>
 
@@ -463,6 +486,7 @@ export function MappingWizard() {
                     actionRunning={actionRunning}
                     onAcceptAllSuggestions={acceptAllProductSuggestions}
                     onAcceptSuggestion={acceptProductSuggestion}
+                    onNormalizeProducts={normalizeProducts}
                   />
                 </TabsContent>
               </Tabs>

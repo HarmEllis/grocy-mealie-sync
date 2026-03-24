@@ -29,6 +29,7 @@ interface ProductsTabProps {
   actionRunning: string | null;
   onAcceptAllSuggestions: () => void;
   onAcceptSuggestion: (id: string) => void;
+  onNormalizeProducts: () => void;
 }
 
 export function ProductsTab({
@@ -47,6 +48,7 @@ export function ProductsTab({
   actionRunning,
   onAcceptAllSuggestions,
   onAcceptSuggestion,
+  onNormalizeProducts,
 }: ProductsTabProps) {
   const isRunning = !!actionRunning;
 
@@ -113,6 +115,9 @@ export function ProductsTab({
             Accept All Suggestions ({Object.keys(data.productSuggestions).length})
           </Button>
         )}
+        <Button variant="outline" size="sm" onClick={onNormalizeProducts} disabled={isRunning}>
+          Normalize (Capitalize)
+        </Button>
         <Input
           placeholder="Filter Mealie products..."
           value={productSearch}
