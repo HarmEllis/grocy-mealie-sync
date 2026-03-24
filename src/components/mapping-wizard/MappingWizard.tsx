@@ -97,6 +97,11 @@ export function MappingWizard() {
     data ? sortByName(data.grocyUnits).map(u => ({ value: u.id, label: u.name })) : [],
     [data],
   );
+  // Only already-mapped units for the "default unit" dropdown (matches Settings behavior)
+  const mappedUnitOptions = useMemo(() =>
+    data ? sortByName(data.existingUnitMappings.map(m => ({ name: m.mealieUnitName, id: m.grocyUnitId }))).map(u => ({ value: u.id, label: u.name })) : [],
+    [data],
+  );
 
   // Unmapped IDs for "create" checkboxes
   const unmappedProductIds = useMemo(() =>
@@ -452,6 +457,7 @@ export function MappingWizard() {
                     setProductSearch={setProductSearch}
                     grocyProductOptions={grocyProductOptions}
                     grocyUnitOptions={grocyUnitOptions}
+                    mappedUnitOptions={mappedUnitOptions}
                     defaultCreateUnitId={defaultCreateUnitId}
                     setDefaultCreateUnitId={setDefaultCreateUnitId}
                     actionRunning={actionRunning}

@@ -23,6 +23,7 @@ interface ProductsTabProps {
   setProductSearch: (value: string) => void;
   grocyProductOptions: SelectOption[];
   grocyUnitOptions: SelectOption[];
+  mappedUnitOptions: SelectOption[];
   defaultCreateUnitId: number | null;
   setDefaultCreateUnitId: (value: number | null) => void;
   actionRunning: string | null;
@@ -40,6 +41,7 @@ export function ProductsTab({
   setProductSearch,
   grocyProductOptions,
   grocyUnitOptions,
+  mappedUnitOptions,
   defaultCreateUnitId,
   setDefaultCreateUnitId,
   actionRunning,
@@ -70,7 +72,7 @@ export function ProductsTab({
   const productMappedCount = Object.values(productMaps).filter(m => m.grocyProductId !== null).length;
 
   const defaultUnitName = defaultCreateUnitId && data
-    ? data.grocyUnits.find(u => u.id === defaultCreateUnitId)?.name
+    ? data.existingUnitMappings.find(m => m.grocyUnitId === defaultCreateUnitId)?.mealieUnitName
     : undefined;
   const unitPlaceholder = defaultUnitName ? `Default: ${defaultUnitName}` : 'Unit...';
 
@@ -93,7 +95,7 @@ export function ProductsTab({
           Default unit for new products:
         </label>
         <SearchableSelect
-          options={grocyUnitOptions}
+          options={mappedUnitOptions}
           value={defaultCreateUnitId}
           onChange={setDefaultCreateUnitId}
           placeholder="Select unit..."
