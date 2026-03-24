@@ -2,11 +2,24 @@ import { getSyncState } from '@/lib/sync/state';
 import { db } from '@/lib/db';
 import { productMappings, unitMappings } from '@/lib/db/schema';
 import { count } from 'drizzle-orm';
-import SettingsForm from './settings-form';
-import SyncButtons from './sync-buttons';
-import MappingWizard from './mapping-wizard';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { SettingsForm } from '@/components/settings/SettingsForm';
+import { SyncButtons } from '@/components/sync/SyncButtons';
+import { MappingWizard } from '@/components/mapping-wizard/MappingWizard';
+import { ArrowLeftRight, Settings, Wand2, Activity, Database, Clock, Terminal } from 'lucide-react';
 
-async function getStatus() {
+interface SyncStatus {
+  lastGrocyPoll: string | Date | null;
+  lastMealiePoll: string | Date | null;
+  grocyBelowMinStockCount: number;
+  mealieTrackedItemsCount: number;
+  productMappings: number;
+  unitMappings: number;
+}
+
+async function getStatus(): Promise<SyncStatus | null> {
   try {
     const state = await getSyncState();
     const [productCount] = await db.select({ count: count() }).from(productMappings);
@@ -25,44 +38,164 @@ async function getStatus() {
   }
 }
 
+function formatTimestamp(ts: string | Date | null): string {
+  if (!ts) return 'Never';
+  try {
+    const d = ts instanceof Date ? ts : new Date(ts);
+    return d.toLocaleString();
+  } catch {
+    return String(ts);
+  }
+}
+
 export const dynamic = 'force-dynamic';
 
 export default async function Home() {
   const status = await getStatus();
 
   return (
-    <div style={{ maxWidth: 800, margin: '0 auto' }}>
-      <h1>Grocy-Mealie Sync</h1>
-      <p>Bi-directional sync between Grocy inventory and Mealie shopping lists.</p>
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="mx-auto flex h-14 max-w-3xl items-center gap-3 px-4">
+          <ArrowLeftRight className="size-5 text-primary" />
+          <div>
+            <h1 className="text-base font-semibold leading-tight">Grocy-Mealie Sync</h1>
+            <p className="text-xs text-muted-foreground">Bi-directional sync between Grocy and Mealie</p>
+          </div>
+          {status && (
+            <div className="ml-auto flex items-center gap-2">
+              <Badge variant="secondary" className="gap-1">
+                <Database className="size-3" />
+                {status.productMappings} products
+              </Badge>
+              <Badge variant="secondary" className="gap-1">
+                {status.unitMappings} units
+              </Badge>
+            </div>
+          )}
+        </div>
+      </header>
 
-      <h2>Status</h2>
-      {status ? (
-        <pre style={{ background: '#fff', padding: '1rem', borderRadius: 8, overflow: 'auto' }}>
-          {JSON.stringify(status, null, 2)}
-        </pre>
-      ) : (
-        <p>Could not fetch status. The sync service may not be running.</p>
-      )}
+      {/* Content */}
+      <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
+        {/* Status Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="size-4" />
+              Status
+            </CardTitle>
+            <CardDescription>Current sync state overview</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {status ? (
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                <div className="space-y-0.5">
+                  <p className="text-muted-foreground flex items-center gap-1.5">
+                    <Clock className="size-3" />
+                    Last Grocy poll
+                  </p>
+                  <p className="font-medium">{formatTimestamp(status.lastGrocyPoll)}</p>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-muted-foreground flex items-center gap-1.5">
+                    <Clock className="size-3" />
+                    Last Mealie poll
+                  </p>
+                  <p className="font-medium">{formatTimestamp(status.lastMealiePoll)}</p>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-muted-foreground">Grocy below min stock</p>
+                  <p className="font-medium">{status.grocyBelowMinStockCount} items</p>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-muted-foreground">Mealie tracked items</p>
+                  <p className="font-medium">{status.mealieTrackedItemsCount} items</p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Could not fetch status. The sync service may not be running.
+              </p>
+            )}
+          </CardContent>
+        </Card>
 
-      <h2>Settings</h2>
-      <SettingsForm />
+        {/* Settings Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Settings className="size-4" />
+              Settings
+            </CardTitle>
+            <CardDescription>Configure sync behavior and defaults</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SettingsForm />
+          </CardContent>
+        </Card>
 
-      <h2>Mapping Wizard</h2>
-      <MappingWizard />
+        {/* Mapping Wizard Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Wand2 className="size-4" />
+              Mapping Wizard
+            </CardTitle>
+            <CardDescription>Map Mealie items to Grocy products and units</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MappingWizard />
+          </CardContent>
+        </Card>
 
-      <h2>Manual Sync</h2>
-      <SyncButtons />
+        {/* Manual Sync Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ArrowLeftRight className="size-4" />
+              Manual Sync
+            </CardTitle>
+            <CardDescription>Trigger sync operations manually</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SyncButtons />
+          </CardContent>
+        </Card>
 
-      <h2>API Endpoints</h2>
-      <ul>
-        <li><code>GET /api/health</code> — Health check</li>
-        <li><code>GET /api/status</code> — Sync status</li>
-        <li><code>GET /api/mappings/products</code> — Product mappings</li>
-        <li><code>GET /api/mappings/units</code> — Unit mappings</li>
-        <li><code>POST /api/sync/products</code> — Trigger product sync</li>
-        <li><code>POST /api/sync/grocy-to-mealie</code> — Trigger Grocy→Mealie check</li>
-        <li><code>POST /api/sync/mealie-to-grocy</code> — Trigger Mealie→Grocy check</li>
-      </ul>
+        {/* API Endpoints Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Terminal className="size-4" />
+              API Endpoints
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-1.5 text-sm">
+              {[
+                ['GET', '/api/health', 'Health check'],
+                ['GET', '/api/status', 'Sync status'],
+                ['GET', '/api/mappings/products', 'Product mappings'],
+                ['GET', '/api/mappings/units', 'Unit mappings'],
+                ['POST', '/api/sync/products', 'Trigger product sync'],
+                ['POST', '/api/sync/grocy-to-mealie', 'Trigger Grocy\u2192Mealie check'],
+                ['POST', '/api/sync/mealie-to-grocy', 'Trigger Mealie\u2192Grocy check'],
+              ].map(([method, path, desc]) => (
+                <div key={path} className="flex items-center gap-2">
+                  <Badge variant="outline" className="font-mono text-[10px] w-12 justify-center">
+                    {method}
+                  </Badge>
+                  <code className="text-xs text-foreground">{path}</code>
+                  <Separator orientation="vertical" className="h-3" />
+                  <span className="text-muted-foreground text-xs">{desc}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

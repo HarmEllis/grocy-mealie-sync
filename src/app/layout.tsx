@@ -1,8 +1,9 @@
 import './globals.css';
 import { Geist } from "next/font/google";
 import { cn } from "@/lib/utils";
+import { Toaster } from "@/components/ui/sonner";
 
-const geist = Geist({subsets:['latin'],variable:'--font-sans'});
+const geist = Geist({ subsets: ['latin'], variable: '--font-sans' });
 
 export const metadata = {
   title: 'Grocy-Mealie Sync',
@@ -14,6 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={cn("font-sans", geist.variable)}>
       <body>
         <main>{children}</main>
+        <Toaster position="bottom-right" richColors closeButton />
       </body>
     </html>
   );

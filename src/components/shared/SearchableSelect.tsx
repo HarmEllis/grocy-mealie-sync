@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect, useMemo, useCallback, useId } from 'react';
+import { cn } from '@/lib/utils';
+import { X } from 'lucide-react';
 
 interface Option {
   value: number;
@@ -12,10 +14,10 @@ interface SearchableSelectProps {
   value: number | null;
   onChange: (value: number | null) => void;
   placeholder?: string;
-  style?: React.CSSProperties;
+  className?: string;
 }
 
-export default function SearchableSelect({ options, value, onChange, placeholder = 'Search...', style }: SearchableSelectProps) {
+export function SearchableSelect({ options, value, onChange, placeholder = 'Search...', className }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -32,7 +34,6 @@ export default function SearchableSelect({ options, value, onChange, placeholder
     return options.filter(o => o.label.toLowerCase().includes(q));
   }, [options, search]);
 
-  // Reset active index when filtered list changes
   useEffect(() => {
     setActiveIndex(-1);
   }, [filtered]);
@@ -49,7 +50,6 @@ export default function SearchableSelect({ options, value, onChange, placeholder
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Scroll active option into view
   useEffect(() => {
     if (activeIndex >= 0 && listboxRef.current) {
       const activeEl = listboxRef.current.querySelector(`[data-index="${activeIndex}"]`);
@@ -112,7 +112,7 @@ export default function SearchableSelect({ options, value, onChange, placeholder
   const activeDescendant = activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined;
 
   return (
-    <div ref={containerRef} style={{ position: 'relative', ...style }}>
+    <div ref={containerRef} className={cn('relative', className)}>
       <div
         role="combobox"
         aria-expanded={open}
@@ -122,18 +122,11 @@ export default function SearchableSelect({ options, value, onChange, placeholder
         tabIndex={open ? -1 : 0}
         onClick={openDropdown}
         onKeyDown={handleKeyDown}
-        style={{
-          padding: '0.3rem 0.4rem',
-          fontSize: '0.85rem',
-          border: '1px solid #ccc',
-          borderRadius: 4,
-          background: value !== null ? '#f0fdf4' : '#fff',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          minHeight: 30,
-          gap: '0.25rem',
-        }}
+        className={cn(
+          'flex items-center gap-1 rounded-md border px-2 py-1.5 text-sm cursor-pointer min-h-[30px]',
+          'border-input bg-background hover:bg-muted/50 transition-colors',
+          value !== null && 'bg-success/10 border-success/30',
+        )}
       >
         {open ? (
           <input
@@ -145,22 +138,13 @@ export default function SearchableSelect({ options, value, onChange, placeholder
             aria-controls={listboxId}
             aria-activedescendant={activeDescendant}
             placeholder={value !== null ? selectedLabel : placeholder}
-            style={{
-              border: 'none',
-              outline: 'none',
-              fontSize: '0.85rem',
-              width: '100%',
-              background: 'transparent',
-            }}
+            className="border-none outline-none text-sm w-full bg-transparent placeholder:text-muted-foreground"
           />
         ) : (
-          <span style={{
-            flex: 1,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            color: value !== null ? '#333' : '#999',
-          }}>
+          <span className={cn(
+            'flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
+            value !== null ? 'text-foreground' : 'text-muted-foreground',
+          )}>
             {value !== null ? selectedLabel : placeholder}
           </span>
         )}
@@ -169,18 +153,9 @@ export default function SearchableSelect({ options, value, onChange, placeholder
             type="button"
             onClick={handleClear}
             aria-label="Clear selection"
-            style={{
-              cursor: 'pointer',
-              color: '#999',
-              fontSize: '0.9rem',
-              padding: '0 2px',
-              flexShrink: 0,
-              background: 'none',
-              border: 'none',
-              lineHeight: 1,
-            }}
+            className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
           >
-            &times;
+            <X className="size-3.5" />
           </button>
         )}
       </div>
@@ -190,23 +165,10 @@ export default function SearchableSelect({ options, value, onChange, placeholder
           ref={listboxRef}
           id={listboxId}
           role="listbox"
-          style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            maxHeight: 200,
-            overflow: 'auto',
-            background: '#fff',
-            border: '1px solid #ccc',
-            borderTop: 'none',
-            borderRadius: '0 0 4px 4px',
-            zIndex: 100,
-            boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
-          }}
+          className="absolute top-full left-0 right-0 z-50 max-h-[200px] overflow-auto rounded-b-md border border-t-0 border-input bg-popover shadow-md"
         >
           {filtered.length === 0 ? (
-            <div style={{ padding: '0.4rem 0.5rem', color: '#999', fontSize: '0.85rem' }}>
+            <div className="px-2 py-1.5 text-sm text-muted-foreground">
               No results
             </div>
           ) : (
@@ -218,13 +180,12 @@ export default function SearchableSelect({ options, value, onChange, placeholder
                 data-index={index}
                 aria-selected={opt.value === value}
                 onClick={() => handleSelect(opt.value)}
-                style={{
-                  padding: '0.35rem 0.5rem',
-                  fontSize: '0.85rem',
-                  cursor: 'pointer',
-                  background: index === activeIndex ? '#e0f2fe' : opt.value === value ? '#f0fdf4' : undefined,
-                }}
                 onMouseEnter={() => setActiveIndex(index)}
+                className={cn(
+                  'px-2 py-1.5 text-sm cursor-pointer transition-colors',
+                  index === activeIndex && 'bg-accent',
+                  opt.value === value && index !== activeIndex && 'bg-success/10',
+                )}
               >
                 {opt.label}
               </div>
