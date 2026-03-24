@@ -9,6 +9,7 @@ import { SettingsForm } from '@/components/settings/SettingsForm';
 import { SyncButtons } from '@/components/sync/SyncButtons';
 import { MappingWizard } from '@/components/mapping-wizard/MappingWizard';
 import { ArrowLeftRight, Settings, Wand2, Activity, Database, Clock, Terminal } from 'lucide-react';
+import { ThemeSwitcher } from '@/components/theme/ThemeSwitcher';
 
 interface SyncStatus {
   lastGrocyPoll: string | Date | null;
@@ -63,17 +64,20 @@ export default async function Home() {
             <h1 className="text-base font-semibold leading-tight">Grocy-Mealie Sync</h1>
             <p className="text-xs text-muted-foreground">Bi-directional sync between Grocy and Mealie</p>
           </div>
-          {status && (
-            <div className="ml-auto flex items-center gap-2">
-              <Badge variant="secondary" className="gap-1">
-                <Database className="size-3" />
-                {status.productMappings} products
-              </Badge>
-              <Badge variant="secondary" className="gap-1">
-                {status.unitMappings} units
-              </Badge>
-            </div>
-          )}
+          <div className="ml-auto flex items-center gap-2">
+            {status && (
+              <>
+                <Badge variant="secondary" className="gap-1">
+                  <Database className="size-3" />
+                  {status.productMappings} products
+                </Badge>
+                <Badge variant="secondary" className="gap-1">
+                  {status.unitMappings} units
+                </Badge>
+              </>
+            )}
+            <ThemeSwitcher />
+          </div>
         </div>
       </header>
 
