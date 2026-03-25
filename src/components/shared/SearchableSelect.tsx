@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useMemo, useCallback, useId } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { X } from 'lucide-react';
 
@@ -17,10 +18,20 @@ interface SearchableSelectProps {
   className?: string;
 }
 
+interface DropdownPosition {
+  left: number;
+  width: number;
+  maxHeight: number;
+  placement: 'top' | 'bottom';
+  top?: number;
+  bottom?: number;
+}
+
 export function SearchableSelect({ options, value, onChange, placeholder = 'Search...', className }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [dropdownPosition, setDropdownPosition] = useState<DropdownPosition | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listboxRef = useRef<HTMLDivElement>(null);
@@ -38,17 +49,63 @@ export function SearchableSelect({ options, value, onChange, placeholder = 'Sear
     setActiveIndex(-1);
   }, [filtered]);
 
+  const updateDropdownPosition = useCallback(() => {
+    if (!containerRef.current || typeof window === 'undefined') return;
+
+    const rect = containerRef.current.getBoundingClientRect();
+    const viewportPadding = 8;
+    const dropdownGap = 4;
+    const preferredHeight = 200;
+    const availableBelow = window.innerHeight - rect.bottom - viewportPadding - dropdownGap;
+    const availableAbove = rect.top - viewportPadding - dropdownGap;
+    const placement = availableBelow < preferredHeight && availableAbove > availableBelow ? 'top' : 'bottom';
+    const width = Math.min(rect.width, window.innerWidth - viewportPadding * 2);
+    const left = Math.min(
+      Math.max(rect.left, viewportPadding),
+      window.innerWidth - width - viewportPadding,
+    );
+
+    setDropdownPosition({
+      left,
+      width,
+      maxHeight: Math.max(0, Math.min(preferredHeight, placement === 'top' ? availableAbove : availableBelow)),
+      placement,
+      top: placement === 'bottom' ? rect.bottom + dropdownGap : undefined,
+      bottom: placement === 'top' ? window.innerHeight - rect.top + dropdownGap : undefined,
+    });
+  }, []);
+
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setSearch('');
-        setActiveIndex(-1);
-      }
+      const target = e.target as Node;
+      if (containerRef.current?.contains(target) || listboxRef.current?.contains(target)) return;
+      setOpen(false);
+      setSearch('');
+      setActiveIndex(-1);
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (!open) {
+      setDropdownPosition(null);
+      return;
+    }
+
+    updateDropdownPosition();
+
+    function handleReposition() {
+      updateDropdownPosition();
+    }
+
+    window.addEventListener('resize', handleReposition);
+    window.addEventListener('scroll', handleReposition, true);
+    return () => {
+      window.removeEventListener('resize', handleReposition);
+      window.removeEventListener('scroll', handleReposition, true);
+    };
+  }, [open, updateDropdownPosition]);
 
   useEffect(() => {
     if (activeIndex >= 0 && listboxRef.current) {
@@ -73,7 +130,10 @@ export function SearchableSelect({ options, value, onChange, placeholder = 'Sear
 
   function openDropdown() {
     setOpen(true);
-    setTimeout(() => inputRef.current?.focus(), 0);
+    setTimeout(() => {
+      updateDropdownPosition();
+      inputRef.current?.focus();
+    }, 0);
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -110,9 +170,50 @@ export function SearchableSelect({ options, value, onChange, placeholder = 'Sear
   }
 
   const activeDescendant = activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined;
+  const dropdown = open && dropdownPosition && typeof document !== 'undefined' ? createPortal(
+    <div
+      ref={listboxRef}
+      id={listboxId}
+      role="listbox"
+      className="fixed z-[60] overflow-auto rounded-md border border-input bg-popover shadow-md"
+      style={{
+        left: dropdownPosition.left,
+        width: dropdownPosition.width,
+        maxHeight: dropdownPosition.maxHeight,
+        top: dropdownPosition.top,
+        bottom: dropdownPosition.bottom,
+      }}
+    >
+      {filtered.length === 0 ? (
+        <div className="px-2 py-1.5 text-sm text-muted-foreground">
+          No results
+        </div>
+      ) : (
+        filtered.map((opt, index) => (
+          <div
+            key={opt.value}
+            id={`${listboxId}-option-${index}`}
+            role="option"
+            data-index={index}
+            aria-selected={opt.value === value}
+            onClick={() => handleSelect(opt.value)}
+            onMouseEnter={() => setActiveIndex(index)}
+            className={cn(
+              'px-2 py-1.5 text-sm cursor-pointer transition-colors',
+              index === activeIndex && 'bg-accent',
+              opt.value === value && index !== activeIndex && 'bg-success/10',
+            )}
+          >
+            {opt.label}
+          </div>
+        ))
+      )}
+    </div>,
+    document.body,
+  ) : null;
 
   return (
-    <div ref={containerRef} className={cn('relative', className)}>
+    <div ref={containerRef} className={cn('relative min-w-0', className)}>
       <div
         role="combobox"
         aria-expanded={open}
@@ -123,7 +224,7 @@ export function SearchableSelect({ options, value, onChange, placeholder = 'Sear
         onClick={openDropdown}
         onKeyDown={handleKeyDown}
         className={cn(
-          'flex items-center gap-1 rounded-md border px-2 py-1.5 text-sm cursor-pointer min-h-[30px]',
+          'flex min-w-0 w-full items-center gap-1 rounded-md border px-2 py-1.5 text-sm cursor-pointer min-h-[30px]',
           'border-input bg-background hover:bg-muted/50 transition-colors',
           value !== null && 'bg-success/10 border-success/30',
         )}
@@ -160,39 +261,7 @@ export function SearchableSelect({ options, value, onChange, placeholder = 'Sear
         )}
       </div>
 
-      {open && (
-        <div
-          ref={listboxRef}
-          id={listboxId}
-          role="listbox"
-          className="absolute top-full left-0 right-0 z-50 max-h-[200px] overflow-auto rounded-b-md border border-t-0 border-input bg-popover shadow-md"
-        >
-          {filtered.length === 0 ? (
-            <div className="px-2 py-1.5 text-sm text-muted-foreground">
-              No results
-            </div>
-          ) : (
-            filtered.map((opt, index) => (
-              <div
-                key={opt.value}
-                id={`${listboxId}-option-${index}`}
-                role="option"
-                data-index={index}
-                aria-selected={opt.value === value}
-                onClick={() => handleSelect(opt.value)}
-                onMouseEnter={() => setActiveIndex(index)}
-                className={cn(
-                  'px-2 py-1.5 text-sm cursor-pointer transition-colors',
-                  index === activeIndex && 'bg-accent',
-                  opt.value === value && index !== activeIndex && 'bg-success/10',
-                )}
-              >
-                {opt.label}
-              </div>
-            ))
-          )}
-        </div>
-      )}
+      {dropdown}
     </div>
   );
 }
