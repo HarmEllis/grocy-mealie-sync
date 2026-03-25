@@ -15,6 +15,7 @@ The service polls both APIs on a configurable interval (default: 60 seconds).
 - A running **Grocy** instance (tested with Grocy 4.x)
 - A running **Mealie** instance (tested with Mealie v3.12.0)
 - **Node.js 22+** (for local dev) or **Docker**
+- **VS Code** with the **Dev Containers** extension (optional, for containerized development)
 
 ## Setup
 
@@ -26,8 +27,9 @@ The service polls both APIs on a configurable interval (default: 60 seconds).
 **Mealie API token:**
 - Go to Mealie → User Settings → API Tokens → Create Token
 
-**Mealie Shopping List ID:**
-- Open your shopping list in Mealie
+**Mealie Shopping List ID (optional):**
+- You can leave this unset and select the target shopping list later in the web UI.
+- If you prefer to configure it via environment variable, open your shopping list in Mealie.
 - The UUID is in the URL: `https://mealie.example.com/shopping-lists/<this-uuid>`
 
 ### 2. Configure environment
@@ -38,38 +40,28 @@ Copy the example and fill in your values:
 cp .env.example .env
 ```
 
-```env
-# Grocy
-GROCY_URL=http://grocy:9283          # Base URL, no trailing slash
-GROCY_API_KEY=your-grocy-api-key
+See [`.env.example`](.env.example) for the full list of variables and defaults. Set the required values in your local `.env`, especially:
 
-# Mealie
-MEALIE_URL=http://mealie:9925        # Base URL, no trailing slash
-MEALIE_API_TOKEN=your-mealie-bearer-token
-MEALIE_SHOPPING_LIST_ID=uuid-of-target-shopping-list
+- `GROCY_URL`
+- `GROCY_API_KEY`
+- `MEALIE_URL`
+- `MEALIE_API_TOKEN`
 
-# Sync Settings
-POLL_INTERVAL_SECONDS=60             # How often to poll (default: 60)
-PRODUCT_SYNC_INTERVAL_HOURS=6        # How often to re-sync products (default: 6)
-# GROCY_DEFAULT_UNIT_ID=3            # Fallback unit ID for new Grocy products (optional, can be set in web UI)
-STOCK_ONLY_MIN_STOCK=true            # Only add stock for products with min_stock_amount > 0
+If you use the bundled `compose-dev.yml` for local Mealie development, also set `POSTGRES_PASSWORD`.
 
-# Database
-DATABASE_PATH=./data/sync.db         # SQLite database path
-```
+`MEALIE_SHOPPING_LIST_ID` is optional. If you leave it empty, you can select the shopping list later in the web UI.
 
 ### 3. Run
 
 **With Docker (recommended):**
 
 ```bash
-docker build -t grocy-mealie-sync .
 docker run -d \
   --name grocy-mealie-sync \
   --env-file .env \
   -p 3000:3000 \
   -v grocy-mealie-sync-data:/app/data \
-  grocy-mealie-sync
+  ghcr.io/harmellis/grocy-mealie-sync:latest
 ```
 
 **With Docker Compose:**
@@ -77,7 +69,7 @@ docker run -d \
 ```yaml
 services:
   grocy-mealie-sync:
-    build: .
+    image: ghcr.io/harmellis/grocy-mealie-sync:latest
     ports:
       - "3000:3000"
     env_file: .env
@@ -92,11 +84,25 @@ volumes:
 **Local development:**
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
 The app runs on `http://localhost:3000`.
+
+**Development with a VS Code devcontainer:**
+
+A ready-to-use devcontainer is included at [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json). It provides Node.js 24, forwards port `3000`, and includes Docker CLI access so you can use the local development services from `compose-dev.yml`.
+
+Typical flow:
+
+1. Copy `.env.example` to `.env`.
+2. If you want to use the bundled Grocy and Mealie services, set `POSTGRES_PASSWORD` in `.env`, then set `GROCY_URL=http://host.docker.internal:9001` and `MEALIE_URL=http://host.docker.internal:9000`.
+3. In VS Code, run `Dev Containers: Reopen in Container`.
+4. Inside the devcontainer, start the support services with `docker compose -f compose-dev.yml up -d`.
+5. Run `npm run dev`.
+
+If you already use external Grocy and Mealie instances, keep your existing URLs and skip `compose-dev.yml`.
 
 ## Verifying it works
 
@@ -145,7 +151,11 @@ Manual triggers are useful for testing. The scheduler runs these automatically.
 
 ## Settings
 
-The default unit for newly created Grocy products can be configured in the web UI at `http://localhost:3000`. The dropdown shows units that were synced from Mealie. Resolution priority:
+The target Mealie shopping list and the default unit for newly created Grocy products can be configured in the web UI at `http://localhost:3000`.
+
+For the shopping list, the web UI selection takes precedence over `MEALIE_SHOPPING_LIST_ID`.
+
+For the default unit, the dropdown shows units that were synced from Mealie. Resolution priority:
 
 1. **Web UI setting** (stored in the database)
 2. **`GROCY_DEFAULT_UNIT_ID`** environment variable (fallback)
