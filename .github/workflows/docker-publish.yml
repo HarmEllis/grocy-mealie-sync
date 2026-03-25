@@ -18,13 +18,13 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   prepare:
     runs-on: ubuntu-24.04
     outputs:
       ref: ${{ steps.version.outputs.tag }}
+      image_ref: ${{ steps.image.outputs.ref }}
       tags: ${{ steps.meta.outputs.tags }}
       labels: ${{ steps.meta.outputs.labels }}
       primary_tag: ${{ steps.primary_tag.outputs.value }}
@@ -57,11 +57,21 @@ jobs:
             exit 1
           fi
 
+      - name: Normalize image reference
+        id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REGISTRY: ${{ env.REGISTRY }}
+        run: |
+          image_name="$(printf '%s' "$REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          echo "name=${image_name}" >> "$GITHUB_OUTPUT"
+          echo "ref=${REGISTRY}/${image_name}" >> "$GITHUB_OUTPUT"
+
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@318604b99e75e41977312d83839a89be02ca4893 # v5.9.0
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ steps.image.outputs.ref }}
           tags: |
             type=semver,pattern={{version}},value=${{ steps.version.outputs.tag }}
             type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.tag }}
@@ -84,7 +94,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           ref: ${{ needs.prepare.outputs.ref }}
 
@@ -105,7 +115,7 @@ jobs:
           context: .
           platforms: linux/amd64
           labels: ${{ needs.prepare.outputs.labels }}
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ needs.prepare.outputs.image_ref }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=linux-amd64
           cache-to: type=gha,mode=max,scope=linux-amd64
           provenance: mode=max
@@ -119,7 +129,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           ref: ${{ needs.prepare.outputs.ref }}
 
@@ -140,7 +150,7 @@ jobs:
           context: .
           platforms: linux/arm64
           labels: ${{ needs.prepare.outputs.labels }}
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ needs.prepare.outputs.image_ref }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=linux-arm64
           cache-to: type=gha,mode=max,scope=linux-arm64
           provenance: mode=max
@@ -167,7 +177,7 @@ jobs:
       - name: Create multi-platform manifest
         id: manifest
         env:
-          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          IMAGE: ${{ needs.prepare.outputs.image_ref }}
           TAGS: ${{ needs.prepare.outputs.tags }}
           PRIMARY_TAG: ${{ needs.prepare.outputs.primary_tag }}
           AMD64_DIGEST: ${{ needs.build-amd64.outputs.digest }}
@@ -213,7 +223,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          image_ref="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
+          image_ref="${{ needs.prepare.outputs.image_ref }}@${DIGEST}"
           for attempt in 1 2 3; do
             if cosign sign --yes "$image_ref"; then
               exit 0
@@ -233,6 +243,6 @@ jobs:
         continue-on-error: true
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.manifest.outputs.digest }}
+          image-ref: ${{ needs.prepare.outputs.image_ref }}@${{ steps.manifest.outputs.digest }}
           format: "table"
           severity: "CRITICAL,HIGH"
