@@ -245,6 +245,29 @@ describe('pollGrocyForMissingStock', () => {
       expect(mockedCreate).not.toHaveBeenCalled();
     });
 
+    it('logs the Grocy product name when skipping sync-restocked removals', async () => {
+      setupDbMock([
+        mockProductMapping({
+          mealieFoodName: 'Optimel',
+          grocyProductName: 'Optimel Drinkyogurt',
+        }),
+      ], []);
+
+      mockedGetSyncState.mockResolvedValue(
+        mockSyncState({
+          grocyBelowMinStock: { 101: 2 },
+          syncRestockedProducts: { '101': new Date().toISOString() },
+        }),
+      );
+      mockedGetVolatileStock.mockResolvedValue({ missing_products: [] });
+
+      await pollGrocyForMissingStock();
+
+      expect(vi.mocked(log.info)).toHaveBeenCalledWith(
+        '[Grocy→Mealie] Skipping removal for "Optimel Drinkyogurt" — restocked by sync, not manually',
+      );
+    });
+
     it('clears syncRestockedProducts to {} after poll completes', async () => {
       mockedGetSyncState.mockResolvedValue(
         mockSyncState({

@@ -5,7 +5,6 @@ import { getGrocyEntities, updateGrocyEntity } from '@/lib/grocy/types';
 import { RecipesFoodsService } from '@/lib/mealie';
 import { extractFoods } from '@/lib/mealie/types';
 import { log } from '@/lib/logger';
-import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { productSyncRequestSchema } from '@/lib/validation';
 import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
@@ -48,10 +47,6 @@ export async function POST(request: Request) {
     ]);
     const mealieFoods = extractFoods(mealieFoodsRes);
 
-    // Pre-fetch existing product mappings to avoid N+1 queries
-    const existingMappings = await db.select().from(productMappings);
-    const existingByMealieFoodId = new Map(existingMappings.map(m => [m.mealieFoodId, m]));
-
     let synced = 0;
     let renamed = 0;
 
@@ -70,6 +65,18 @@ export async function POST(request: Request) {
         if (um) unitMappingId = um.id;
       }
 
+      // Rename Grocy product to Mealie name
+      let effectiveGrocyName = grocyName;
+      if (gProd.name !== mealieName) {
+        try {
+          await updateGrocyEntity('products', entry.grocyProductId, { name: mealieName });
+          effectiveGrocyName = mealieName;
+          renamed++;
+        } catch (e) {
+          log.error(`[MappingWizard] Failed to rename Grocy product ${entry.grocyProductId}:`, e);
+        }
+      }
+
       // Upsert: insert or update on conflict
       const now = new Date();
       await db.insert(productMappings).values({
@@ -77,30 +84,21 @@ export async function POST(request: Request) {
         mealieFoodId: entry.mealieFoodId,
         mealieFoodName: mealieName,
         grocyProductId: entry.grocyProductId,
-        grocyProductName: grocyName,
+        grocyProductName: effectiveGrocyName,
         unitMappingId,
         createdAt: now,
         updatedAt: now,
       }).onConflictDoUpdate({
         target: productMappings.mealieFoodId,
         set: {
+          mealieFoodName: mealieName,
           grocyProductId: entry.grocyProductId,
-          grocyProductName: grocyName,
+          grocyProductName: effectiveGrocyName,
           unitMappingId,
           updatedAt: now,
         },
       });
       synced++;
-
-      // Rename Grocy product to Mealie name
-      if (gProd.name !== mealieName) {
-        try {
-          await updateGrocyEntity('products', entry.grocyProductId, { name: mealieName });
-          renamed++;
-        } catch (e) {
-          log.error(`[MappingWizard] Failed to rename Grocy product ${entry.grocyProductId}:`, e);
-        }
-      }
     }
 
     log.info(`[MappingWizard] Products synced: ${synced}, renamed: ${renamed}`);

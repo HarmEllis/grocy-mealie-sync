@@ -57,6 +57,47 @@ interface GrocyEntityTypeMap {
   shopping_list: ShoppingListItem;
 }
 
+const EDITABLE_ENTITY_FIELDS = {
+  products: [
+    'name',
+    'description',
+    'location_id',
+    'qu_id_purchase',
+    'qu_id_stock',
+    'enable_tare_weight_handling',
+    'not_check_stock_fulfillment_for_recipes',
+    'product_group_id',
+    'tare_weight',
+    'min_stock_amount',
+    'default_best_before_days',
+    'default_best_before_days_after_open',
+    'picture_file_name',
+    'shopping_location_id',
+    'treat_opened_as_out_of_stock',
+    'auto_reprint_stock_label',
+    'no_own_stock',
+    'should_not_be_frozen',
+    'default_consume_location_id',
+    'move_on_open',
+  ],
+  quantity_units: [
+    'name',
+    'name_plural',
+    'description',
+    'plural_forms',
+  ],
+  locations: [
+    'name',
+    'description',
+  ],
+  shopping_list: [
+    'shopping_list_id',
+    'product_id',
+    'note',
+    'amount',
+  ],
+} as const satisfies Record<GrocyEditableEntity, readonly string[]>;
+
 // ---------------------------------------------------------------------------
 // Request body types for entity creation
 // ---------------------------------------------------------------------------
@@ -154,7 +195,30 @@ export async function updateGrocyEntity(
   id: number,
   body: UpdateProductBody | UpdateQuantityUnitBody | Record<string, unknown>,
 ): Promise<void> {
-  return GenericEntityInteractionsService.putObjects(entity as any, id, body as any);
+  // Grocy's object PUT endpoint expects a full entity payload rather than a partial patch.
+  // Merge the requested changes onto the current entity so callers can safely pass only the
+  // fields they want to change.
+  const existing = await GenericEntityInteractionsService.getObjects1(entity as any, id);
+  const mergedBody = { ...existing, ...body };
+  const sanitizedBody = sanitizeGrocyEntityUpdate(entity, mergedBody);
+  return GenericEntityInteractionsService.putObjects(entity as any, id, sanitizedBody as any);
+}
+
+function sanitizeGrocyEntityUpdate(
+  entity: GrocyEditableEntity,
+  body: Record<string, unknown>,
+): Record<string, unknown> {
+  const editableFields = EDITABLE_ENTITY_FIELDS[entity];
+  const sanitized: Record<string, unknown> = {};
+
+  for (const field of editableFields) {
+    const value = body[field];
+    if (value !== null && value !== undefined) {
+      sanitized[field] = value;
+    }
+  }
+
+  return sanitized;
 }
 
 /**
