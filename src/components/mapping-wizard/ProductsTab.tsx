@@ -90,7 +90,7 @@ export function ProductsTab({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="flex min-h-0 flex-1 flex-col space-y-3">
       {/* Default unit setting */}
       <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
         <label className="text-sm text-muted-foreground whitespace-nowrap">
@@ -127,7 +127,7 @@ export function ProductsTab({
       </div>
 
       {/* Table */}
-      <ScrollArea className="max-h-[400px] rounded-md border">
+      <ScrollArea className="min-h-0 flex-1 rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>

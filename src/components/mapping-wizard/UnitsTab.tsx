@@ -77,7 +77,7 @@ export function UnitsTab({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="flex min-h-0 flex-1 flex-col space-y-3">
       {/* Actions bar */}
       <div className="flex flex-wrap items-center gap-2">
         {Object.keys(data.unitSuggestions).length > 0 && (
@@ -97,7 +97,7 @@ export function UnitsTab({
       </div>
 
       {/* Table */}
-      <ScrollArea className="max-h-[400px] rounded-md border">
+      <ScrollArea className="min-h-0 flex-1 rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>

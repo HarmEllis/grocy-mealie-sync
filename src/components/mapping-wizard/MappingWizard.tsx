@@ -430,7 +430,7 @@ export function MappingWizard() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="flex min-h-0 flex-1 flex-col">
             {loading ? (
               <div className="space-y-3 py-4">
                 <Skeleton className="h-8 w-full" />
@@ -442,7 +442,7 @@ export function MappingWizard() {
                 Failed to load data. Check API connections.
               </p>
             ) : (
-              <Tabs value={tab} onValueChange={val => setTab(val as 'units' | 'products')}>
+              <Tabs className="min-h-0 flex-1" value={tab} onValueChange={val => setTab(val as 'units' | 'products')}>
                 <TabsList variant="line">
                   <TabsTrigger value="units">
                     Units ({data.unmappedMealieUnits.length} unmapped)
@@ -452,7 +452,7 @@ export function MappingWizard() {
                   </TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="units" className="mt-4">
+                <TabsContent value="units" className="mt-4 flex min-h-0 flex-1">
                   <UnitsTab
                     data={data}
                     unitMaps={unitMaps}
@@ -469,7 +469,7 @@ export function MappingWizard() {
                   />
                 </TabsContent>
 
-                <TabsContent value="products" className="mt-4">
+                <TabsContent value="products" className="mt-4 flex min-h-0 flex-1">
                   <ProductsTab
                     data={data}
                     productMaps={productMaps}
