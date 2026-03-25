@@ -19,6 +19,19 @@ import { UnitsTab } from './UnitsTab';
 import { ProductsTab } from './ProductsTab';
 import type { WizardData, ProductMapping, UnitMapping } from './types';
 import { sortByName } from './types';
+import {
+  buildProductMaps,
+  buildUnitMaps,
+  getDefaultWizardTab,
+  mergeCheckedState,
+  mergeProductMaps,
+  mergeUnitMaps,
+} from './state';
+
+interface FetchDataOptions {
+  preserveWizardState?: boolean;
+  showLoading?: boolean;
+}
 
 export function MappingWizard() {
   const [open, setOpen] = useState(false);
@@ -50,42 +63,49 @@ export function MappingWizard() {
     };
   }, []);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchData = useCallback(async ({
+    preserveWizardState = false,
+    showLoading = true,
+  }: FetchDataOptions = {}) => {
+    if (showLoading) {
+      setLoading(true);
+    }
+
     try {
       const res = await fetch('/api/mapping-wizard/data');
       if (!res.ok) throw new Error('Failed to fetch');
       const d: WizardData = await res.json();
       setData(d);
 
-      const pMaps: Record<string, ProductMapping> = {};
-      for (const food of d.unmappedMealieFoods) {
-        pMaps[food.id] = { mealieFoodId: food.id, grocyProductId: null, grocyUnitId: null };
+      if (preserveWizardState) {
+        setProductMaps(prev => mergeProductMaps(d, prev));
+        setUnitMaps(prev => mergeUnitMaps(d, prev));
+        setCreateProductChecked(prev => mergeCheckedState(d.unmappedMealieFoods.map(food => food.id), prev));
+        setCreateUnitChecked(prev => mergeCheckedState(d.unmappedMealieUnits.map(unit => unit.id), prev));
+      } else {
+        setProductMaps(buildProductMaps(d));
+        setUnitMaps(buildUnitMaps(d));
+        setCreateProductChecked({});
+        setCreateUnitChecked({});
+        setTab(getDefaultWizardTab(d));
       }
-      setProductMaps(pMaps);
-
-      const uMaps: Record<string, UnitMapping> = {};
-      for (const unit of d.unmappedMealieUnits) {
-        uMaps[unit.id] = { mealieUnitId: unit.id, grocyUnitId: null };
-      }
-      setUnitMaps(uMaps);
 
       setDefaultCreateUnitId(prev => prev ?? (d.grocyUnits[0]?.id ?? null));
-
-      if (d.unmappedMealieUnits.length === 0 && d.unmappedMealieFoods.length > 0) {
-        setTab('products');
-      } else {
-        setTab('units');
-      }
+      return d;
     } catch {
       toast.error('Failed to load mapping data');
+      return null;
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    if (open) fetchData();
+    if (open) {
+      void fetchData();
+    }
   }, [open, fetchData]);
 
   // Sorted options for SearchableSelect
@@ -143,7 +163,6 @@ export function MappingWizard() {
     setActionRunning(name);
     try {
       await fn();
-      await fetchData();
     } catch (e) {
       toast.error(String(e));
     } finally {
@@ -212,6 +231,7 @@ export function MappingWizard() {
       const res = await fetch('/api/mapping-wizard/products/normalize', { method: 'POST' });
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || 'Failed to normalize products');
+      await fetchData({ preserveWizardState: true, showLoading: false });
       const skipped = result.skippedDuplicates?.length ?? 0;
       toast.success(`Normalized ${result.normalizedMealie} Mealie products and ${result.normalizedGrocy} Grocy products${skipped ? `, ${skipped} skipped` : ''}`);
       if (skipped) toast.warning(`${skipped} products skipped: a product with the target name already exists in Mealie (duplicates with different casing or trailing spaces). Remove the duplicate in Mealie first.`, { duration: 15000 });
@@ -233,9 +253,8 @@ export function MappingWizard() {
       const result = await res.json();
       if (!res.ok) throw new Error(result.error);
 
-      const checkRes = await fetch('/api/mapping-wizard/data');
-      const checkData: WizardData = await checkRes.json();
-      if (checkData.unmappedMealieFoods.length === 0) {
+      const refreshedData = await fetchData({ preserveWizardState: true, showLoading: false });
+      if (refreshedData?.unmappedMealieFoods.length === 0) {
         toast.success(`Synced ${result.synced} products, renamed ${result.renamed}`);
         promptAutoCreate('autoCreateProducts', `All products are now mapped. Enable auto-create for future products?`);
       } else {
@@ -267,9 +286,8 @@ export function MappingWizard() {
       const result = await res.json();
       if (!res.ok) throw new Error(result.error);
 
-      const checkRes = await fetch('/api/mapping-wizard/data');
-      const checkData: WizardData = await checkRes.json();
-      if (checkData.unmappedMealieFoods.length === 0) {
+      const refreshedData = await fetchData({ preserveWizardState: true, showLoading: false });
+      if (refreshedData?.unmappedMealieFoods.length === 0) {
         toast.success(`Created ${result.created} products`);
         promptAutoCreate('autoCreateProducts', `All products are now mapped. Enable auto-create for future products?`);
       } else {
@@ -289,6 +307,7 @@ export function MappingWizard() {
       });
       const result = await res.json();
       if (!res.ok) throw new Error(result.error);
+      await fetchData({ preserveWizardState: true, showLoading: false });
       toast.success(`Deleted ${result.deleted} orphan products`);
     });
   }
@@ -320,6 +339,7 @@ export function MappingWizard() {
       const res = await fetch('/api/mapping-wizard/units/normalize', { method: 'POST' });
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || 'Failed to normalize units');
+      await fetchData({ preserveWizardState: true, showLoading: false });
       const skipped = result.skippedDuplicates?.length ?? 0;
       toast.success(`Normalized ${result.normalizedMealie} Mealie units and ${result.normalizedGrocy} Grocy units${skipped ? `, ${skipped} skipped` : ''}`);
       if (skipped) toast.warning(`${skipped} units skipped: a unit with the target name already exists in Mealie (duplicates with different casing or trailing spaces). Remove the duplicate in Mealie first.`, { duration: 15000 });
@@ -339,9 +359,8 @@ export function MappingWizard() {
       const result = await res.json();
       if (!res.ok) throw new Error(result.error);
 
-      const checkRes = await fetch('/api/mapping-wizard/data');
-      const checkData: WizardData = await checkRes.json();
-      if (checkData.unmappedMealieUnits.length === 0) {
+      const refreshedData = await fetchData({ preserveWizardState: true, showLoading: false });
+      if (refreshedData?.unmappedMealieUnits.length === 0) {
         toast.success(`Synced ${result.synced} units, renamed ${result.renamed}`);
         promptAutoCreate('autoCreateUnits', `All units are now mapped. Enable auto-create for future units?`);
       } else {
@@ -364,9 +383,8 @@ export function MappingWizard() {
       const result = await res.json();
       if (!res.ok) throw new Error(result.error);
 
-      const checkRes = await fetch('/api/mapping-wizard/data');
-      const checkData: WizardData = await checkRes.json();
-      if (checkData.unmappedMealieUnits.length === 0) {
+      const refreshedData = await fetchData({ preserveWizardState: true, showLoading: false });
+      if (refreshedData?.unmappedMealieUnits.length === 0) {
         toast.success(`Created ${result.created} units`);
         promptAutoCreate('autoCreateUnits', `All units are now mapped. Enable auto-create for future units?`);
       } else {
@@ -386,6 +404,7 @@ export function MappingWizard() {
       });
       const result = await res.json();
       if (!res.ok) throw new Error(result.error);
+      await fetchData({ preserveWizardState: true, showLoading: false });
       toast.success(`Deleted ${result.deleted} orphan units`);
     });
   }
