@@ -206,13 +206,26 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
 
-      # Best-effort signing: does not block the release if signing infrastructure is unavailable
       - name: Sign the published Docker image
-        continue-on-error: true
         env:
           DIGEST: ${{ steps.manifest.outputs.digest }}
+        shell: bash
         run: |
-          cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
+          set -euo pipefail
+
+          image_ref="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
+          for attempt in 1 2 3; do
+            if cosign sign --yes "$image_ref"; then
+              exit 0
+            fi
+
+            if [ "$attempt" -lt 3 ]; then
+              sleep 10
+            fi
+          done
+
+          echo "Failed to sign image after 3 attempts: $image_ref" >&2
+          exit 1
 
       # Best-effort scanning: logs vulnerabilities but does not block the release
       # All action refs are SHA-pinned to mitigate supply chain attacks
