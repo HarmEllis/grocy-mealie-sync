@@ -441,7 +441,7 @@ export function MappingWizard() {
       </Button>
 
       <Dialog open={open} onOpenChange={val => { if (!val && !isRunning) setOpen(false); }}>
-        <DialogContent className="sm:max-w-3xl max-h-[85vh] flex flex-col">
+        <DialogContent className="sm:max-w-3xl h-[85vh] max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>Mapping Wizard</DialogTitle>
             <DialogDescription>
