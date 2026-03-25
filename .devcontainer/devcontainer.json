@@ -22,7 +22,7 @@
   "portsAttributes": {
     "3000": {
       "label": "Grocy-Mealie Sync",
-      "onAutoForward": "openBrowser"
+      "onAutoForward": "notify"
     }
   },
   "customizations": {
