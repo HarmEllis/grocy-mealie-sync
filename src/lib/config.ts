@@ -28,6 +28,42 @@ export function parseIntOrDefault(value: string | undefined, defaultValue: numbe
   return isNaN(parsed) ? defaultValue : parsed;
 }
 
+function hasConfiguredValue(value: string | undefined): boolean {
+  return value !== undefined && value.trim() !== '';
+}
+
+export function parseOptionalIntEnv(value: string | undefined, name: string): number | null {
+  if (!hasConfiguredValue(value)) {
+    return null;
+  }
+
+  const parsed = parseInt(value!.trim(), 10);
+  if (isNaN(parsed)) {
+    log.warn(`[Config] ${name} must be an integer (got "${value}"). Ignoring the env var.`);
+    return null;
+  }
+
+  return parsed;
+}
+
+export function parseBooleanEnv(value: string | undefined, defaultValue: boolean, name: string): boolean {
+  if (!hasConfiguredValue(value)) {
+    return defaultValue;
+  }
+
+  switch (value!.trim().toLowerCase()) {
+    case 'true':
+    case '1':
+      return true;
+    case 'false':
+    case '0':
+      return false;
+    default:
+      log.warn(`[Config] ${name} must be true/false/1/0 (got "${value}"). Falling back to ${defaultValue}.`);
+      return defaultValue;
+  }
+}
+
 export const config = {
   grocyUrl: validateServiceUrl(process.env.GROCY_URL, 'GROCY_URL', GROCY_DEFAULT_URL),
   grocyApiKey: process.env.GROCY_API_KEY || '',
@@ -36,9 +72,23 @@ export const config = {
   mealieShoppingListId: process.env.MEALIE_SHOPPING_LIST_ID || '',
   pollIntervalSeconds: parseIntOrDefault(process.env.POLL_INTERVAL_SECONDS, 60),
   productSyncIntervalHours: parseIntOrDefault(process.env.PRODUCT_SYNC_INTERVAL_HOURS, 6),
-  grocyDefaultUnitId: process.env.GROCY_DEFAULT_UNIT_ID
-    ? (parseIntOrDefault(process.env.GROCY_DEFAULT_UNIT_ID, 0) || null)
-    : null,
-  stockOnlyMinStock: process.env.STOCK_ONLY_MIN_STOCK === 'true',
+  grocyDefaultUnitId: parseOptionalIntEnv(process.env.GROCY_DEFAULT_UNIT_ID, 'GROCY_DEFAULT_UNIT_ID'),
+  autoCreateProducts: parseBooleanEnv(process.env.AUTO_CREATE_PRODUCTS, false, 'AUTO_CREATE_PRODUCTS'),
+  autoCreateUnits: parseBooleanEnv(process.env.AUTO_CREATE_UNITS, false, 'AUTO_CREATE_UNITS'),
+  stockOnlyMinStock: parseBooleanEnv(process.env.STOCK_ONLY_MIN_STOCK, false, 'STOCK_ONLY_MIN_STOCK'),
   databasePath: process.env.DATABASE_PATH || './data/sync.db',
+  envOverrides: {
+    mealieShoppingListId: hasConfiguredValue(process.env.MEALIE_SHOPPING_LIST_ID),
+    grocyDefaultUnitId: hasConfiguredValue(process.env.GROCY_DEFAULT_UNIT_ID),
+    autoCreateProducts: hasConfiguredValue(process.env.AUTO_CREATE_PRODUCTS),
+    autoCreateUnits: hasConfiguredValue(process.env.AUTO_CREATE_UNITS),
+    stockOnlyMinStock: hasConfiguredValue(process.env.STOCK_ONLY_MIN_STOCK),
+  },
+  envRaw: {
+    mealieShoppingListId: process.env.MEALIE_SHOPPING_LIST_ID?.trim() || null,
+    grocyDefaultUnitId: process.env.GROCY_DEFAULT_UNIT_ID?.trim() || null,
+    autoCreateProducts: process.env.AUTO_CREATE_PRODUCTS?.trim() || null,
+    autoCreateUnits: process.env.AUTO_CREATE_UNITS?.trim() || null,
+    stockOnlyMinStock: process.env.STOCK_ONLY_MIN_STOCK?.trim() || null,
+  },
 };

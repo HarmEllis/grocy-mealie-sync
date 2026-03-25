@@ -149,14 +149,19 @@ export function MappingWizard() {
     setConfirmItemNames([]);
   }
 
-  async function enableAutoCreate(field: 'autoCreateProducts' | 'autoCreateUnits') {
-    try {
-      await fetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [field]: true }),
-      });
-    } catch { /* best effort */ }
+  async function enableAutoCreate(field: 'autoCreateProducts' | 'autoCreateUnits'): Promise<boolean> {
+    const res = await fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [field]: true }),
+    });
+
+    if (!res.ok) {
+      const result = await res.json().catch(() => null);
+      throw new Error(result?.error || 'Failed to update setting');
+    }
+
+    return true;
   }
 
   async function runAction(name: string, fn: () => Promise<void>) {
@@ -177,9 +182,10 @@ export function MappingWizard() {
       `autoCreate_${field}`,
       msg,
       () => {
-        enableAutoCreate(field);
-        toast.success(`Auto-create ${label} enabled`);
-        closeConfirm();
+        void runAction(`autoCreate_${field}`, async () => {
+          await enableAutoCreate(field);
+          toast.success(`Auto-create ${label} enabled`);
+        });
       },
       [],
       `This will automatically create new ${label} in Grocy when they appear in Mealie.`,

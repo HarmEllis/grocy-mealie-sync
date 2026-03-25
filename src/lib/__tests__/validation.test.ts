@@ -109,7 +109,10 @@ describe('unitCreateRequestSchema', () => {
 
 describe('settingsUpdateSchema', () => {
   it('accepts partial updates', () => {
-    const result = settingsUpdateSchema.safeParse({ autoCreateProducts: true });
+    const result = settingsUpdateSchema.safeParse({
+      autoCreateProducts: true,
+      stockOnlyMinStock: true,
+    });
     expect(result.success).toBe(true);
   });
 
@@ -128,7 +131,7 @@ describe('settingsUpdateSchema', () => {
 
   it('rejects wrong boolean type', () => {
     const result = settingsUpdateSchema.safeParse({
-      autoCreateProducts: 'yes',
+      stockOnlyMinStock: 'yes',
     });
     expect(result.success).toBe(false);
   });

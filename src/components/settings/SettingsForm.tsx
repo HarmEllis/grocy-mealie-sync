@@ -6,6 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -22,11 +23,25 @@ interface ShoppingListOption {
   name: string;
 }
 
+interface SettingLock {
+  locked: boolean;
+  envVar: string;
+  envValue: string | null;
+}
+
 interface SettingsData {
   defaultUnitMappingId: string | null;
   mealieShoppingListId: string | null;
   autoCreateProducts: boolean;
   autoCreateUnits: boolean;
+  stockOnlyMinStock: boolean;
+  locks: {
+    defaultUnitMappingId: SettingLock;
+    mealieShoppingListId: SettingLock;
+    autoCreateProducts: SettingLock;
+    autoCreateUnits: SettingLock;
+    stockOnlyMinStock: SettingLock;
+  };
   availableUnits: UnitOption[];
   availableShoppingLists: ShoppingListOption[];
 }
@@ -38,13 +53,41 @@ async function saveSetting(body: Record<string, unknown>): Promise<boolean> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error('Save failed');
+    const payload = await res.json().catch(() => null);
+    if (!res.ok) {
+      throw new Error(payload?.error || 'Save failed');
+    }
     toast.success('Setting updated');
     return true;
-  } catch {
-    toast.error('Failed to save setting');
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Failed to save setting');
     return false;
   }
+}
+
+function LockBadge({ lock }: { lock: SettingLock }) {
+  if (!lock.locked) {
+    return null;
+  }
+
+  const valueSuffix = lock.envValue ? `=${lock.envValue}` : '';
+
+  return (
+    <Tooltip>
+      <TooltipTrigger>
+        <button
+          type="button"
+          className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+          aria-label={`Locked by ${lock.envVar}`}
+        >
+          Env
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {`This setting is controlled by ${lock.envVar}${valueSuffix}. Comment out ${lock.envVar} in your env file to edit it in the UI.`}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 export function SettingsForm() {
@@ -117,76 +160,118 @@ export function SettingsForm() {
     if (ok) setSettings(s => s ? { ...s, [field]: value } : s);
   }
 
+  async function handleStockOnlyMinStockChange(value: boolean) {
+    const ok = await saveSetting({ stockOnlyMinStock: value });
+    if (ok) setSettings(s => s ? { ...s, stockOnlyMinStock: value } : s);
+  }
+
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between gap-4">
-        <label htmlFor="shopping-list" className="text-sm font-medium shrink-0">
-          Mealie shopping list
-        </label>
-        {settings.availableShoppingLists.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Could not load shopping lists from Mealie.</p>
-        ) : (
-          <select
-            id="shopping-list"
-            value={settings.mealieShoppingListId || ''}
-            onChange={e => handleShoppingListChange(e.target.value)}
-            className="h-8 w-full max-w-xs rounded-md border border-input bg-background px-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 ml-auto"
-          >
-            <option value="">-- Not set --</option>
-            {[...settings.availableShoppingLists].sort((a, b) => a.name.localeCompare(b.name)).map(l => (
-              <option key={l.id} value={l.id}>{l.name}</option>
-            ))}
-          </select>
-        )}
-      </div>
+    <TooltipProvider>
+      <div className="space-y-5">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 shrink-0">
+            <label htmlFor="shopping-list" className="text-sm font-medium">
+              Mealie shopping list
+            </label>
+            <LockBadge lock={settings.locks.mealieShoppingListId} />
+          </div>
+          {settings.availableShoppingLists.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Could not load shopping lists from Mealie.</p>
+          ) : (
+            <select
+              id="shopping-list"
+              value={settings.mealieShoppingListId || ''}
+              onChange={e => handleShoppingListChange(e.target.value)}
+              disabled={settings.locks.mealieShoppingListId.locked}
+              className="h-8 w-full max-w-xs rounded-md border border-input bg-background px-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 ml-auto disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <option value="">-- Not set --</option>
+              {[...settings.availableShoppingLists].sort((a, b) => a.name.localeCompare(b.name)).map(l => (
+                <option key={l.id} value={l.id}>{l.name}</option>
+              ))}
+            </select>
+          )}
+        </div>
 
-      <div className="flex items-center justify-between gap-4">
-        <label htmlFor="default-unit" className="text-sm font-medium shrink-0">
-          Default unit for new Grocy products
-        </label>
-        {settings.availableUnits.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No units synced yet. Run a product sync first.</p>
-        ) : (
-          <select
-            id="default-unit"
-            value={settings.defaultUnitMappingId || ''}
-            onChange={e => handleUnitChange(e.target.value)}
-            className="h-8 w-full max-w-xs rounded-md border border-input bg-background px-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 ml-auto"
-          >
-            <option value="">-- Not set --</option>
-            {[...settings.availableUnits].sort((a, b) => a.name.localeCompare(b.name)).map(u => (
-              <option key={u.id} value={u.id}>
-                {u.name}{u.abbreviation ? ` (${u.abbreviation})` : ''}
-              </option>
-            ))}
-          </select>
-        )}
-      </div>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 shrink-0">
+            <label htmlFor="default-unit" className="text-sm font-medium">
+              Default unit for new Grocy products
+            </label>
+            <LockBadge lock={settings.locks.defaultUnitMappingId} />
+          </div>
+          {settings.availableUnits.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No units synced yet. Run a product sync first.</p>
+          ) : (
+            <select
+              id="default-unit"
+              value={settings.defaultUnitMappingId || ''}
+              onChange={e => handleUnitChange(e.target.value)}
+              disabled={settings.locks.defaultUnitMappingId.locked}
+              className="h-8 w-full max-w-xs rounded-md border border-input bg-background px-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 ml-auto disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <option value="">-- Not set --</option>
+              {[...settings.availableUnits].sort((a, b) => a.name.localeCompare(b.name)).map(u => (
+                <option key={u.id} value={u.id}>
+                  {u.name}{u.abbreviation ? ` (${u.abbreviation})` : ''}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
 
-      <Separator />
+        <Separator />
 
-      <div className="space-y-3">
-        <div>
-          <p className="text-sm font-medium">Auto-create in Grocy</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            When enabled, new Mealie items without a match are automatically created in Grocy during sync.
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm font-medium">Auto-create in Grocy</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              When enabled, new Mealie items without a match are automatically created in Grocy during sync.
+            </p>
+          </div>
+          <label className={`flex items-center gap-2.5 ${settings.locks.autoCreateUnits.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
+            <Checkbox
+              checked={settings.autoCreateUnits}
+              disabled={settings.locks.autoCreateUnits.locked}
+              onCheckedChange={(checked: boolean) => handleAutoCreateChange('autoCreateUnits', checked)}
+            />
+            <span className="text-sm">Auto-create units</span>
+            <LockBadge lock={settings.locks.autoCreateUnits} />
+          </label>
+          <label className={`flex items-center gap-2.5 ${settings.locks.autoCreateProducts.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
+            <Checkbox
+              checked={settings.autoCreateProducts}
+              disabled={settings.locks.autoCreateProducts.locked}
+              onCheckedChange={(checked: boolean) => handleAutoCreateChange('autoCreateProducts', checked)}
+            />
+            <span className="text-sm">Auto-create products</span>
+            <LockBadge lock={settings.locks.autoCreateProducts} />
+          </label>
+        </div>
+
+        <Separator />
+
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm font-medium">Mealie to Grocy</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Control how checked-off Mealie shopping list items are restocked in Grocy.
+            </p>
+          </div>
+          <label className={`flex items-center gap-2.5 ${settings.locks.stockOnlyMinStock.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
+            <Checkbox
+              checked={settings.stockOnlyMinStock}
+              disabled={settings.locks.stockOnlyMinStock.locked}
+              onCheckedChange={(checked: boolean) => handleStockOnlyMinStockChange(checked)}
+            />
+            <span className="text-sm">Only restock products with min stock</span>
+            <LockBadge lock={settings.locks.stockOnlyMinStock} />
+          </label>
+          <p className="pl-6 text-xs text-muted-foreground">
+            When enabled, checking off a Mealie item only adds stock in Grocy when the mapped product has `min_stock_amount &gt; 0`.
           </p>
         </div>
-        <label className="flex items-center gap-2.5 cursor-pointer">
-          <Checkbox
-            checked={settings.autoCreateUnits}
-            onCheckedChange={(checked: boolean) => handleAutoCreateChange('autoCreateUnits', checked)}
-          />
-          <span className="text-sm">Auto-create units</span>
-        </label>
-        <label className="flex items-center gap-2.5 cursor-pointer">
-          <Checkbox
-            checked={settings.autoCreateProducts}
-            onCheckedChange={(checked: boolean) => handleAutoCreateChange('autoCreateProducts', checked)}
-          />
-          <span className="text-sm">Auto-create products</span>
-        </label>
       </div>
-    </div>
+    </TooltipProvider>
   );
 }

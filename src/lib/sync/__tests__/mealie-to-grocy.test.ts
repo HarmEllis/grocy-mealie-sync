@@ -38,6 +38,7 @@ vi.mock('../../grocy/types', () => ({
 // ---------------------------------------------------------------------------
 vi.mock('../../settings', () => ({
   resolveShoppingListId: vi.fn(),
+  resolveStockOnlyMinStock: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -56,15 +57,6 @@ vi.mock('../helpers', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Config (factory pattern so we can mutate per-test)
-// ---------------------------------------------------------------------------
-vi.mock('../../config', () => ({
-  config: {
-    stockOnlyMinStock: false,
-  },
-}));
-
-// ---------------------------------------------------------------------------
 // Logger (suppress output)
 // ---------------------------------------------------------------------------
 vi.mock('../../logger', () => ({
@@ -79,7 +71,7 @@ vi.mock('../../logger', () => ({
 // Imports (after vi.mock so hoisting works)
 // ---------------------------------------------------------------------------
 import { pollMealieForCheckedItems } from '../mealie-to-grocy';
-import { resolveShoppingListId } from '../../settings';
+import { resolveShoppingListId, resolveStockOnlyMinStock } from '../../settings';
 import { getSyncState, saveSyncState } from '../state';
 import { fetchAllMealieShoppingItems } from '../helpers';
 import {
@@ -88,12 +80,12 @@ import {
   getProductDetails,
   addProductStock,
 } from '../../grocy/types';
-import { config } from '../../config';
 
 // ---------------------------------------------------------------------------
 // Typed mock accessors
 // ---------------------------------------------------------------------------
 const mockedResolveShoppingListId = vi.mocked(resolveShoppingListId);
+const mockedResolveStockOnlyMinStock = vi.mocked(resolveStockOnlyMinStock);
 const mockedGetSyncState = vi.mocked(getSyncState);
 const mockedSaveSyncState = vi.mocked(saveSyncState);
 const mockedFetchAll = vi.mocked(fetchAllMealieShoppingItems);
@@ -110,6 +102,7 @@ beforeEach(() => {
 
   // Defaults: a valid shopping list, empty state, empty items
   mockedResolveShoppingListId.mockResolvedValue('list-1');
+  mockedResolveStockOnlyMinStock.mockResolvedValue(false);
   mockedGetSyncState.mockResolvedValue(mockSyncState());
   mockedSaveSyncState.mockResolvedValue(undefined);
   mockedFetchAll.mockResolvedValue([]);
@@ -119,9 +112,6 @@ beforeEach(() => {
 
   // DB: no mappings by default
   mockLimit.mockResolvedValue([]);
-
-  // Reset config
-  (config as any).stockOnlyMinStock = false;
 });
 
 // ===========================================================================
@@ -280,7 +270,7 @@ describe('pollMealieForCheckedItems', () => {
   // -------------------------------------------------------------------------
 
   it('proceeds when STOCK_ONLY_MIN_STOCK is true and min_stock_amount > 0', async () => {
-    (config as any).stockOnlyMinStock = true;
+    mockedResolveStockOnlyMinStock.mockResolvedValue(true);
     const item = mockMealieShoppingItem({ id: 'min-ok', checked: true, foodId: 'food-1' });
     const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 101 });
 
@@ -297,7 +287,7 @@ describe('pollMealieForCheckedItems', () => {
   });
 
   it('skips when STOCK_ONLY_MIN_STOCK is true and min_stock_amount is 0', async () => {
-    (config as any).stockOnlyMinStock = true;
+    mockedResolveStockOnlyMinStock.mockResolvedValue(true);
     const item = mockMealieShoppingItem({ id: 'min-zero', checked: true, foodId: 'food-1' });
     const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 101 });
 
@@ -316,7 +306,7 @@ describe('pollMealieForCheckedItems', () => {
   });
 
   it('proceeds when getProductDetails throws (resilience)', async () => {
-    (config as any).stockOnlyMinStock = true;
+    mockedResolveStockOnlyMinStock.mockResolvedValue(true);
     const item = mockMealieShoppingItem({ id: 'details-err', checked: true, foodId: 'food-1' });
     const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 101 });
 

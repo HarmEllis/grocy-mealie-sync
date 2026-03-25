@@ -4,9 +4,8 @@ import { getGrocyEntities, createGrocyEntity } from '../grocy/types';
 import type { Product, QuantityUnit } from '../grocy/types';
 import { RecipesFoodsService, RecipesUnitsService } from '../mealie';
 import { extractFoods, extractUnits } from '../mealie/types';
-import { config } from '../config';
 import { log } from '../logger';
-import { getSettings } from '../settings';
+import { resolveAutoCreateProducts, resolveAutoCreateUnits, resolveDefaultUnit } from '../settings';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
@@ -37,25 +36,10 @@ function findUnitMappingByGrocyId(
   return match ? match.id : null;
 }
 
-async function resolveDefaultUnit(allUnitMappings: { id: string; grocyUnitId: number }[]): Promise<{ grocyUnitId: number; unitMappingId: string | null } | null> {
-  // Priority: 1. DB setting (from UI), 2. env var. Returns null if neither is configured.
-  const settings = await getSettings();
-  if (settings.defaultUnitMappingId) {
-    const match = allUnitMappings.find(u => u.id === settings.defaultUnitMappingId);
-    if (match) return { grocyUnitId: match.grocyUnitId, unitMappingId: match.id };
-  }
-  if (config.grocyDefaultUnitId) {
-    const match = allUnitMappings.find(u => u.grocyUnitId === config.grocyDefaultUnitId);
-    if (match) return { grocyUnitId: config.grocyDefaultUnitId, unitMappingId: match.id };
-    return { grocyUnitId: config.grocyDefaultUnitId, unitMappingId: null };
-  }
-  return null;
-}
-
 export async function syncUnits() {
   log.info('[ProductSync] Starting unit sync');
 
-  const settings = await getSettings();
+  const autoCreateUnits = await resolveAutoCreateUnits();
   const mealieUnitsRes = await RecipesUnitsService.getAllApiUnitsGet(
     undefined, undefined, undefined, undefined, undefined, undefined, 1, 1000
   );
@@ -80,7 +64,7 @@ export async function syncUnits() {
     );
 
     if (!gUnit) {
-      if (!settings.autoCreateUnits) {
+      if (!autoCreateUnits) {
         skipped++;
         continue;
       }
@@ -126,8 +110,7 @@ export async function syncProducts() {
   const grocyProducts: Product[] = await getGrocyEntities('products');
   const allUnitMappings = await db.select().from(unitMappings);
 
-  // Hoist settings fetch above the loop (task 7 — avoids N+1 DB calls)
-  const settings = await getSettings();
+  const autoCreateProducts = await resolveAutoCreateProducts();
 
   let created = 0;
   let linked = 0;
@@ -144,7 +127,7 @@ export async function syncProducts() {
     let unitMappingId: string | null = null;
 
     if (!gProd) {
-      if (!settings.autoCreateProducts) {
+      if (!autoCreateProducts) {
         skipped++;
         continue;
       }

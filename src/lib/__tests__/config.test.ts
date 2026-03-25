@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseIntOrDefault, validateServiceUrl } from '../config';
+import { parseBooleanEnv, parseIntOrDefault, parseOptionalIntEnv, validateServiceUrl } from '../config';
 
 describe('parseIntOrDefault', () => {
   it('returns number for valid input', () => {
@@ -43,5 +43,42 @@ describe('validateServiceUrl', () => {
 
   it('rejects whitespace-only strings', () => {
     expect(validateServiceUrl('   ', 'TEST', 'http://default')).toBe('http://default');
+  });
+});
+
+describe('parseOptionalIntEnv', () => {
+  it('returns null for empty values', () => {
+    expect(parseOptionalIntEnv(undefined, 'TEST')).toBeNull();
+    expect(parseOptionalIntEnv('', 'TEST')).toBeNull();
+    expect(parseOptionalIntEnv('   ', 'TEST')).toBeNull();
+  });
+
+  it('parses configured integers', () => {
+    expect(parseOptionalIntEnv('3', 'TEST')).toBe(3);
+    expect(parseOptionalIntEnv(' 42 ', 'TEST')).toBe(42);
+  });
+
+  it('returns null for invalid integers', () => {
+    expect(parseOptionalIntEnv('abc', 'TEST')).toBeNull();
+  });
+});
+
+describe('parseBooleanEnv', () => {
+  it('returns the default for empty values', () => {
+    expect(parseBooleanEnv(undefined, false, 'TEST')).toBe(false);
+    expect(parseBooleanEnv('', true, 'TEST')).toBe(true);
+  });
+
+  it('parses supported boolean values', () => {
+    expect(parseBooleanEnv('true', false, 'TEST')).toBe(true);
+    expect(parseBooleanEnv('TRUE', false, 'TEST')).toBe(true);
+    expect(parseBooleanEnv('1', false, 'TEST')).toBe(true);
+    expect(parseBooleanEnv('false', true, 'TEST')).toBe(false);
+    expect(parseBooleanEnv('0', true, 'TEST')).toBe(false);
+  });
+
+  it('falls back to the default for invalid values', () => {
+    expect(parseBooleanEnv('yes', false, 'TEST')).toBe(false);
+    expect(parseBooleanEnv('nope', true, 'TEST')).toBe(true);
   });
 });

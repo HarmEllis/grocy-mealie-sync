@@ -29,11 +29,6 @@ The service polls both APIs on a configurable interval (default: 60 seconds).
 **Mealie API token:**
 - Go to Mealie → User Settings → API Tokens → Create Token
 
-**Mealie Shopping List ID (optional):**
-- You can leave this unset and select the target shopping list later in the web UI.
-- If you prefer to configure it via environment variable, open your shopping list in Mealie.
-- The UUID is in the URL: `https://mealie.example.com/shopping-lists/<this-uuid>`
-
 ### 2. Configure environment
 
 Copy the example and fill in your values:
@@ -50,8 +45,6 @@ See [`.env.example`](.env.example) for the full list of variables and defaults. 
 - `MEALIE_API_TOKEN`
 
 If you use the bundled `compose-dev.yml` for local Mealie development, also set `POSTGRES_PASSWORD`.
-
-`MEALIE_SHOPPING_LIST_ID` is optional. If you leave it empty, you can select the shopping list later in the web UI.
 
 ### 3. Run
 
@@ -153,15 +146,19 @@ Manual triggers are useful for testing. The scheduler runs these automatically.
 
 ## Settings
 
-The target Mealie shopping list and the default unit for newly created Grocy products can be configured in the web UI at `http://localhost:3000`.
+The following app-level settings can be configured in the web UI at `http://localhost:3000` and via environment variables:
 
-For the shopping list, the web UI selection takes precedence over `MEALIE_SHOPPING_LIST_ID`.
+- Mealie shopping list: `MEALIE_SHOPPING_LIST_ID`
+- Default unit for new Grocy products: `GROCY_DEFAULT_UNIT_ID`
+- Auto-create products in Grocy: `AUTO_CREATE_PRODUCTS`
+- Auto-create units in Grocy: `AUTO_CREATE_UNITS`
+- Only restock products with min stock: `STOCK_ONLY_MIN_STOCK`
 
-For the default unit, the dropdown shows units that were synced from Mealie. Resolution priority:
+When one of these environment variables is set, it takes precedence over the stored UI value. The setting is shown as locked in the web UI, and you need to comment out or remove the env var before editing it there.
 
-1. **Web UI setting** (stored in the database)
-2. **`GROCY_DEFAULT_UNIT_ID`** environment variable (fallback)
-3. **First available unit** (if neither is set)
+The Mealie Shopping List ID is the UUID in the URL: `https://mealie.example.com/shopping-lists/<this-uuid>`.
+
+For the default unit, the dropdown only shows units that were synced from Mealie. If `GROCY_DEFAULT_UNIT_ID` points to a Grocy unit that does not have a synced Mealie mapping yet, the sync still uses that Grocy unit ID, but the dropdown cannot represent it.
 
 ## Grocy setup tips
 

@@ -2,9 +2,8 @@ import { db } from '../db';
 import { productMappings } from '../db/schema';
 import { getGrocyEntities, deleteGrocyEntity, getProductDetails, addProductStock } from '../grocy/types';
 import type { ShoppingListItemOut_Output } from '../mealie/client/models/ShoppingListItemOut_Output';
-import { config } from '../config';
 import { log } from '../logger';
-import { resolveShoppingListId } from '../settings';
+import { resolveShoppingListId, resolveStockOnlyMinStock } from '../settings';
 import { getSyncState, saveSyncState } from './state';
 import { fetchAllMealieShoppingItems } from './helpers';
 import { eq } from 'drizzle-orm';
@@ -83,7 +82,7 @@ async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<num
   const quantity = item.quantity || 1;
 
   // Check if we should only add stock for products with min_stock_amount > 0
-  if (config.stockOnlyMinStock) {
+  if (await resolveStockOnlyMinStock()) {
     try {
       const productDetails = await getProductDetails(mapping.grocyProductId);
       const minStock = Number(productDetails.product?.min_stock_amount ?? 0);
