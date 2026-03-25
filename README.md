@@ -2,6 +2,8 @@
 
 Bi-directional sync service between [Grocy](https://grocy.info/) (inventory management) and [Mealie](https://mealie.io/) (meal planning / shopping lists).
 
+![Screenshot of the Grocy-Mealie Sync dashboard](docs/images/app-dashboard.png)
+
 ## What it does
 
 1. **Product & unit sync** — Matches products and units between Grocy and Mealie by name. Creates missing items in Grocy automatically.
