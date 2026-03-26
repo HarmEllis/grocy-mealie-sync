@@ -21,6 +21,12 @@ export const productCreateRequestSchema = z.object({
   unitOverrides: z.record(z.string(), z.number()).optional(),
 });
 
+/** Schema for creating Mealie products from Grocy products */
+export const productCreateMealieRequestSchema = z.object({
+  grocyProductIds: z.array(z.number()).max(500),
+  unitSelections: z.record(z.string(), z.number().nullable()).optional(),
+});
+
 // --- Mapping Wizard: Units ---
 
 /** Schema for a single unit mapping entry (units sync) */

@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CheckCircle2 } from 'lucide-react';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
@@ -77,7 +76,7 @@ export function UnitsTab({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col space-y-3">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col space-y-3">
       {/* Actions bar */}
       <div className="flex flex-wrap items-center gap-2">
         {Object.keys(data.unitSuggestions).length > 0 && (
@@ -97,8 +96,8 @@ export function UnitsTab({
       </div>
 
       {/* Table */}
-      <ScrollArea className="min-h-0 flex-1 rounded-md border">
-        <Table>
+      <div className="min-h-0 min-w-0 flex-1 rounded-md border">
+        <Table className="min-w-[820px]" containerClassName="h-full min-w-0">
           <TableHeader>
             <TableRow>
               <TableHead className="w-9 text-center">
@@ -168,7 +167,7 @@ export function UnitsTab({
             })}
           </TableBody>
         </Table>
-      </ScrollArea>
+      </div>
 
     </div>
   );

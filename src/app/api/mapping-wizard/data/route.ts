@@ -44,6 +44,7 @@ export async function GET() {
       id: Number(p.id),
       name: p.name || 'Unknown',
       quIdPurchase: Number(p.qu_id_purchase || 0),
+      minStockAmount: Number(p.min_stock_amount || 0),
     }));
 
     const grocyUnitList = grocyUnits.map(u => ({
@@ -97,6 +98,23 @@ export async function GET() {
       }
     }
 
+    const unmappedGrocyMinStockProducts = grocyProductList.filter(p =>
+      p.minStockAmount > 0 && !mappedGrocyProductIds.has(p.id),
+    );
+
+    const lowStockGrocyProductSuggestions: Record<string, { mealieFoodId: string; mealieFoodName: string; score: number }> = {};
+    for (const grocyProduct of unmappedGrocyMinStockProducts) {
+      const matches = fuzzyMatch(grocyProduct.name, unmappedMealieFoods, food => food.name, 0.3, 1);
+      if (matches.length > 0) {
+        const best = matches[0];
+        lowStockGrocyProductSuggestions[String(grocyProduct.id)] = {
+          mealieFoodId: best.item.id,
+          mealieFoodName: best.item.name,
+          score: Math.round(best.score * 100),
+        };
+      }
+    }
+
     // Orphan counts: Grocy items without a Mealie counterpart
     const mealieFoodNames = new Set(mealieFoods.map(f => (f.name || '').toLowerCase()));
     const mealieUnitNames = new Set(mealieUnits.flatMap(u => [
@@ -114,6 +132,7 @@ export async function GET() {
     return NextResponse.json({
       unmappedMealieFoods,
       unmappedMealieUnits,
+      unmappedGrocyMinStockProducts,
       grocyProducts: grocyProductList,
       grocyUnits: grocyUnitList,
       existingUnitMappings: existingUnitMappings.map(m => ({
@@ -123,6 +142,7 @@ export async function GET() {
         mealieUnitName: m.mealieUnitName,
       })),
       productSuggestions,
+      lowStockGrocyProductSuggestions,
       unitSuggestions,
       orphanGrocyProductCount: orphanGrocyProducts.length,
       orphanGrocyUnitCount: orphanGrocyUnits.length,

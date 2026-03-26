@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { WizardData } from '../types';
 import {
+  buildGrocyMinStockProductMaps,
   buildProductMaps,
   buildUnitMaps,
   getDefaultWizardTab,
   mergeCheckedState,
+  mergeGrocyMinStockProductMaps,
   mergeProductMaps,
   mergeUnitMaps,
 } from '../state';
@@ -20,15 +22,19 @@ function createWizardData(overrides: Partial<WizardData> = {}): WizardData {
       { id: 'unit-2', name: 'Liter', abbreviation: 'l' },
     ],
     grocyProducts: [
-      { id: 1, name: 'Milk', quIdPurchase: 10 },
-      { id: 2, name: 'Bread', quIdPurchase: 11 },
+      { id: 1, name: 'Milk', quIdPurchase: 10, minStockAmount: 1 },
+      { id: 2, name: 'Bread', quIdPurchase: 11, minStockAmount: 0 },
     ],
     grocyUnits: [
       { id: 10, name: 'Piece' },
       { id: 11, name: 'Liter' },
     ],
+    unmappedGrocyMinStockProducts: [
+      { id: 1, name: 'Milk', quIdPurchase: 10, minStockAmount: 1 },
+    ],
     existingUnitMappings: [],
     productSuggestions: {},
+    lowStockGrocyProductSuggestions: {},
     unitSuggestions: {},
     orphanGrocyProductCount: 0,
     orphanGrocyUnitCount: 0,
@@ -43,6 +49,13 @@ describe('getDefaultWizardTab', () => {
 
   it('defaults to products when only products remain', () => {
     expect(getDefaultWizardTab(createWizardData({ unmappedMealieUnits: [] }))).toBe('products');
+  });
+
+  it('defaults to grocy min stock when only that tab still has items', () => {
+    expect(getDefaultWizardTab(createWizardData({
+      unmappedMealieUnits: [],
+      unmappedMealieFoods: [],
+    }))).toBe('grocy-min-stock');
   });
 });
 
@@ -60,6 +73,14 @@ describe('buildUnitMaps', () => {
     expect(buildUnitMaps(createWizardData())).toEqual({
       'unit-1': { mealieUnitId: 'unit-1', grocyUnitId: null },
       'unit-2': { mealieUnitId: 'unit-2', grocyUnitId: null },
+    });
+  });
+});
+
+describe('buildGrocyMinStockProductMaps', () => {
+  it('creates empty reverse product mappings for all unmapped Grocy min-stock products', () => {
+    expect(buildGrocyMinStockProductMaps(createWizardData())).toEqual({
+      '1': { grocyProductId: 1, mealieFoodId: null, grocyUnitId: 10 },
     });
   });
 });
@@ -108,6 +129,28 @@ describe('mergeUnitMaps', () => {
   });
 });
 
+describe('mergeGrocyMinStockProductMaps', () => {
+  it('preserves existing reverse selections and adds new products with empty state', () => {
+    const merged = mergeGrocyMinStockProductMaps(
+      createWizardData({
+        unmappedGrocyMinStockProducts: [
+          { id: 1, name: 'Milk', quIdPurchase: 10, minStockAmount: 1 },
+          { id: 3, name: 'Eggs', quIdPurchase: 12, minStockAmount: 6 },
+        ],
+      }),
+      {
+        '1': { grocyProductId: 1, mealieFoodId: 'food-1', grocyUnitId: 10 },
+        '2': { grocyProductId: 2, mealieFoodId: 'food-2', grocyUnitId: 11 },
+      },
+    );
+
+    expect(merged).toEqual({
+      '1': { grocyProductId: 1, mealieFoodId: 'food-1', grocyUnitId: 10 },
+      '3': { grocyProductId: 3, mealieFoodId: null, grocyUnitId: 12 },
+    });
+  });
+});
+
 describe('mergeCheckedState', () => {
   it('keeps only checked ids that still exist after a refresh', () => {
     expect(mergeCheckedState(['food-2', 'food-3'], {
@@ -116,6 +159,16 @@ describe('mergeCheckedState', () => {
       'food-3': false,
     })).toEqual({
       'food-2': true,
+    });
+  });
+
+  it('supports numeric ids by stringifying them', () => {
+    expect(mergeCheckedState([1, 2], {
+      '1': true,
+      '2': false,
+      '3': true,
+    })).toEqual({
+      '1': true,
     });
   });
 });

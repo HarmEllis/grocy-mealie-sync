@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CheckCircle2 } from 'lucide-react';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
@@ -90,7 +89,7 @@ export function ProductsTab({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col space-y-3">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col space-y-3">
       {/* Default unit setting */}
       <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
         <label className="text-sm text-muted-foreground whitespace-nowrap">
@@ -127,8 +126,8 @@ export function ProductsTab({
       </div>
 
       {/* Table */}
-      <ScrollArea className="min-h-0 flex-1 rounded-md border">
-        <Table>
+      <div className="min-h-0 min-w-0 flex-1 rounded-md border">
+        <Table className="min-w-[920px]" containerClassName="h-full min-w-0">
           <TableHeader>
             <TableRow>
               <TableHead className="w-9 text-center">
@@ -184,7 +183,7 @@ export function ProductsTab({
                         }
                       }}
                       placeholder="Select Grocy product..."
-                      className="max-w-[280px]"
+                      className="max-w-[260px]"
                     />
                   </TableCell>
                   <TableCell>
@@ -196,7 +195,7 @@ export function ProductsTab({
                         [food.id]: { ...prev[food.id], grocyUnitId: val },
                       }))}
                       placeholder={unitPlaceholder}
-                      className="max-w-[180px]"
+                      className="max-w-[160px]"
                     />
                   </TableCell>
                   <TableCell>
@@ -217,7 +216,7 @@ export function ProductsTab({
             })}
           </TableBody>
         </Table>
-      </ScrollArea>
+      </div>
 
     </div>
   );

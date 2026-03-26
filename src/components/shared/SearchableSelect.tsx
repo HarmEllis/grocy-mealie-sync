@@ -5,15 +5,15 @@ import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { X } from 'lucide-react';
 
-interface Option {
-  value: number;
+interface Option<T extends string | number> {
+  value: T;
   label: string;
 }
 
-interface SearchableSelectProps {
-  options: Option[];
-  value: number | null;
-  onChange: (value: number | null) => void;
+interface SearchableSelectProps<T extends string | number> {
+  options: Option<T>[];
+  value: T | null;
+  onChange: (value: T | null) => void;
   placeholder?: string;
   className?: string;
 }
@@ -27,7 +27,13 @@ interface DropdownPosition {
   bottom?: number;
 }
 
-export function SearchableSelect({ options, value, onChange, placeholder = 'Search...', className }: SearchableSelectProps) {
+export function SearchableSelect<T extends string | number>({
+  options,
+  value,
+  onChange,
+  placeholder = 'Search...',
+  className,
+}: SearchableSelectProps<T>) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -114,7 +120,7 @@ export function SearchableSelect({ options, value, onChange, placeholder = 'Sear
     }
   }, [activeIndex]);
 
-  const handleSelect = useCallback((val: number) => {
+  const handleSelect = useCallback((val: T) => {
     onChange(val);
     setOpen(false);
     setSearch('');
@@ -191,7 +197,7 @@ export function SearchableSelect({ options, value, onChange, placeholder = 'Sear
       ) : (
         filtered.map((opt, index) => (
           <div
-            key={opt.value}
+            key={String(opt.value)}
             id={`${listboxId}-option-${index}`}
             role="option"
             data-index={index}
