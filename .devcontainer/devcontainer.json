@@ -10,10 +10,12 @@
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
   },
   "runArgs": [
+    "--ipc=host",
     "--add-host=host.docker.internal:host-gateway"
   ],
   "containerEnv": {
-    "NEXT_TELEMETRY_DISABLED": "1"
+    "NEXT_TELEMETRY_DISABLED": "1",
+    "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH": "/usr/bin/chromium"
   },
   "postCreateCommand": "npm ci && mkdir -p data",
   "forwardPorts": [

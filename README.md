@@ -99,6 +99,37 @@ Typical flow:
 
 If you already use external Grocy and Mealie instances, keep your existing URLs and skip `compose-dev.yml`.
 
+## Docs screenshot workflow
+
+Generate a screenshot locally with:
+
+```bash
+npm ci
+npm run docs:screenshot
+```
+
+This writes `docs/images/app-dashboard.png`.
+
+How the screenshot script works:
+
+- Starts the normal local dev server on `127.0.0.1:3000`.
+- Captures the real app at `/` with a narrower fixed viewport.
+- Opens Chromium in headless mode with a fixed viewport.
+- Forces a dark color scheme and reduced motion.
+- Waits for the app to hydrate and the settings UI to settle, then disables animations and transitions before taking the screenshot.
+
+### Devcontainer notes
+
+- The devcontainer image installs Debian `chromium`, so `npm run docs:screenshot` works headlessly without X11 forwarding.
+- After pulling these changes, rebuild the devcontainer so the new Chromium package is included.
+- The devcontainer also sets `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium` for the screenshot script.
+
+### VS Code Remote SSH notes
+
+- Run the screenshot command on the remote Linux host, not on your local machine.
+- If the remote host already has `chromium`, `chromium-browser`, or `google-chrome` installed, the script will use it automatically.
+- If no system browser is available, install one on the host or run `npx playwright install chromium` once in the repo.
+
 ## Verifying it works
 
 1. Open `http://localhost:3000` — you should see the status dashboard with sync status and settings

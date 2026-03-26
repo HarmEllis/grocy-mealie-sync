@@ -12,6 +12,7 @@
     "start": "next start",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "docs:screenshot": "node scripts/docs-screenshot.mjs",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -50,6 +51,7 @@
     "eslint-config-next": "^16.2.1",
     "openapi-typescript": "^7.13.0",
     "openapi-typescript-codegen": "^0.30.0",
+    "playwright": "^1.58.2",
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.2",
     "tsx": "^4.21.0",
