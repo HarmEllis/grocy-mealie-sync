@@ -112,7 +112,7 @@ This writes `docs/images/app-dashboard.png`.
 
 How the screenshot script works:
 
-- Starts the normal local dev server on `127.0.0.1:3000`.
+- Builds the app, then starts a production preview server on a free local port.
 - Captures the real app at `/` with a narrower fixed viewport.
 - Opens Chromium in headless mode with a fixed viewport.
 - Forces a dark color scheme and reduced motion.

@@ -1,16 +1,16 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync, mkdirSync } from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 
 import { chromium } from 'playwright';
 
 const HOST = '127.0.0.1';
-const PORT = 3000;
-const TARGET_URL = `http://${HOST}:${PORT}`;
 const OUTPUT_PATH = path.join(process.cwd(), 'docs', 'images', 'app-dashboard.png');
 const STARTUP_TIMEOUT_MS = 10_000;
 const STEP_TIMEOUT_MS = 30_000;
+const BUILD_TIMEOUT_MS = 5 * 60_000;
 const VIEWPORT = { width: 840, height: 1400 };
 
 const chromiumCandidates = [
@@ -23,9 +23,37 @@ const chromiumCandidates = [
   '/snap/bin/chromium',
 ].filter(Boolean);
 
-async function canReachPreviewPage(timeoutMs) {
+function buildTargetUrl(port) {
+  return `http://${HOST}:${port}`;
+}
+
+async function getAvailablePort() {
+  return await new Promise((resolve, reject) => {
+    const server = net.createServer();
+
+    server.once('error', reject);
+    server.listen(0, HOST, () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        server.close(() => reject(new Error('Could not determine an available port.')));
+        return;
+      }
+
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve(address.port);
+      });
+    });
+  });
+}
+
+async function canReachPreviewPage(targetUrl, timeoutMs) {
   try {
-    const response = await fetch(TARGET_URL, {
+    const response = await fetch(targetUrl, {
       signal: AbortSignal.timeout(timeoutMs),
     });
 
@@ -35,11 +63,15 @@ async function canReachPreviewPage(timeoutMs) {
   }
 }
 
-async function waitForPreviewPage(timeoutMs) {
+async function waitForPreviewPage(targetUrl, child, timeoutMs) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
-    if (await canReachPreviewPage(2_000)) {
+    if (child.exitCode !== null) {
+      throw new Error('The docs preview server exited before it became reachable.');
+    }
+
+    if (await canReachPreviewPage(targetUrl, 2_000)) {
       return;
     }
 
@@ -48,7 +80,7 @@ async function waitForPreviewPage(timeoutMs) {
 
   throw new Error(
     [
-      `Could not reach ${TARGET_URL}.`,
+      `Could not reach ${targetUrl}.`,
       'Failed to start the docs preview server.',
     ].join(' ')
   );
@@ -75,21 +107,17 @@ function resolveChromiumExecutablePath() {
   return chromiumCandidates.find((candidate) => existsSync(candidate));
 }
 
-function startLocalServer() {
+function spawnNpmProcess(args) {
   const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const child = spawn(
-    npmCommand,
-    ['run', 'dev', '--', '--hostname', HOST, '--port', String(PORT)],
-    {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        NEXT_TELEMETRY_DISABLED: '1',
-      },
-      detached: process.platform !== 'win32',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }
-  );
+  const child = spawn(npmCommand, args, {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      NEXT_TELEMETRY_DISABLED: '1',
+    },
+    detached: process.platform !== 'win32',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
 
   child.stdout.on('data', (chunk) => {
     process.stdout.write(chunk);
@@ -100,6 +128,26 @@ function startLocalServer() {
   });
 
   return child;
+}
+
+function startPreviewServer(port) {
+  return spawnNpmProcess(['run', 'start', '--', '--hostname', HOST, '--port', String(port)]);
+}
+
+async function runProductionBuild() {
+  console.log('Building production app.');
+  const child = spawnNpmProcess(['run', 'build']);
+
+  const [exitCode, signal] = await withTimeout(once(child, 'exit'), BUILD_TIMEOUT_MS, 'Production build');
+  if (exitCode !== 0) {
+    throw new Error(
+      signal
+        ? `Production build failed with signal ${signal}.`
+        : `Production build failed with exit code ${exitCode}.`
+    );
+  }
+
+  console.log('Production build completed.');
 }
 
 function terminateProcessTree(child, signal) {
@@ -153,11 +201,14 @@ async function stopLocalServer(child) {
 
 async function main() {
   mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
-  console.log('Starting local dev server.');
-  const server = startLocalServer();
+  await runProductionBuild();
+  const port = await getAvailablePort();
+  const targetUrl = buildTargetUrl(port);
+  console.log('Starting production preview server.');
+  const server = startPreviewServer(port);
 
   try {
-    await waitForPreviewPage(STARTUP_TIMEOUT_MS);
+    await waitForPreviewPage(targetUrl, server, STARTUP_TIMEOUT_MS);
 
     const executablePath = resolveChromiumExecutablePath();
     console.log('Launching Chromium.');
@@ -197,7 +248,7 @@ async function main() {
         }
       });
 
-      await withTimeout(page.goto(TARGET_URL, { waitUntil: 'commit' }), STEP_TIMEOUT_MS, 'Page navigation');
+      await withTimeout(page.goto(targetUrl, { waitUntil: 'commit' }), STEP_TIMEOUT_MS, 'Page navigation');
       console.log('Page loaded.');
       await withTimeout(
         page.waitForFunction(() => {
