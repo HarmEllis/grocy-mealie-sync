@@ -22,6 +22,26 @@ export interface WizardData {
   orphanGrocyUnitCount: number;
 }
 
+export type UnitsTabData = Pick<
+  WizardData,
+  'unmappedMealieUnits' | 'grocyUnits' | 'unitSuggestions' | 'orphanGrocyUnitCount'
+>;
+
+export type ProductsTabData = Pick<
+  WizardData,
+  | 'unmappedMealieFoods'
+  | 'grocyProducts'
+  | 'grocyUnits'
+  | 'existingUnitMappings'
+  | 'productSuggestions'
+  | 'orphanGrocyProductCount'
+>;
+
+export type GrocyMinStockTabData = Pick<
+  WizardData,
+  'unmappedGrocyMinStockProducts' | 'grocyUnits' | 'unmappedMealieFoods' | 'lowStockGrocyProductSuggestions'
+>;
+
 export interface ProductMapping { mealieFoodId: string; grocyProductId: number | null; grocyUnitId: number | null }
 export interface GrocyMinStockProductMapping { grocyProductId: number; mealieFoodId: string | null; grocyUnitId: number | null }
 export interface UnitMapping { mealieUnitId: string; grocyUnitId: number | null }

@@ -9,11 +9,11 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CheckCircle2 } from 'lucide-react';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { ScoreBadge } from '@/components/shared/ScoreBadge';
-import type { WizardData, UnitMapping, SelectOption } from './types';
+import type { UnitsTabData, UnitMapping, SelectOption } from './types';
 import { sortByName } from './types';
 
 interface UnitsTabProps {
-  data: WizardData;
+  data: UnitsTabData;
   unitMaps: Record<string, UnitMapping>;
   setUnitMaps: React.Dispatch<React.SetStateAction<Record<string, UnitMapping>>>;
   createUnitChecked: Record<string, boolean>;

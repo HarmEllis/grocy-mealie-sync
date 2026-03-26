@@ -9,11 +9,11 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CheckCircle2 } from 'lucide-react';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { ScoreBadge } from '@/components/shared/ScoreBadge';
-import type { WizardData, ProductMapping, SelectOption } from './types';
+import type { ProductsTabData, ProductMapping, SelectOption } from './types';
 import { sortByName } from './types';
 
 interface ProductsTabProps {
-  data: WizardData;
+  data: ProductsTabData;
   productMaps: Record<string, ProductMapping>;
   setProductMaps: React.Dispatch<React.SetStateAction<Record<string, ProductMapping>>>;
   createProductChecked: Record<string, boolean>;

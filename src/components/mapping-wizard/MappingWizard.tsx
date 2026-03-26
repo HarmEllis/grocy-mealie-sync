@@ -18,29 +18,64 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { GrocyMinStockProductsTab } from './GrocyMinStockProductsTab';
 import { UnitsTab } from './UnitsTab';
 import { ProductsTab } from './ProductsTab';
-import type { GrocyMinStockProductMapping, ProductMapping, UnitMapping, WizardData } from './types';
+import type {
+  GrocyMinStockProductMapping,
+  GrocyMinStockTabData,
+  ProductMapping,
+  ProductsTabData,
+  UnitMapping,
+  UnitsTabData,
+} from './types';
 import { sortByName } from './types';
 import {
   buildGrocyMinStockProductMaps,
   buildProductMaps,
   buildUnitMaps,
-  getDefaultWizardTab,
   mergeCheckedState,
   mergeGrocyMinStockProductMaps,
   mergeProductMaps,
   mergeUnitMaps,
+  type WizardTab,
 } from './state';
 
-interface FetchDataOptions {
+interface FetchTabDataOptions {
   preserveWizardState?: boolean;
   showLoading?: boolean;
 }
 
+const TAB_ENDPOINTS: Record<WizardTab, string> = {
+  units: '/api/mapping-wizard/data?tab=units',
+  products: '/api/mapping-wizard/data?tab=products',
+  'grocy-min-stock': '/api/mapping-wizard/data?tab=grocy-min-stock',
+};
+
+const INITIAL_TAB_LOADING: Record<WizardTab, boolean> = {
+  units: false,
+  products: false,
+  'grocy-min-stock': false,
+};
+
+const INITIAL_TAB_ERRORS: Record<WizardTab, string | null> = {
+  units: null,
+  products: null,
+  'grocy-min-stock': null,
+};
+
+const INITIAL_DIRTY_TABS: Record<WizardTab, boolean> = {
+  units: false,
+  products: false,
+  'grocy-min-stock': false,
+};
+
 export function MappingWizard() {
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<'products' | 'units' | 'grocy-min-stock'>('units');
-  const [data, setData] = useState<WizardData | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState<WizardTab>('units');
+  const [unitsData, setUnitsData] = useState<UnitsTabData | null>(null);
+  const [productsData, setProductsData] = useState<ProductsTabData | null>(null);
+  const [grocyMinStockData, setGrocyMinStockData] = useState<GrocyMinStockTabData | null>(null);
+  const [tabLoading, setTabLoading] = useState(INITIAL_TAB_LOADING);
+  const [tabErrors, setTabErrors] = useState(INITIAL_TAB_ERRORS);
+  const [dirtyTabs, setDirtyTabs] = useState(INITIAL_DIRTY_TABS);
   const [actionRunning, setActionRunning] = useState<string | null>(null);
   const [productSearch, setProductSearch] = useState('');
   const [grocyMinStockProductSearch, setGrocyMinStockProductSearch] = useState('');
@@ -69,85 +104,170 @@ export function MappingWizard() {
     };
   }, []);
 
-  const fetchData = useCallback(async ({
-    preserveWizardState = false,
-    showLoading = true,
-  }: FetchDataOptions = {}) => {
+  const fetchTabData = useCallback(async (
+    targetTab: WizardTab,
+    {
+      preserveWizardState = false,
+      showLoading = true,
+    }: FetchTabDataOptions = {},
+  ): Promise<UnitsTabData | ProductsTabData | GrocyMinStockTabData | null> => {
     if (showLoading) {
-      setLoading(true);
+      setTabLoading(prev => ({ ...prev, [targetTab]: true }));
     }
+    setTabErrors(prev => ({ ...prev, [targetTab]: null }));
 
     try {
-      const res = await fetch('/api/mapping-wizard/data');
-      if (!res.ok) throw new Error('Failed to fetch');
-      const d: WizardData = await res.json();
-      setData(d);
-
-      if (preserveWizardState) {
-        setProductMaps(prev => mergeProductMaps(d, prev));
-        setGrocyMinStockProductMaps(prev => mergeGrocyMinStockProductMaps(d, prev));
-        setUnitMaps(prev => mergeUnitMaps(d, prev));
-        setCreateProductChecked(prev => mergeCheckedState(d.unmappedMealieFoods.map(food => food.id), prev));
-        setCreateMealieProductChecked(prev => mergeCheckedState(d.unmappedGrocyMinStockProducts.map(product => product.id), prev));
-        setCreateUnitChecked(prev => mergeCheckedState(d.unmappedMealieUnits.map(unit => unit.id), prev));
-      } else {
-        setProductMaps(buildProductMaps(d));
-        setGrocyMinStockProductMaps(buildGrocyMinStockProductMaps(d));
-        setUnitMaps(buildUnitMaps(d));
-        setCreateProductChecked({});
-        setCreateMealieProductChecked({});
-        setCreateUnitChecked({});
-        setTab(getDefaultWizardTab(d));
+      const res = await fetch(TAB_ENDPOINTS[targetTab]);
+      if (!res.ok) {
+        throw new Error('Failed to fetch');
       }
 
-      setDefaultCreateUnitId(prev => prev ?? (d.grocyUnits[0]?.id ?? null));
-      return d;
+      let parsedData: UnitsTabData | ProductsTabData | GrocyMinStockTabData | null = null;
+
+      switch (targetTab) {
+        case 'units': {
+          const data: UnitsTabData = await res.json();
+          parsedData = data;
+          setUnitsData(data);
+
+          if (preserveWizardState) {
+            setUnitMaps(prev => mergeUnitMaps(data, prev));
+            setCreateUnitChecked(prev => mergeCheckedState(data.unmappedMealieUnits.map(unit => unit.id), prev));
+          } else {
+            setUnitMaps(buildUnitMaps(data));
+            setCreateUnitChecked({});
+          }
+          break;
+        }
+        case 'products': {
+          const data: ProductsTabData = await res.json();
+          parsedData = data;
+          setProductsData(data);
+
+          if (preserveWizardState) {
+            setProductMaps(prev => mergeProductMaps(data, prev));
+            setCreateProductChecked(prev => mergeCheckedState(data.unmappedMealieFoods.map(food => food.id), prev));
+          } else {
+            setProductMaps(buildProductMaps(data));
+            setCreateProductChecked({});
+          }
+
+          setDefaultCreateUnitId(prev => prev ?? (data.existingUnitMappings[0]?.grocyUnitId ?? data.grocyUnits[0]?.id ?? null));
+          break;
+        }
+        case 'grocy-min-stock': {
+          const data: GrocyMinStockTabData = await res.json();
+          parsedData = data;
+          setGrocyMinStockData(data);
+
+          if (preserveWizardState) {
+            setGrocyMinStockProductMaps(prev => mergeGrocyMinStockProductMaps(data, prev));
+            setCreateMealieProductChecked(prev => mergeCheckedState(
+              data.unmappedGrocyMinStockProducts.map(product => product.id),
+              prev,
+            ));
+          } else {
+            setGrocyMinStockProductMaps(buildGrocyMinStockProductMaps(data));
+            setCreateMealieProductChecked({});
+          }
+          break;
+        }
+      }
+
+      setDirtyTabs(prev => ({ ...prev, [targetTab]: false }));
+      return parsedData;
     } catch {
+      setTabErrors(prev => ({ ...prev, [targetTab]: 'Failed to load data. Check API connections.' }));
       toast.error('Failed to load mapping data');
       return null;
     } finally {
       if (showLoading) {
-        setLoading(false);
+        setTabLoading(prev => ({ ...prev, [targetTab]: false }));
       }
     }
   }, []);
 
-  useEffect(() => {
-    if (open) {
-      void fetchData();
+  const ensureTabDataLoaded = useCallback(async (targetTab: WizardTab) => {
+    const hasData = targetTab === 'units'
+      ? unitsData !== null
+      : targetTab === 'products'
+        ? productsData !== null
+        : grocyMinStockData !== null;
+
+    if (hasData && !dirtyTabs[targetTab]) {
+      return;
     }
-  }, [open, fetchData]);
+
+    await fetchTabData(targetTab, {
+      preserveWizardState: hasData,
+      showLoading: true,
+    });
+  }, [dirtyTabs, fetchTabData, grocyMinStockData, productsData, unitsData]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    void ensureTabDataLoaded(tab);
+  }, [open, tab, ensureTabDataLoaded]);
+
+  function markOtherLoadedTabsDirty(activeTab: WizardTab) {
+    setDirtyTabs(prev => ({
+      units: activeTab === 'units' ? false : prev.units || unitsData !== null,
+      products: activeTab === 'products' ? false : prev.products || productsData !== null,
+      'grocy-min-stock': activeTab === 'grocy-min-stock'
+        ? false
+        : prev['grocy-min-stock'] || grocyMinStockData !== null,
+    }));
+  }
 
   // Sorted options for SearchableSelect
-  const grocyProductOptions = useMemo(() =>
-    data ? sortByName(data.grocyProducts).map(p => ({ value: p.id, label: p.name })) : [],
-    [data],
+  const unitGrocyUnitOptions = useMemo(() =>
+    unitsData ? sortByName(unitsData.grocyUnits).map(unit => ({ value: unit.id, label: unit.name })) : [],
+    [unitsData],
+  );
+  const productGrocyProductOptions = useMemo(() =>
+    productsData ? sortByName(productsData.grocyProducts).map(product => ({ value: product.id, label: product.name })) : [],
+    [productsData],
+  );
+  const productGrocyUnitOptions = useMemo(() =>
+    productsData ? sortByName(productsData.grocyUnits).map(unit => ({ value: unit.id, label: unit.name })) : [],
+    [productsData],
+  );
+  const grocyMinStockGrocyUnitOptions = useMemo(() =>
+    grocyMinStockData ? sortByName(grocyMinStockData.grocyUnits).map(unit => ({ value: unit.id, label: unit.name })) : [],
+    [grocyMinStockData],
   );
   const mealieProductOptions = useMemo(() =>
-    data ? sortByName(data.unmappedMealieFoods).map(food => ({ value: food.id, label: food.name })) : [],
-    [data],
+    grocyMinStockData
+      ? sortByName(grocyMinStockData.unmappedMealieFoods).map(food => ({ value: food.id, label: food.name }))
+      : [],
+    [grocyMinStockData],
   );
-  const grocyUnitOptions = useMemo(() =>
-    data ? sortByName(data.grocyUnits).map(u => ({ value: u.id, label: u.name })) : [],
-    [data],
-  );
-  // Only already-mapped units for the "default unit" dropdown (matches Settings behavior)
   const mappedUnitOptions = useMemo(() =>
-    data ? sortByName(data.existingUnitMappings.map(m => ({ name: m.mealieUnitName, id: m.grocyUnitId }))).map(u => ({ value: u.id, label: u.name })) : [],
-    [data],
+    productsData
+      ? sortByName(productsData.existingUnitMappings.map(mapping => ({
+        name: mapping.mealieUnitName,
+        id: mapping.grocyUnitId,
+      }))).map(unit => ({ value: unit.id, label: unit.name }))
+      : [],
+    [productsData],
   );
 
   // Unmapped IDs for "create" checkboxes
   const unmappedProductIds = useMemo(() =>
-    Object.entries(productMaps).filter(([, m]) => m.grocyProductId === null).map(([id]) => id),
+    Object.entries(productMaps).filter(([, mapping]) => mapping.grocyProductId === null).map(([id]) => id),
     [productMaps],
   );
   const unmappedGrocyMinStockProductIds = useMemo(() =>
-    Object.entries(grocyMinStockProductMaps).filter(([, m]) => m.mealieFoodId === null).map(([id]) => id),
+    Object.entries(grocyMinStockProductMaps)
+      .filter(([, mapping]) => mapping.mealieFoodId === null)
+      .map(([id]) => id),
     [grocyMinStockProductMaps],
   );
   const unmappedUnitIds = useMemo(() =>
-    Object.entries(unitMaps).filter(([, m]) => m.grocyUnitId === null).map(([id]) => id),
+    Object.entries(unitMaps).filter(([, mapping]) => mapping.grocyUnitId === null).map(([id]) => id),
     [unitMaps],
   );
 
@@ -186,8 +306,8 @@ export function MappingWizard() {
     setActionRunning(name);
     try {
       await fn();
-    } catch (e) {
-      toast.error(String(e));
+    } catch (error) {
+      toast.error(String(error));
     } finally {
       setActionRunning(null);
       closeConfirm();
@@ -213,29 +333,51 @@ export function MappingWizard() {
   // --- Accept Suggestions ---
 
   function acceptAllProductSuggestions() {
-    if (!data) return;
+    if (!productsData) {
+      return;
+    }
+
     setProductMaps(prev => {
       const next = { ...prev };
-      for (const food of data.unmappedMealieFoods) {
-        const s = data.productSuggestions[food.id];
-        if (s) next[food.id] = { mealieFoodId: food.id, grocyProductId: s.grocyProductId, grocyUnitId: s.suggestedUnitId };
+      for (const food of productsData.unmappedMealieFoods) {
+        const suggestion = productsData.productSuggestions[food.id];
+        if (suggestion) {
+          next[food.id] = {
+            mealieFoodId: food.id,
+            grocyProductId: suggestion.grocyProductId,
+            grocyUnitId: suggestion.suggestedUnitId,
+          };
+        }
       }
       return next;
     });
   }
 
   function acceptProductSuggestion(id: string) {
-    const s = data?.productSuggestions[id];
-    if (!s) return;
-    setProductMaps(prev => ({ ...prev, [id]: { mealieFoodId: id, grocyProductId: s.grocyProductId, grocyUnitId: s.suggestedUnitId } }));
+    const suggestion = productsData?.productSuggestions[id];
+    if (!suggestion) {
+      return;
+    }
+
+    setProductMaps(prev => ({
+      ...prev,
+      [id]: {
+        mealieFoodId: id,
+        grocyProductId: suggestion.grocyProductId,
+        grocyUnitId: suggestion.suggestedUnitId,
+      },
+    }));
   }
 
   function acceptAllGrocyMinStockProductSuggestions() {
-    if (!data) return;
+    if (!grocyMinStockData) {
+      return;
+    }
+
     setGrocyMinStockProductMaps(prev => {
       const next = { ...prev };
-      for (const product of data.unmappedGrocyMinStockProducts) {
-        const suggestion = data.lowStockGrocyProductSuggestions[String(product.id)];
+      for (const product of grocyMinStockData.unmappedGrocyMinStockProducts) {
+        const suggestion = grocyMinStockData.lowStockGrocyProductSuggestions[String(product.id)];
         if (suggestion) {
           next[String(product.id)] = {
             grocyProductId: product.id,
@@ -249,10 +391,15 @@ export function MappingWizard() {
   }
 
   function acceptGrocyMinStockProductSuggestion(grocyProductId: number) {
-    if (!data) return;
-    const suggestion = data.lowStockGrocyProductSuggestions[String(grocyProductId)];
-    const grocyProduct = data.unmappedGrocyMinStockProducts.find(product => product.id === grocyProductId);
-    if (!suggestion || !grocyProduct) return;
+    if (!grocyMinStockData) {
+      return;
+    }
+
+    const suggestion = grocyMinStockData.lowStockGrocyProductSuggestions[String(grocyProductId)];
+    const grocyProduct = grocyMinStockData.unmappedGrocyMinStockProducts.find(product => product.id === grocyProductId);
+    if (!suggestion || !grocyProduct) {
+      return;
+    }
 
     setGrocyMinStockProductMaps(prev => ({
       ...prev,
@@ -265,21 +412,29 @@ export function MappingWizard() {
   }
 
   function acceptAllUnitSuggestions() {
-    if (!data) return;
+    if (!unitsData) {
+      return;
+    }
+
     setUnitMaps(prev => {
       const next = { ...prev };
-      for (const unit of data.unmappedMealieUnits) {
-        const s = data.unitSuggestions[unit.id];
-        if (s) next[unit.id] = { mealieUnitId: unit.id, grocyUnitId: s.grocyUnitId };
+      for (const unit of unitsData.unmappedMealieUnits) {
+        const suggestion = unitsData.unitSuggestions[unit.id];
+        if (suggestion) {
+          next[unit.id] = { mealieUnitId: unit.id, grocyUnitId: suggestion.grocyUnitId };
+        }
       }
       return next;
     });
   }
 
   function acceptUnitSuggestion(id: string) {
-    const s = data?.unitSuggestions[id];
-    if (!s) return;
-    setUnitMaps(prev => ({ ...prev, [id]: { mealieUnitId: id, grocyUnitId: s.grocyUnitId } }));
+    const suggestion = unitsData?.unitSuggestions[id];
+    if (!suggestion) {
+      return;
+    }
+
+    setUnitMaps(prev => ({ ...prev, [id]: { mealieUnitId: id, grocyUnitId: suggestion.grocyUnitId } }));
   }
 
   // --- Product Actions ---
@@ -288,44 +443,79 @@ export function MappingWizard() {
     await runAction('normalizeProducts', async () => {
       const res = await fetch('/api/mapping-wizard/products/normalize', { method: 'POST' });
       const result = await res.json();
-      if (!res.ok) throw new Error(result.error || 'Failed to normalize products');
-      await fetchData({ preserveWizardState: true, showLoading: false });
+      if (!res.ok) {
+        throw new Error(result.error || 'Failed to normalize products');
+      }
+
+      const refreshedData = await fetchTabData('products', { preserveWizardState: true, showLoading: false });
+      markOtherLoadedTabsDirty('products');
+
       const skipped = result.skippedDuplicates?.length ?? 0;
       toast.success(`Normalized ${result.normalizedMealie} Mealie products and ${result.normalizedGrocy} Grocy products${skipped ? `, ${skipped} skipped` : ''}`);
-      if (skipped) toast.warning(`${skipped} products skipped: a product with the target name already exists in Mealie (duplicates with different casing or trailing spaces). Remove the duplicate in Mealie first.`, { duration: 15000 });
+      if (skipped) {
+        toast.warning(
+          `${skipped} products skipped: a product with the target name already exists in Mealie (duplicates with different casing or trailing spaces). Remove the duplicate in Mealie first.`,
+          { duration: 15000 },
+        );
+      }
+
+      if (!refreshedData) {
+        throw new Error('Failed to refresh products tab');
+      }
     });
   }
 
   async function syncProducts() {
-    const filled = Object.values(productMaps).filter(m => m.grocyProductId !== null);
-    if (filled.length === 0) { toast.info('No products mapped'); return; }
+    const filled = Object.values(productMaps).filter(mapping => mapping.grocyProductId !== null);
+    if (filled.length === 0) {
+      toast.info('No products mapped');
+      return;
+    }
 
     await runAction('syncProducts', async () => {
       const res = await fetch('/api/mapping-wizard/products/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          mappings: filled.map(m => ({ mealieFoodId: m.mealieFoodId, grocyProductId: m.grocyProductId, grocyUnitId: m.grocyUnitId || 0 })),
+          mappings: filled.map(mapping => ({
+            mealieFoodId: mapping.mealieFoodId,
+            grocyProductId: mapping.grocyProductId,
+            grocyUnitId: mapping.grocyUnitId || 0,
+          })),
         }),
       });
       const result = await res.json();
-      if (!res.ok) throw new Error(result.error);
-
-      const refreshedData = await fetchData({ preserveWizardState: true, showLoading: false });
-      if (refreshedData?.unmappedMealieFoods.length === 0) {
-        toast.success(`Synced ${result.synced} products, renamed ${result.renamed}`);
-        promptAutoCreate('autoCreateProducts', `All products are now mapped. Enable auto-create for future products?`);
-      } else {
-        toast.success(`Synced ${result.synced} products, renamed ${result.renamed}`);
+      if (!res.ok) {
+        throw new Error(result.error);
       }
+
+      const refreshedData = await fetchTabData('products', { preserveWizardState: true, showLoading: false });
+      markOtherLoadedTabsDirty('products');
+
+      if (refreshedData && 'unmappedMealieFoods' in refreshedData && refreshedData.unmappedMealieFoods.length === 0) {
+        toast.success(`Synced ${result.synced} products, renamed ${result.renamed}`);
+        promptAutoCreate('autoCreateProducts', 'All products are now mapped. Enable auto-create for future products?');
+        return;
+      }
+
+      toast.success(`Synced ${result.synced} products, renamed ${result.renamed}`);
     });
   }
 
   async function createUnmappedProducts() {
-    if (!data) return;
+    if (!productsData) {
+      return;
+    }
+
     const checkedIds = unmappedProductIds.filter(id => createProductChecked[id]);
-    if (checkedIds.length === 0) { toast.info('No products checked for creation'); return; }
-    if (!defaultCreateUnitId) { toast.info('Select a default unit first'); return; }
+    if (checkedIds.length === 0) {
+      toast.info('No products checked for creation');
+      return;
+    }
+    if (!defaultCreateUnitId) {
+      toast.info('Select a default unit first');
+      return;
+    }
 
     await runAction('createProducts', async () => {
       const res = await fetch('/api/mapping-wizard/products/create', {
@@ -342,15 +532,20 @@ export function MappingWizard() {
         }),
       });
       const result = await res.json();
-      if (!res.ok) throw new Error(result.error);
-
-      const refreshedData = await fetchData({ preserveWizardState: true, showLoading: false });
-      if (refreshedData?.unmappedMealieFoods.length === 0) {
-        toast.success(`Created ${result.created} products`);
-        promptAutoCreate('autoCreateProducts', `All products are now mapped. Enable auto-create for future products?`);
-      } else {
-        toast.success(`Created ${result.created} products${result.skipped ? `, ${result.skipped} skipped` : ''}`);
+      if (!res.ok) {
+        throw new Error(result.error);
       }
+
+      const refreshedData = await fetchTabData('products', { preserveWizardState: true, showLoading: false });
+      markOtherLoadedTabsDirty('products');
+
+      if (refreshedData && 'unmappedMealieFoods' in refreshedData && refreshedData.unmappedMealieFoods.length === 0) {
+        toast.success(`Created ${result.created} products`);
+        promptAutoCreate('autoCreateProducts', 'All products are now mapped. Enable auto-create for future products?');
+        return;
+      }
+
+      toast.success(`Created ${result.created} products${result.skipped ? `, ${result.skipped} skipped` : ''}`);
     });
   }
 
@@ -376,9 +571,12 @@ export function MappingWizard() {
         }),
       });
       const result = await res.json();
-      if (!res.ok) throw new Error(result.error || 'Failed to sync products');
+      if (!res.ok) {
+        throw new Error(result.error || 'Failed to sync products');
+      }
 
-      await fetchData({ preserveWizardState: true, showLoading: false });
+      await fetchTabData('grocy-min-stock', { preserveWizardState: true, showLoading: false });
+      markOtherLoadedTabsDirty('grocy-min-stock');
       toast.success(`Synced ${result.synced} products, renamed ${result.renamed}`);
     });
   }
@@ -402,16 +600,22 @@ export function MappingWizard() {
         }),
       });
       const result = await res.json();
-      if (!res.ok) throw new Error(result.error || 'Failed to create Mealie products');
+      if (!res.ok) {
+        throw new Error(result.error || 'Failed to create Mealie products');
+      }
 
-      await fetchData({ preserveWizardState: true, showLoading: false });
+      await fetchTabData('grocy-min-stock', { preserveWizardState: true, showLoading: false });
+      markOtherLoadedTabsDirty('grocy-min-stock');
       toast.success(`Created ${result.created} Mealie products${result.skipped ? `, ${result.skipped} skipped` : ''}`);
     });
   }
 
   async function deleteOrphanProducts(orphanNames: string[], orphanIds: string[]) {
     await runAction('deleteOrphanProducts', async () => {
-      if (orphanIds.length === 0) { toast.info('No orphan products to delete'); return; }
+      if (orphanIds.length === 0) {
+        toast.info('No orphan products to delete');
+        return;
+      }
 
       const res = await fetch('/api/mapping-wizard/products/orphans', {
         method: 'POST',
@@ -419,8 +623,12 @@ export function MappingWizard() {
         body: JSON.stringify({ confirm: true, ids: orphanIds }),
       });
       const result = await res.json();
-      if (!res.ok) throw new Error(result.error);
-      await fetchData({ preserveWizardState: true, showLoading: false });
+      if (!res.ok) {
+        throw new Error(result.error);
+      }
+
+      await fetchTabData('products', { preserveWizardState: true, showLoading: false });
+      markOtherLoadedTabsDirty('products');
       toast.success(`Deleted ${result.deleted} orphan products`);
     });
   }
@@ -429,11 +637,16 @@ export function MappingWizard() {
     try {
       const listRes = await fetch('/api/mapping-wizard/products/orphans');
       const listData = await listRes.json();
-      if (!listRes.ok) throw new Error(listData.error);
-      if (listData.orphans.length === 0) { toast.info('No orphan products to delete'); return; }
+      if (!listRes.ok) {
+        throw new Error(listData.error);
+      }
+      if (listData.orphans.length === 0) {
+        toast.info('No orphan products to delete');
+        return;
+      }
 
-      const names = listData.orphans.map((o: { id: string; name: string }) => o.name || o.id);
-      const ids = listData.orphans.map((o: { id: string }) => o.id);
+      const names = listData.orphans.map((orphan: { id: string; name: string }) => orphan.name || orphan.id);
+      const ids = listData.orphans.map((orphan: { id: string }) => orphan.id);
       openConfirm(
         'deleteOrphanProducts',
         `Delete ${listData.orphans.length} orphan Grocy products that have no Mealie counterpart?`,
@@ -451,41 +664,74 @@ export function MappingWizard() {
     await runAction('normalizeUnits', async () => {
       const res = await fetch('/api/mapping-wizard/units/normalize', { method: 'POST' });
       const result = await res.json();
-      if (!res.ok) throw new Error(result.error || 'Failed to normalize units');
-      await fetchData({ preserveWizardState: true, showLoading: false });
+      if (!res.ok) {
+        throw new Error(result.error || 'Failed to normalize units');
+      }
+
+      const refreshedData = await fetchTabData('units', { preserveWizardState: true, showLoading: false });
+      markOtherLoadedTabsDirty('units');
+
       const skipped = result.skippedDuplicates?.length ?? 0;
       toast.success(`Normalized ${result.normalizedMealie} Mealie units and ${result.normalizedGrocy} Grocy units${skipped ? `, ${skipped} skipped` : ''}`);
-      if (skipped) toast.warning(`${skipped} units skipped: a unit with the target name already exists in Mealie (duplicates with different casing or trailing spaces). Remove the duplicate in Mealie first.`, { duration: 15000 });
+      if (skipped) {
+        toast.warning(
+          `${skipped} units skipped: a unit with the target name already exists in Mealie (duplicates with different casing or trailing spaces). Remove the duplicate in Mealie first.`,
+          { duration: 15000 },
+        );
+      }
+
+      if (!refreshedData) {
+        throw new Error('Failed to refresh units tab');
+      }
     });
   }
 
   async function syncUnits() {
-    const filled = Object.values(unitMaps).filter(m => m.grocyUnitId !== null);
-    if (filled.length === 0) { toast.info('No units mapped'); return; }
+    const filled = Object.values(unitMaps).filter(mapping => mapping.grocyUnitId !== null);
+    if (filled.length === 0) {
+      toast.info('No units mapped');
+      return;
+    }
 
     await runAction('syncUnits', async () => {
       const res = await fetch('/api/mapping-wizard/units/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mappings: filled.map(m => ({ mealieUnitId: m.mealieUnitId, grocyUnitId: m.grocyUnitId })) }),
+        body: JSON.stringify({
+          mappings: filled.map(mapping => ({
+            mealieUnitId: mapping.mealieUnitId,
+            grocyUnitId: mapping.grocyUnitId,
+          })),
+        }),
       });
       const result = await res.json();
-      if (!res.ok) throw new Error(result.error);
-
-      const refreshedData = await fetchData({ preserveWizardState: true, showLoading: false });
-      if (refreshedData?.unmappedMealieUnits.length === 0) {
-        toast.success(`Synced ${result.synced} units, renamed ${result.renamed}`);
-        promptAutoCreate('autoCreateUnits', `All units are now mapped. Enable auto-create for future units?`);
-      } else {
-        toast.success(`Synced ${result.synced} units, renamed ${result.renamed}`);
+      if (!res.ok) {
+        throw new Error(result.error);
       }
+
+      const refreshedData = await fetchTabData('units', { preserveWizardState: true, showLoading: false });
+      markOtherLoadedTabsDirty('units');
+
+      if (refreshedData && 'unmappedMealieUnits' in refreshedData && refreshedData.unmappedMealieUnits.length === 0) {
+        toast.success(`Synced ${result.synced} units, renamed ${result.renamed}`);
+        promptAutoCreate('autoCreateUnits', 'All units are now mapped. Enable auto-create for future units?');
+        return;
+      }
+
+      toast.success(`Synced ${result.synced} units, renamed ${result.renamed}`);
     });
   }
 
   async function createUnmappedUnits() {
-    if (!data) return;
+    if (!unitsData) {
+      return;
+    }
+
     const checkedIds = unmappedUnitIds.filter(id => createUnitChecked[id]);
-    if (checkedIds.length === 0) { toast.info('No units checked for creation'); return; }
+    if (checkedIds.length === 0) {
+      toast.info('No units checked for creation');
+      return;
+    }
 
     await runAction('createUnits', async () => {
       const res = await fetch('/api/mapping-wizard/units/create', {
@@ -494,21 +740,29 @@ export function MappingWizard() {
         body: JSON.stringify({ mealieUnitIds: checkedIds }),
       });
       const result = await res.json();
-      if (!res.ok) throw new Error(result.error);
-
-      const refreshedData = await fetchData({ preserveWizardState: true, showLoading: false });
-      if (refreshedData?.unmappedMealieUnits.length === 0) {
-        toast.success(`Created ${result.created} units`);
-        promptAutoCreate('autoCreateUnits', `All units are now mapped. Enable auto-create for future units?`);
-      } else {
-        toast.success(`Created ${result.created} units${result.skipped ? `, ${result.skipped} skipped` : ''}`);
+      if (!res.ok) {
+        throw new Error(result.error);
       }
+
+      const refreshedData = await fetchTabData('units', { preserveWizardState: true, showLoading: false });
+      markOtherLoadedTabsDirty('units');
+
+      if (refreshedData && 'unmappedMealieUnits' in refreshedData && refreshedData.unmappedMealieUnits.length === 0) {
+        toast.success(`Created ${result.created} units`);
+        promptAutoCreate('autoCreateUnits', 'All units are now mapped. Enable auto-create for future units?');
+        return;
+      }
+
+      toast.success(`Created ${result.created} units${result.skipped ? `, ${result.skipped} skipped` : ''}`);
     });
   }
 
   async function deleteOrphanUnits(orphanNames: string[], orphanIds: string[]) {
     await runAction('deleteOrphanUnits', async () => {
-      if (orphanIds.length === 0) { toast.info('No orphan units to delete'); return; }
+      if (orphanIds.length === 0) {
+        toast.info('No orphan units to delete');
+        return;
+      }
 
       const res = await fetch('/api/mapping-wizard/units/orphans', {
         method: 'POST',
@@ -516,8 +770,12 @@ export function MappingWizard() {
         body: JSON.stringify({ confirm: true, ids: orphanIds }),
       });
       const result = await res.json();
-      if (!res.ok) throw new Error(result.error);
-      await fetchData({ preserveWizardState: true, showLoading: false });
+      if (!res.ok) {
+        throw new Error(result.error);
+      }
+
+      await fetchTabData('units', { preserveWizardState: true, showLoading: false });
+      markOtherLoadedTabsDirty('units');
       toast.success(`Deleted ${result.deleted} orphan units`);
     });
   }
@@ -526,11 +784,16 @@ export function MappingWizard() {
     try {
       const listRes = await fetch('/api/mapping-wizard/units/orphans');
       const listData = await listRes.json();
-      if (!listRes.ok) throw new Error(listData.error);
-      if (listData.orphans.length === 0) { toast.info('No orphan units to delete'); return; }
+      if (!listRes.ok) {
+        throw new Error(listData.error);
+      }
+      if (listData.orphans.length === 0) {
+        toast.info('No orphan units to delete');
+        return;
+      }
 
-      const names = listData.orphans.map((o: { id: string; name: string }) => o.name || o.id);
-      const ids = listData.orphans.map((o: { id: string }) => o.id);
+      const names = listData.orphans.map((orphan: { id: string; name: string }) => orphan.name || orphan.id);
+      const ids = listData.orphans.map((orphan: { id: string }) => orphan.id);
       openConfirm(
         'deleteOrphanUnits',
         `Delete ${listData.orphans.length} orphan Grocy units that have no Mealie counterpart?`,
@@ -542,9 +805,92 @@ export function MappingWizard() {
     }
   }
 
-  // --- Render ---
-
+  const currentTabLoading = tabLoading[tab];
+  const currentTabError = tabErrors[tab];
+  const currentTabData = tab === 'units'
+    ? unitsData
+    : tab === 'products'
+      ? productsData
+      : grocyMinStockData;
   const isRunning = !!actionRunning;
+
+  function renderCurrentTab() {
+    if (currentTabLoading && !currentTabData) {
+      return (
+        <div className="space-y-3 py-4">
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-48 w-full" />
+          <Skeleton className="h-8 w-64" />
+        </div>
+      );
+    }
+
+    if (!currentTabData) {
+      return (
+        <p className="py-4 text-sm text-destructive">
+          {currentTabError || 'Failed to load data. Check API connections.'}
+        </p>
+      );
+    }
+
+    switch (tab) {
+      case 'units':
+        return (
+          <UnitsTab
+            data={unitsData!}
+            unitMaps={unitMaps}
+            setUnitMaps={setUnitMaps}
+            createUnitChecked={createUnitChecked}
+            setCreateUnitChecked={setCreateUnitChecked}
+            unitSearch={unitSearch}
+            setUnitSearch={setUnitSearch}
+            grocyUnitOptions={unitGrocyUnitOptions}
+            actionRunning={actionRunning}
+            onAcceptAllSuggestions={acceptAllUnitSuggestions}
+            onAcceptSuggestion={acceptUnitSuggestion}
+            onNormalizeUnits={normalizeUnits}
+          />
+        );
+      case 'products':
+        return (
+          <ProductsTab
+            data={productsData!}
+            productMaps={productMaps}
+            setProductMaps={setProductMaps}
+            createProductChecked={createProductChecked}
+            setCreateProductChecked={setCreateProductChecked}
+            productSearch={productSearch}
+            setProductSearch={setProductSearch}
+            grocyProductOptions={productGrocyProductOptions}
+            grocyUnitOptions={productGrocyUnitOptions}
+            mappedUnitOptions={mappedUnitOptions}
+            defaultCreateUnitId={defaultCreateUnitId}
+            setDefaultCreateUnitId={setDefaultCreateUnitId}
+            actionRunning={actionRunning}
+            onAcceptAllSuggestions={acceptAllProductSuggestions}
+            onAcceptSuggestion={acceptProductSuggestion}
+            onNormalizeProducts={normalizeProducts}
+          />
+        );
+      case 'grocy-min-stock':
+        return (
+          <GrocyMinStockProductsTab
+            data={grocyMinStockData!}
+            productMaps={grocyMinStockProductMaps}
+            setProductMaps={setGrocyMinStockProductMaps}
+            createProductChecked={createMealieProductChecked}
+            setCreateProductChecked={setCreateMealieProductChecked}
+            productSearch={grocyMinStockProductSearch}
+            setProductSearch={setGrocyMinStockProductSearch}
+            mealieProductOptions={mealieProductOptions}
+            grocyUnitOptions={grocyMinStockGrocyUnitOptions}
+            actionRunning={actionRunning}
+            onAcceptAllSuggestions={acceptAllGrocyMinStockProductSuggestions}
+            onAcceptSuggestion={acceptGrocyMinStockProductSuggestion}
+          />
+        );
+    }
+  }
 
   return (
     <>
@@ -553,8 +899,8 @@ export function MappingWizard() {
         {open ? 'Mapping Wizard (Open)' : 'Mapping Wizard'}
       </Button>
 
-      <Dialog open={open} onOpenChange={val => { if (!val && !isRunning) setOpen(false); }}>
-        <DialogContent className="h-[85vh] max-h-[85vh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-hidden flex flex-col sm:max-w-6xl">
+      <Dialog open={open} onOpenChange={value => { if (!value && !isRunning) setOpen(false); }}>
+        <DialogContent className="flex h-[85vh] max-h-[85vh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden sm:max-w-6xl">
           <DialogHeader>
             <DialogTitle>Mapping Wizard</DialogTitle>
             <DialogDescription>
@@ -563,111 +909,50 @@ export function MappingWizard() {
           </DialogHeader>
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            {loading ? (
-              <div className="space-y-3 py-4">
-                <Skeleton className="h-8 w-full" />
-                <Skeleton className="h-48 w-full" />
-                <Skeleton className="h-8 w-64" />
+            <Tabs className="flex min-h-0 min-w-0 flex-1" value={tab} onValueChange={value => setTab(value as WizardTab)}>
+              <div className="-mx-1 overflow-x-auto pb-1">
+                <TabsList variant="line" className="min-w-max px-1">
+                  <TabsTrigger value="units">
+                    Units{unitsData ? ` (${unitsData.unmappedMealieUnits.length} unmapped)` : ''}
+                  </TabsTrigger>
+                  <TabsTrigger value="products">
+                    Products{productsData ? ` (${productsData.unmappedMealieFoods.length} unmapped)` : ''}
+                  </TabsTrigger>
+                  <TabsTrigger value="grocy-min-stock">
+                    Grocy Min Stock{grocyMinStockData ? ` (${grocyMinStockData.unmappedGrocyMinStockProducts.length} unmapped)` : ''}
+                  </TabsTrigger>
+                </TabsList>
               </div>
-            ) : !data ? (
-              <p className="text-sm text-destructive py-4">
-                Failed to load data. Check API connections.
-              </p>
-            ) : (
-              <Tabs className="min-h-0 min-w-0 flex-1" value={tab} onValueChange={val => setTab(val as 'units' | 'products' | 'grocy-min-stock')}>
-                <div className="-mx-1 overflow-x-auto pb-1">
-                  <TabsList variant="line" className="min-w-max px-1">
-                    <TabsTrigger value="units">
-                      Units ({data.unmappedMealieUnits.length} unmapped)
-                    </TabsTrigger>
-                    <TabsTrigger value="products">
-                      Products ({data.unmappedMealieFoods.length} unmapped)
-                    </TabsTrigger>
-                    <TabsTrigger value="grocy-min-stock">
-                      Grocy Min Stock ({data.unmappedGrocyMinStockProducts.length} unmapped)
-                    </TabsTrigger>
-                  </TabsList>
-                </div>
 
-                <TabsContent value="units" className="mt-4 flex min-h-0 min-w-0 flex-1">
-                  <UnitsTab
-                    data={data}
-                    unitMaps={unitMaps}
-                    setUnitMaps={setUnitMaps}
-                    createUnitChecked={createUnitChecked}
-                    setCreateUnitChecked={setCreateUnitChecked}
-                    unitSearch={unitSearch}
-                    setUnitSearch={setUnitSearch}
-                    grocyUnitOptions={grocyUnitOptions}
-                    actionRunning={actionRunning}
-                    onAcceptAllSuggestions={acceptAllUnitSuggestions}
-                    onAcceptSuggestion={acceptUnitSuggestion}
-                    onNormalizeUnits={normalizeUnits}
-                  />
-                </TabsContent>
-
-                <TabsContent value="products" className="mt-4 flex min-h-0 min-w-0 flex-1">
-                  <ProductsTab
-                    data={data}
-                    productMaps={productMaps}
-                    setProductMaps={setProductMaps}
-                    createProductChecked={createProductChecked}
-                    setCreateProductChecked={setCreateProductChecked}
-                    productSearch={productSearch}
-                    setProductSearch={setProductSearch}
-                    grocyProductOptions={grocyProductOptions}
-                    grocyUnitOptions={grocyUnitOptions}
-                    mappedUnitOptions={mappedUnitOptions}
-                    defaultCreateUnitId={defaultCreateUnitId}
-                    setDefaultCreateUnitId={setDefaultCreateUnitId}
-                    actionRunning={actionRunning}
-                    onAcceptAllSuggestions={acceptAllProductSuggestions}
-                    onAcceptSuggestion={acceptProductSuggestion}
-                    onNormalizeProducts={normalizeProducts}
-                  />
-                </TabsContent>
-
-                <TabsContent value="grocy-min-stock" className="mt-4 flex min-h-0 min-w-0 flex-1">
-                  <GrocyMinStockProductsTab
-                    data={data}
-                    productMaps={grocyMinStockProductMaps}
-                    setProductMaps={setGrocyMinStockProductMaps}
-                    createProductChecked={createMealieProductChecked}
-                    setCreateProductChecked={setCreateMealieProductChecked}
-                    productSearch={grocyMinStockProductSearch}
-                    setProductSearch={setGrocyMinStockProductSearch}
-                    mealieProductOptions={mealieProductOptions}
-                    grocyUnitOptions={grocyUnitOptions}
-                    actionRunning={actionRunning}
-                    onAcceptAllSuggestions={acceptAllGrocyMinStockProductSuggestions}
-                    onAcceptSuggestion={acceptGrocyMinStockProductSuggestion}
-                  />
-                </TabsContent>
-              </Tabs>
-            )}
+              <TabsContent value={tab} className="mt-4 flex min-h-0 min-w-0 flex-1">
+                {renderCurrentTab()}
+              </TabsContent>
+            </Tabs>
           </div>
 
-          {data && <WizardFooter
-            tab={tab}
-            actionRunning={actionRunning}
-            unitMappedCount={Object.values(unitMaps).filter(m => m.grocyUnitId !== null).length}
-            checkedUnitCount={unmappedUnitIds.filter(id => createUnitChecked[id]).length}
-            orphanUnitCount={data.orphanGrocyUnitCount}
-            productMappedCount={Object.values(productMaps).filter(m => m.grocyProductId !== null).length}
-            checkedProductCount={unmappedProductIds.filter(id => createProductChecked[id]).length}
-            orphanProductCount={data.orphanGrocyProductCount}
-            grocyMinStockProductMappedCount={Object.values(grocyMinStockProductMaps).filter(m => m.mealieFoodId !== null).length}
-            checkedGrocyMinStockProductCount={unmappedGrocyMinStockProductIds.filter(id => createMealieProductChecked[id]).length}
-            defaultCreateUnitId={defaultCreateUnitId}
-            onSyncUnits={syncUnits}
-            onCreateUnits={createUnmappedUnits}
-            onDeleteOrphanUnits={handleDeleteOrphanUnits}
-            onSyncProducts={syncProducts}
-            onCreateProducts={createUnmappedProducts}
-            onDeleteOrphanProducts={handleDeleteOrphanProducts}
-            onSyncGrocyMinStockProducts={syncGrocyMinStockProducts}
-            onCreateMealieProducts={createMealieProductsFromGrocy}
-          />}
+          {currentTabData && (
+            <WizardFooter
+              tab={tab}
+              actionRunning={actionRunning}
+              unitMappedCount={Object.values(unitMaps).filter(mapping => mapping.grocyUnitId !== null).length}
+              checkedUnitCount={unmappedUnitIds.filter(id => createUnitChecked[id]).length}
+              orphanUnitCount={unitsData?.orphanGrocyUnitCount ?? 0}
+              productMappedCount={Object.values(productMaps).filter(mapping => mapping.grocyProductId !== null).length}
+              checkedProductCount={unmappedProductIds.filter(id => createProductChecked[id]).length}
+              orphanProductCount={productsData?.orphanGrocyProductCount ?? 0}
+              grocyMinStockProductMappedCount={Object.values(grocyMinStockProductMaps).filter(mapping => mapping.mealieFoodId !== null).length}
+              checkedGrocyMinStockProductCount={unmappedGrocyMinStockProductIds.filter(id => createMealieProductChecked[id]).length}
+              defaultCreateUnitId={defaultCreateUnitId}
+              onSyncUnits={syncUnits}
+              onCreateUnits={createUnmappedUnits}
+              onDeleteOrphanUnits={handleDeleteOrphanUnits}
+              onSyncProducts={syncProducts}
+              onCreateProducts={createUnmappedProducts}
+              onDeleteOrphanProducts={handleDeleteOrphanProducts}
+              onSyncGrocyMinStockProducts={syncGrocyMinStockProducts}
+              onCreateMealieProducts={createMealieProductsFromGrocy}
+            />
+          )}
 
           <ConfirmDialog
             open={confirmAction !== null}
@@ -684,10 +969,8 @@ export function MappingWizard() {
   );
 }
 
-// --- Footer (fixed at bottom of dialog) ---
-
 interface WizardFooterProps {
-  tab: 'units' | 'products' | 'grocy-min-stock';
+  tab: WizardTab;
   actionRunning: string | null;
   unitMappedCount: number;
   checkedUnitCount: number;

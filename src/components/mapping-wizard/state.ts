@@ -1,4 +1,12 @@
-import type { GrocyMinStockProductMapping, ProductMapping, UnitMapping, WizardData } from './types';
+import type {
+  GrocyMinStockProductMapping,
+  GrocyMinStockTabData,
+  ProductMapping,
+  ProductsTabData,
+  UnitMapping,
+  UnitsTabData,
+  WizardData,
+} from './types';
 
 export type WizardTab = 'units' | 'products' | 'grocy-min-stock';
 
@@ -18,7 +26,9 @@ export function getDefaultWizardTab(data: WizardData): WizardTab {
   return 'units';
 }
 
-export function buildProductMaps(data: WizardData): Record<string, ProductMapping> {
+export function buildProductMaps(
+  data: Pick<ProductsTabData, 'unmappedMealieFoods'>,
+): Record<string, ProductMapping> {
   return Object.fromEntries(
     data.unmappedMealieFoods.map(food => [
       food.id,
@@ -27,7 +37,9 @@ export function buildProductMaps(data: WizardData): Record<string, ProductMappin
   );
 }
 
-export function buildUnitMaps(data: WizardData): Record<string, UnitMapping> {
+export function buildUnitMaps(
+  data: Pick<UnitsTabData, 'unmappedMealieUnits'>,
+): Record<string, UnitMapping> {
   return Object.fromEntries(
     data.unmappedMealieUnits.map(unit => [
       unit.id,
@@ -37,7 +49,7 @@ export function buildUnitMaps(data: WizardData): Record<string, UnitMapping> {
 }
 
 export function buildGrocyMinStockProductMaps(
-  data: WizardData,
+  data: Pick<GrocyMinStockTabData, 'unmappedGrocyMinStockProducts'>,
 ): Record<string, GrocyMinStockProductMapping> {
   return Object.fromEntries(
     data.unmappedGrocyMinStockProducts.map(product => [
@@ -48,7 +60,7 @@ export function buildGrocyMinStockProductMaps(
 }
 
 export function mergeProductMaps(
-  data: WizardData,
+  data: Pick<ProductsTabData, 'unmappedMealieFoods'>,
   previousMaps: Record<string, ProductMapping>,
 ): Record<string, ProductMapping> {
   return Object.fromEntries(
@@ -60,7 +72,7 @@ export function mergeProductMaps(
 }
 
 export function mergeGrocyMinStockProductMaps(
-  data: WizardData,
+  data: Pick<GrocyMinStockTabData, 'unmappedGrocyMinStockProducts'>,
   previousMaps: Record<string, GrocyMinStockProductMapping>,
 ): Record<string, GrocyMinStockProductMapping> {
   return Object.fromEntries(
@@ -76,7 +88,7 @@ export function mergeGrocyMinStockProductMaps(
 }
 
 export function mergeUnitMaps(
-  data: WizardData,
+  data: Pick<UnitsTabData, 'unmappedMealieUnits'>,
   previousMaps: Record<string, UnitMapping>,
 ): Record<string, UnitMapping> {
   return Object.fromEntries(

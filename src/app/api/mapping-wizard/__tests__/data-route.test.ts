@@ -54,6 +54,10 @@ vi.mock('@/lib/logger', () => ({
 
 import { GET } from '../data/route';
 
+function createRequest(url = 'http://localhost/api/mapping-wizard/data'): Request {
+  return new Request(url);
+}
+
 describe('mapping wizard data route', () => {
   beforeEach(() => {
     mockState.productMappingsRows = [];
@@ -90,7 +94,7 @@ describe('mapping wizard data route', () => {
       { id: 'unit-map-1', grocyUnitId: 10, grocyUnitName: 'Piece', mealieUnitName: 'Piece' },
     ];
 
-    const response = await GET();
+    const response = await GET(createRequest());
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -104,6 +108,42 @@ describe('mapping wizard data route', () => {
         mealieFoodName: 'Butter',
         score: 100,
       },
+    });
+  });
+
+  it('supports tab-specific lazy loading for units', async () => {
+    mockState.mealieUnits = [
+      { id: 'unit-1', name: 'Piece', abbreviation: 'pc' },
+      { id: 'unit-2', name: 'Liter', abbreviation: 'l' },
+    ];
+    mockState.grocyUnits = [
+      { id: 10, name: 'Piece' },
+      { id: 11, name: 'Liter' },
+    ];
+    mockState.unitMappingsRows = [
+      { id: 'unit-map-1', mealieUnitId: 'unit-1', grocyUnitId: 10, grocyUnitName: 'Piece', mealieUnitName: 'Piece' },
+    ];
+
+    const response = await GET(createRequest('http://localhost/api/mapping-wizard/data?tab=units'));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      unmappedMealieUnits: [
+        { id: 'unit-2', name: 'Liter', abbreviation: 'l' },
+      ],
+      grocyUnits: [
+        { id: 10, name: 'Piece' },
+        { id: 11, name: 'Liter' },
+      ],
+      unitSuggestions: {
+        'unit-2': {
+          grocyUnitId: 11,
+          grocyUnitName: 'Liter',
+          score: 100,
+        },
+      },
+      orphanGrocyUnitCount: 0,
     });
   });
 });

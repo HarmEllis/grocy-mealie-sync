@@ -9,11 +9,11 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { ScoreBadge } from '@/components/shared/ScoreBadge';
-import type { GrocyMinStockProductMapping, SelectOption, WizardData } from './types';
+import type { GrocyMinStockProductMapping, GrocyMinStockTabData, SelectOption } from './types';
 import { sortByName } from './types';
 
 interface GrocyMinStockProductsTabProps {
-  data: WizardData;
+  data: GrocyMinStockTabData;
   productMaps: Record<string, GrocyMinStockProductMapping>;
   setProductMaps: React.Dispatch<React.SetStateAction<Record<string, GrocyMinStockProductMapping>>>;
   createProductChecked: Record<string, boolean>;
