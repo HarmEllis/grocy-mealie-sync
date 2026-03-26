@@ -423,7 +423,7 @@ describe('pollGrocyForMissingStock', () => {
   // -----------------------------------------------------------------------
 
   describe('adjustMealieShoppingItem logic', () => {
-    it('returns false and makes no API calls when no product mapping found', async () => {
+    it('skips and makes no API calls when no product mapping is found', async () => {
       setupDbMock([], []);
 
       mockedGetVolatileStock.mockResolvedValue({
@@ -435,6 +435,49 @@ describe('pollGrocyForMissingStock', () => {
       expect(mockedCreate).not.toHaveBeenCalled();
       expect(mockedUpdate).not.toHaveBeenCalled();
       expect(mockedDelete).not.toHaveBeenCalled();
+      expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
+        '[Grocy→Mealie] No mapping found for Grocy product ID 999 ("Bananen"), skipping',
+      );
+    });
+
+    it('returns ensure summary with mapped and unmapped product counts', async () => {
+      mockFrom.mockImplementation((table: unknown) => {
+        return {
+          where: () => ({
+            limit: () => {
+              if (table === productMappings) {
+                const callIndex = mockFrom.mock.calls.filter(call => call[0] === productMappings).length;
+                if (callIndex === 1) {
+                  return Promise.resolve([DEFAULT_MAPPING]);
+                }
+
+                return Promise.resolve([]);
+              }
+
+              return Promise.resolve([]);
+            },
+          }),
+        };
+      });
+
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [
+          mockMissingProduct({ id: 101, amount_missing: 2 }),
+          mockMissingProduct({ id: 999, name: 'Bananen', amount_missing: 1 }),
+        ],
+      });
+
+      const result = await pollGrocyForMissingStock({ ensureAllPresent: true });
+
+      expect(result).toEqual({
+        status: 'ok',
+        summary: {
+          processedProducts: 2,
+          ensuredProducts: 1,
+          unmappedProducts: 1,
+        },
+      });
+      expect(mockedCreate).toHaveBeenCalledOnce();
       expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
         '[Grocy→Mealie] No mapping found for Grocy product ID 999 ("Bananen"), skipping',
       );
@@ -581,11 +624,20 @@ describe('pollGrocyForMissingStock', () => {
     it('skips entire poll when no shopping list is configured', async () => {
       mockedResolveShoppingListId.mockResolvedValue(null);
 
-      await pollGrocyForMissingStock();
+      const result = await pollGrocyForMissingStock();
 
       expect(mockedGetVolatileStock).not.toHaveBeenCalled();
       expect(mockedGetSyncState).not.toHaveBeenCalled();
       expect(mockedSaveSyncState).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        status: 'skipped',
+        reason: 'no-shopping-list',
+        summary: {
+          processedProducts: 0,
+          ensuredProducts: 0,
+          unmappedProducts: 0,
+        },
+      });
       expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
         expect.stringContaining('No shopping list configured'),
       );

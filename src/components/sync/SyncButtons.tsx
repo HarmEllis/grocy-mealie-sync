@@ -12,6 +12,17 @@ const syncActions = [
   { label: 'Mealie \u2192 Grocy', endpoint: '/api/sync/mealie-to-grocy', icon: ArrowLeftRight },
 ] as const;
 
+interface SyncActionResponse {
+  status?: 'ok' | 'partial' | 'skipped' | 'busy' | 'error';
+  message?: string;
+  error?: string;
+  summary?: {
+    processedProducts: number;
+    ensuredProducts: number;
+    unmappedProducts: number;
+  };
+}
+
 export function SyncButtons() {
   const [running, setRunning] = useState<string | null>(null);
 
@@ -19,17 +30,34 @@ export function SyncButtons() {
     setRunning(endpoint);
     try {
       const res = await fetch(endpoint, { method: 'POST' });
+      let body: SyncActionResponse | null = null;
+      try {
+        body = await res.json();
+      } catch {
+        // Response body wasn't JSON.
+      }
+
       if (!res.ok) {
         let errorMsg = `${res.status}`;
-        try {
-          const body = await res.json();
-          if (body.error) errorMsg = body.error;
-          else if (body.message) errorMsg = body.message;
-        } catch { /* response body wasn't JSON */ }
+        if (body?.error) errorMsg = body.error;
+        else if (body?.message) errorMsg = body.message;
         toast.error(`${label} failed`, { description: errorMsg });
         return;
       }
-      toast.success(`${label} completed`);
+
+      const description = body?.summary ? body.message : undefined;
+
+      if (body?.status === 'partial') {
+        toast.warning(`${label} partially completed`, { description });
+        return;
+      }
+
+      if (body?.status === 'skipped') {
+        toast.warning(`${label} skipped`, { description: body.message });
+        return;
+      }
+
+      toast.success(`${label} completed`, description ? { description } : undefined);
     } catch {
       toast.error(`${label} failed`, { description: 'Network request failed' });
     } finally {

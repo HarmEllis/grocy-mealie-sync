@@ -19,15 +19,56 @@ interface AdjustMealieShoppingItemOptions {
   grocyProductName?: string;
 }
 
+export interface GrocyMissingStockSyncSummary {
+  processedProducts: number;
+  ensuredProducts: number;
+  unmappedProducts: number;
+}
+
+export interface GrocyMissingStockPollResult {
+  status: 'ok' | 'skipped' | 'error';
+  reason?: 'no-shopping-list';
+  summary: GrocyMissingStockSyncSummary;
+}
+
+type AdjustMealieShoppingItemResult = 'ensured' | 'unmapped';
+
+function createEmptySummary(): GrocyMissingStockSyncSummary {
+  return {
+    processedProducts: 0,
+    ensuredProducts: 0,
+    unmappedProducts: 0,
+  };
+}
+
+function recordMissingStockResult(
+  summary: GrocyMissingStockSyncSummary,
+  result: AdjustMealieShoppingItemResult,
+): void {
+  summary.processedProducts++;
+  if (result === 'unmapped') {
+    summary.unmappedProducts++;
+    return;
+  }
+
+  summary.ensuredProducts++;
+}
+
 export async function pollGrocyForMissingStock(
   options: PollGrocyForMissingStockOptions = {},
-): Promise<void> {
+): Promise<GrocyMissingStockPollResult> {
   log.info('[Grocy→Mealie] Polling for missing stock...');
 
   const shoppingListId = await resolveShoppingListId();
+  const summary = createEmptySummary();
+
   if (!shoppingListId) {
     log.warn('[Grocy→Mealie] No shopping list configured — skipping poll');
-    return;
+    return {
+      status: 'skipped',
+      reason: 'no-shopping-list',
+      summary,
+    };
   }
 
   try {
@@ -50,9 +91,11 @@ export async function pollGrocyForMissingStock(
     const newlyMissing = missingProducts.filter(mp => !(mp.id in previousAmounts));
     let newlyAdded = 0;
     for (const mp of newlyMissing) {
-      if (await adjustMealieShoppingItem(mp.id, mp.amount_missing, shoppingListId, mealieShoppingItems, {
+      const result = await adjustMealieShoppingItem(mp.id, mp.amount_missing, shoppingListId, mealieShoppingItems, {
         grocyProductName: mp.name,
-      })) newlyAdded++;
+      });
+      recordMissingStockResult(summary, result);
+      if (result === 'ensured') newlyAdded++;
     }
 
     // 2. Still missing, amount changed → adjust by delta
@@ -62,10 +105,12 @@ export async function pollGrocyForMissingStock(
     let adjusted = 0;
     for (const mp of amountChanged) {
       const delta = mp.amount_missing - previousAmounts[mp.id];
-      if (await adjustMealieShoppingItem(mp.id, delta, shoppingListId, mealieShoppingItems, {
+      const result = await adjustMealieShoppingItem(mp.id, delta, shoppingListId, mealieShoppingItems, {
         createQuantityWhenMissing: ensureAllPresent ? mp.amount_missing : undefined,
         grocyProductName: mp.name,
-      })) adjusted++;
+      });
+      recordMissingStockResult(summary, result);
+      if (result === 'ensured') adjusted++;
     }
 
     // 2b. Still missing, amount unchanged → optionally recreate the item if
@@ -74,10 +119,11 @@ export async function pollGrocyForMissingStock(
       ? missingProducts.filter(mp => mp.id in previousAmounts && previousAmounts[mp.id] === mp.amount_missing)
       : [];
     for (const mp of unchangedMissing) {
-      await adjustMealieShoppingItem(mp.id, 0, shoppingListId, mealieShoppingItems, {
+      const result = await adjustMealieShoppingItem(mp.id, 0, shoppingListId, mealieShoppingItems, {
         createQuantityWhenMissing: mp.amount_missing,
         grocyProductName: mp.name,
       });
+      recordMissingStockResult(summary, result);
     }
 
     // 3. No longer missing → subtract Grocy's contribution
@@ -96,7 +142,13 @@ export async function pollGrocyForMissingStock(
         skippedSyncRestocked++;
         continue;
       }
-      if (await adjustMealieShoppingItem(grocyProductId, -previousAmounts[grocyProductId], shoppingListId, mealieShoppingItems)) restocked++;
+      const result = await adjustMealieShoppingItem(
+        grocyProductId,
+        -previousAmounts[grocyProductId],
+        shoppingListId,
+        mealieShoppingItems,
+      );
+      if (result === 'ensured') restocked++;
     }
 
     if (newlyMissing.length > 0) {
@@ -128,13 +180,21 @@ export async function pollGrocyForMissingStock(
     state.grocyBelowMinStock = currentAmounts;
     state.lastGrocyPoll = new Date();
     await saveSyncState(state);
+    return {
+      status: 'ok',
+      summary,
+    };
   } catch (error) {
     log.error('[Grocy→Mealie] Error polling Grocy:', error);
+    return {
+      status: 'error',
+      summary,
+    };
   }
 }
 
-export async function ensureGrocyMissingStockOnMealie(): Promise<void> {
-  await pollGrocyForMissingStock({ ensureAllPresent: true });
+export async function ensureGrocyMissingStockOnMealie(): Promise<GrocyMissingStockPollResult> {
+  return pollGrocyForMissingStock({ ensureAllPresent: true });
 }
 
 /**
@@ -151,7 +211,7 @@ async function adjustMealieShoppingItem(
   shoppingListId: string,
   mealieShoppingItems: MealieShoppingItem[],
   options: AdjustMealieShoppingItemOptions = {},
-): Promise<boolean> {
+): Promise<AdjustMealieShoppingItemResult> {
   const mappings = await db.select()
     .from(productMappings)
     .where(eq(productMappings.grocyProductId, grocyProductId))
@@ -160,7 +220,7 @@ async function adjustMealieShoppingItem(
   if (mappings.length === 0) {
     const productNameSuffix = options.grocyProductName ? ` ("${options.grocyProductName}")` : '';
     log.warn(`[Grocy→Mealie] No mapping found for Grocy product ID ${grocyProductId}${productNameSuffix}, skipping`);
-    return false;
+    return 'unmapped';
   }
 
   const mapping = mappings[0];
@@ -184,7 +244,7 @@ async function adjustMealieShoppingItem(
 
   if (existingItem) {
     if (delta === 0) {
-      return true;
+      return 'ensured';
     }
 
     const currentQty = existingItem.quantity || 0;
@@ -210,7 +270,7 @@ async function adjustMealieShoppingItem(
   } else {
     const createQuantity = options.createQuantityWhenMissing ?? delta;
     if (createQuantity <= 0) {
-      return true;
+      return 'ensured';
     }
 
     // No existing item, create new one
@@ -223,7 +283,7 @@ async function adjustMealieShoppingItem(
       checked: false,
     });
   }
-  return true;
+  return 'ensured';
 }
 
 async function resolveGrocyProductName(grocyProductId: number): Promise<string> {
