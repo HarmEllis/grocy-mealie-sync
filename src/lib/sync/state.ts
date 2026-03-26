@@ -8,6 +8,7 @@ export interface SyncStateData {
   lastMealiePoll: Date | null;
   grocyBelowMinStock: Record<number, number>;
   mealieCheckedItems: Record<string, boolean>;
+  mealieInPossessionByGrocyProduct: Record<string, boolean>;
   /** Products recently restocked by Mealie→Grocy sync (grocyProductId as string → ISO timestamp).
    *  Used to prevent the Grocy→Mealie sync from removing items that were
    *  restocked automatically rather than manually by the user.
@@ -22,6 +23,7 @@ const DEFAULT_STATE: SyncStateData = {
   lastMealiePoll: null,
   grocyBelowMinStock: {},
   mealieCheckedItems: {},
+  mealieInPossessionByGrocyProduct: {},
   syncRestockedProducts: {},
 };
 
@@ -44,6 +46,7 @@ export async function getSyncState(): Promise<SyncStateData> {
     lastMealiePoll: state.lastMealiePoll ? new Date(state.lastMealiePoll as string) : null,
     grocyBelowMinStock: (state.grocyBelowMinStock as Record<number, number>) || {},
     mealieCheckedItems: (state.mealieCheckedItems as Record<string, boolean>) || {},
+    mealieInPossessionByGrocyProduct: (state.mealieInPossessionByGrocyProduct as Record<string, boolean>) || {},
     syncRestockedProducts: (state.syncRestockedProducts as Record<string, string>) || {},
   };
 }
@@ -54,6 +57,7 @@ export async function saveSyncState(state: SyncStateData) {
     lastMealiePoll: state.lastMealiePoll?.toISOString() || null,
     grocyBelowMinStock: state.grocyBelowMinStock,
     mealieCheckedItems: state.mealieCheckedItems,
+    mealieInPossessionByGrocyProduct: state.mealieInPossessionByGrocyProduct,
     syncRestockedProducts: state.syncRestockedProducts,
   });
 

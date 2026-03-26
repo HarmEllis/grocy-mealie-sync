@@ -8,7 +8,9 @@ import {
   resolveAutoCreateUnits,
   resolveDefaultUnitMappingId,
   resolveEnsureLowStockOnMealieList,
+  resolveMealieInPossessionOnlyAboveMinStock,
   resolveShoppingListId,
+  resolveSyncMealieInPossession,
   resolveStockOnlyMinStock,
   saveSettings,
 } from '@/lib/settings';
@@ -17,6 +19,7 @@ import { unitMappings } from '@/lib/db/schema';
 import { HouseholdsShoppingListsService } from '@/lib/mealie';
 import { log } from '@/lib/logger';
 import { settingsUpdateSchema } from '@/lib/validation';
+import { getSyncState, saveSyncState } from '@/lib/sync/state';
 
 export async function GET() {
   const settings = await getSettings();
@@ -32,6 +35,8 @@ export async function GET() {
   const autoCreateProducts = await resolveAutoCreateProducts();
   const autoCreateUnits = await resolveAutoCreateUnits();
   const ensureLowStockOnMealieList = await resolveEnsureLowStockOnMealieList();
+  const syncMealieInPossession = await resolveSyncMealieInPossession();
+  const mealieInPossessionOnlyAboveMinStock = await resolveMealieInPossessionOnlyAboveMinStock();
   const stockOnlyMinStock = await resolveStockOnlyMinStock();
 
   let availableShoppingLists: { id: string; name: string }[] = [];
@@ -53,6 +58,8 @@ export async function GET() {
     autoCreateProducts,
     autoCreateUnits,
     ensureLowStockOnMealieList,
+    syncMealieInPossession,
+    mealieInPossessionOnlyAboveMinStock,
     stockOnlyMinStock,
     locks,
     availableUnits: units.map(u => ({
@@ -119,11 +126,25 @@ export async function PUT(request: Request) {
     settings.ensureLowStockOnMealieList = data.ensureLowStockOnMealieList;
   }
 
+  if (data.syncMealieInPossession !== undefined) {
+    settings.syncMealieInPossession = data.syncMealieInPossession;
+  }
+
+  if (data.mealieInPossessionOnlyAboveMinStock !== undefined) {
+    settings.mealieInPossessionOnlyAboveMinStock = data.mealieInPossessionOnlyAboveMinStock;
+  }
+
   if (data.stockOnlyMinStock !== undefined) {
     settings.stockOnlyMinStock = data.stockOnlyMinStock;
   }
 
   await saveSettings(settings);
+
+  if (data.syncMealieInPossession === false) {
+    const syncState = await getSyncState();
+    syncState.mealieInPossessionByGrocyProduct = {};
+    await saveSyncState(syncState);
+  }
 
   return NextResponse.json({ status: 'ok', ...settings });
 }

@@ -112,6 +112,8 @@ describe('settingsUpdateSchema', () => {
     const result = settingsUpdateSchema.safeParse({
       autoCreateProducts: true,
       ensureLowStockOnMealieList: true,
+      syncMealieInPossession: true,
+      mealieInPossessionOnlyAboveMinStock: true,
       stockOnlyMinStock: true,
     });
     expect(result.success).toBe(true);

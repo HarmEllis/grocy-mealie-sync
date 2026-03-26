@@ -80,6 +80,16 @@ export const config = {
     false,
     'ENSURE_LOW_STOCK_ON_MEALIE_LIST',
   ),
+  syncMealieInPossession: parseBooleanEnv(
+    process.env.SYNC_MEALIE_IN_POSSESSION,
+    false,
+    'SYNC_MEALIE_IN_POSSESSION',
+  ),
+  mealieInPossessionOnlyAboveMinStock: parseBooleanEnv(
+    process.env.MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK,
+    false,
+    'MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK',
+  ),
   stockOnlyMinStock: parseBooleanEnv(process.env.STOCK_ONLY_MIN_STOCK, false, 'STOCK_ONLY_MIN_STOCK'),
   databasePath: process.env.DATABASE_PATH || './data/sync.db',
   envOverrides: {
@@ -88,6 +98,8 @@ export const config = {
     autoCreateProducts: hasConfiguredValue(process.env.AUTO_CREATE_PRODUCTS),
     autoCreateUnits: hasConfiguredValue(process.env.AUTO_CREATE_UNITS),
     ensureLowStockOnMealieList: hasConfiguredValue(process.env.ENSURE_LOW_STOCK_ON_MEALIE_LIST),
+    syncMealieInPossession: hasConfiguredValue(process.env.SYNC_MEALIE_IN_POSSESSION),
+    mealieInPossessionOnlyAboveMinStock: hasConfiguredValue(process.env.MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK),
     stockOnlyMinStock: hasConfiguredValue(process.env.STOCK_ONLY_MIN_STOCK),
   },
   envRaw: {
@@ -96,6 +108,8 @@ export const config = {
     autoCreateProducts: process.env.AUTO_CREATE_PRODUCTS?.trim() || null,
     autoCreateUnits: process.env.AUTO_CREATE_UNITS?.trim() || null,
     ensureLowStockOnMealieList: process.env.ENSURE_LOW_STOCK_ON_MEALIE_LIST?.trim() || null,
+    syncMealieInPossession: process.env.SYNC_MEALIE_IN_POSSESSION?.trim() || null,
+    mealieInPossessionOnlyAboveMinStock: process.env.MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK?.trim() || null,
     stockOnlyMinStock: process.env.STOCK_ONLY_MIN_STOCK?.trim() || null,
   },
 };

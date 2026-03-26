@@ -186,6 +186,7 @@ export default async function Home() {
                 ['POST', '/api/sync/products', 'Trigger product sync'],
                 ['POST', '/api/sync/grocy-to-mealie', 'Trigger Grocy\u2192Mealie check'],
                 ['POST', '/api/sync/grocy-to-mealie/ensure', 'Ensure below-min items exist on Mealie list'],
+                ['POST', '/api/sync/grocy-to-mealie/in-possession', 'Fully reconcile Mealie "In possession" from Grocy stock'],
                 ['POST', '/api/sync/mealie-to-grocy', 'Trigger Mealie\u2192Grocy check'],
               ].map(([method, path, desc]) => (
                 <div key={path} className="flex items-center gap-2">

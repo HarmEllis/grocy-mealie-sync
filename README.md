@@ -8,7 +8,8 @@ Bi-directional sync service between [Grocy](https://grocy.info/) (inventory mana
 
 1. **Product & unit sync** — Matches products and units between Grocy and Mealie by name. Creates missing items in Grocy automatically.
 2. **Grocy → Mealie** — When stock drops below minimum in Grocy, the item is added to your Mealie shopping list. Optionally, the app can keep checking that those below-min items still exist as unchecked Mealie list items and recreate them if needed.
-3. **Mealie → Grocy** — When you check off an item on the Mealie shopping list, stock is added in Grocy and the item is removed from Grocy's shopping list.
+3. **Grocy → Mealie possession sync** — For mapped products, Mealie's `In possession` flag can be kept in sync with Grocy stock. You can choose whether any stock above `0` counts, or only stock strictly above `min_stock_amount`.
+4. **Mealie → Grocy** — When you check off an item on the Mealie shopping list, stock is added in Grocy and the item is removed from Grocy's shopping list.
 
 The service polls both APIs on a configurable interval (default: 60 seconds).
 
@@ -152,6 +153,7 @@ If polls are not updating, check the container/server logs for errors (likely AP
 | `POST` | `/api/sync/products` | Manually trigger product & unit sync |
 | `POST` | `/api/sync/grocy-to-mealie` | Manually trigger Grocy → Mealie poll |
 | `POST` | `/api/sync/grocy-to-mealie/ensure` | Manually ensure all current below-min Grocy products exist on the Mealie list |
+| `POST` | `/api/sync/grocy-to-mealie/in-possession` | Manually fully reconcile Mealie `In possession` for all mapped products |
 | `POST` | `/api/sync/mealie-to-grocy` | Manually trigger Mealie → Grocy poll |
 
 Manual triggers are useful for testing. The scheduler runs these automatically.
@@ -171,6 +173,13 @@ Manual triggers are useful for testing. The scheduler runs these automatically.
 - When `ENSURE_LOW_STOCK_ON_MEALIE_LIST` is enabled, each poll also checks that every mapped below-min product still has an unchecked Mealie list item and recreates it if needed
 - The manual `POST /api/sync/grocy-to-mealie/ensure` endpoint runs that full presence check immediately, even if the setting is disabled
 
+### Grocy → Mealie (`In possession`)
+- When `SYNC_MEALIE_IN_POSSESSION` is enabled, each Grocy poll computes the desired Mealie `In possession` state for every mapped product and only writes the differences back to Mealie
+- By default, a mapped product is considered `In possession` when Grocy stock is greater than `0`
+- When `MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK` is enabled, a mapped product is only considered `In possession` when Grocy stock is strictly greater than `min_stock_amount`
+- The manual `POST /api/sync/grocy-to-mealie/in-possession` endpoint runs a full reconcile against Mealie's current state immediately, even if the scheduler setting is disabled
+- Implementation note: Mealie's current API exposes this state through `householdsWithIngredientFood`, not a dedicated `onHand` field. See [docs/mealie-in-possession.md](docs/mealie-in-possession.md).
+
 ### Mealie → Grocy (shopping list check-off)
 - Polls Mealie shopping list items for `checked: true` state changes
 - Checked items add stock in Grocy (`purchase` transaction)
@@ -187,6 +196,8 @@ The following app-level settings can be configured in the web UI at `http://loca
 - Auto-create products in Grocy: `AUTO_CREATE_PRODUCTS`
 - Auto-create units in Grocy: `AUTO_CREATE_UNITS`
 - Actively ensure below-min items stay on the Mealie list: `ENSURE_LOW_STOCK_ON_MEALIE_LIST`
+- Sync Mealie `In possession` from Grocy stock: `SYNC_MEALIE_IN_POSSESSION`
+- Only mark Mealie `In possession` above minimum stock: `MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK`
 - Only restock products with min stock: `STOCK_ONLY_MIN_STOCK`
 
 When one of these environment variables is set, it takes precedence over the stored UI value. The setting is shown as locked in the web UI, and you need to comment out or remove the env var before editing it there.

@@ -50,6 +50,21 @@ vi.mock('../helpers', () => ({
   fetchAllMealieShoppingItems: vi.fn(),
 }));
 
+vi.mock('../mealie-in-possession', () => ({
+  syncMealieInPossessionFromGrocy: vi.fn(async () => ({
+    status: 'skipped',
+    reason: 'disabled',
+    summary: {
+      processedProducts: 0,
+      updatedProducts: 0,
+      enabledProducts: 0,
+      disabledProducts: 0,
+      unchangedProducts: 0,
+      failedProducts: 0,
+    },
+  })),
+}));
+
 vi.mock('../../logger', () => ({
   log: {
     info: vi.fn(),

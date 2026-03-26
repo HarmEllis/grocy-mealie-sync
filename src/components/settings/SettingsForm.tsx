@@ -35,6 +35,8 @@ interface SettingsData {
   autoCreateProducts: boolean;
   autoCreateUnits: boolean;
   ensureLowStockOnMealieList: boolean;
+  syncMealieInPossession: boolean;
+  mealieInPossessionOnlyAboveMinStock: boolean;
   stockOnlyMinStock: boolean;
   locks: {
     defaultUnitMappingId: SettingLock;
@@ -42,6 +44,8 @@ interface SettingsData {
     autoCreateProducts: SettingLock;
     autoCreateUnits: SettingLock;
     ensureLowStockOnMealieList: SettingLock;
+    syncMealieInPossession: SettingLock;
+    mealieInPossessionOnlyAboveMinStock: SettingLock;
     stockOnlyMinStock: SettingLock;
   };
   availableUnits: UnitOption[];
@@ -172,6 +176,16 @@ export function SettingsForm() {
     if (ok) setSettings(s => s ? { ...s, ensureLowStockOnMealieList: value } : s);
   }
 
+  async function handleSyncMealieInPossessionChange(value: boolean) {
+    const ok = await saveSetting({ syncMealieInPossession: value });
+    if (ok) setSettings(s => s ? { ...s, syncMealieInPossession: value } : s);
+  }
+
+  async function handleMealieInPossessionOnlyAboveMinStockChange(value: boolean) {
+    const ok = await saveSetting({ mealieInPossessionOnlyAboveMinStock: value });
+    if (ok) setSettings(s => s ? { ...s, mealieInPossessionOnlyAboveMinStock: value } : s);
+  }
+
   return (
     <TooltipProvider>
       <div className="space-y-5">
@@ -233,9 +247,33 @@ export function SettingsForm() {
           <div>
             <p className="text-sm font-medium">Grocy to Mealie</p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Control how below-minimum Grocy products are kept present on the Mealie shopping list.
+              Control how Grocy stock is reflected in Mealie.
             </p>
           </div>
+          <label className={`flex items-center gap-2.5 ${settings.locks.syncMealieInPossession.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
+            <Checkbox
+              checked={settings.syncMealieInPossession}
+              disabled={settings.locks.syncMealieInPossession.locked}
+              onCheckedChange={(checked: boolean) => handleSyncMealieInPossessionChange(checked)}
+            />
+            <span className="text-sm">Sync Mealie &quot;In possession&quot; from Grocy stock</span>
+            <LockBadge lock={settings.locks.syncMealieInPossession} />
+          </label>
+          <p className="pl-6 text-xs text-muted-foreground">
+            When enabled, each Grocy poll compares mapped product stock with the last known desired possession state and only writes the differences back to Mealie.
+          </p>
+          <label className={`flex items-center gap-2.5 ${settings.locks.mealieInPossessionOnlyAboveMinStock.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
+            <Checkbox
+              checked={settings.mealieInPossessionOnlyAboveMinStock}
+              disabled={settings.locks.mealieInPossessionOnlyAboveMinStock.locked}
+              onCheckedChange={(checked: boolean) => handleMealieInPossessionOnlyAboveMinStockChange(checked)}
+            />
+            <span className="text-sm">Only set &quot;In possession&quot; above minimum stock</span>
+            <LockBadge lock={settings.locks.mealieInPossessionOnlyAboveMinStock} />
+          </label>
+          <p className="pl-6 text-xs text-muted-foreground">
+            When enabled, Mealie is only marked as in possession when the current Grocy stock is strictly greater than `min_stock_amount`. Otherwise, any stock above 0 counts as in possession.
+          </p>
           <label className={`flex items-center gap-2.5 ${settings.locks.ensureLowStockOnMealieList.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
             <Checkbox
               checked={settings.ensureLowStockOnMealieList}

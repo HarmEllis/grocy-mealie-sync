@@ -9,6 +9,7 @@ const syncActions = [
   { label: 'Sync Products & Units', endpoint: '/api/sync/products', icon: RefreshCw },
   { label: 'Grocy \u2192 Mealie', endpoint: '/api/sync/grocy-to-mealie', icon: ArrowRight },
   { label: 'Ensure Low-Stock in Mealie', endpoint: '/api/sync/grocy-to-mealie/ensure', icon: RefreshCw },
+  { label: 'Reconcile In Possession', endpoint: '/api/sync/grocy-to-mealie/in-possession', icon: RefreshCw },
   { label: 'Mealie \u2192 Grocy', endpoint: '/api/sync/mealie-to-grocy', icon: ArrowLeftRight },
 ] as const;
 
@@ -16,11 +17,7 @@ interface SyncActionResponse {
   status?: 'ok' | 'partial' | 'skipped' | 'busy' | 'error';
   message?: string;
   error?: string;
-  summary?: {
-    processedProducts: number;
-    ensuredProducts: number;
-    unmappedProducts: number;
-  };
+  summary?: Record<string, number>;
 }
 
 export function SyncButtons() {

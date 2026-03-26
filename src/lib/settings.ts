@@ -10,6 +10,8 @@ export interface AppSettings {
   autoCreateProducts: boolean;
   autoCreateUnits: boolean;
   ensureLowStockOnMealieList: boolean;
+  syncMealieInPossession: boolean;
+  mealieInPossessionOnlyAboveMinStock: boolean;
   stockOnlyMinStock: boolean;
 }
 
@@ -19,6 +21,8 @@ export interface SettingsLocks {
   autoCreateProducts: SettingLock;
   autoCreateUnits: SettingLock;
   ensureLowStockOnMealieList: SettingLock;
+  syncMealieInPossession: SettingLock;
+  mealieInPossessionOnlyAboveMinStock: SettingLock;
   stockOnlyMinStock: SettingLock;
 }
 
@@ -36,6 +40,8 @@ const SETTING_ENV_VARS: Record<SettingKey, string> = {
   autoCreateProducts: 'AUTO_CREATE_PRODUCTS',
   autoCreateUnits: 'AUTO_CREATE_UNITS',
   ensureLowStockOnMealieList: 'ENSURE_LOW_STOCK_ON_MEALIE_LIST',
+  syncMealieInPossession: 'SYNC_MEALIE_IN_POSSESSION',
+  mealieInPossessionOnlyAboveMinStock: 'MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK',
   stockOnlyMinStock: 'STOCK_ONLY_MIN_STOCK',
 };
 
@@ -47,6 +53,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   autoCreateProducts: false,
   autoCreateUnits: false,
   ensureLowStockOnMealieList: false,
+  syncMealieInPossession: false,
+  mealieInPossessionOnlyAboveMinStock: false,
   stockOnlyMinStock: false,
 };
 
@@ -68,6 +76,8 @@ export async function getSettings(): Promise<AppSettings> {
     autoCreateProducts: (data.autoCreateProducts as boolean) ?? false,
     autoCreateUnits: (data.autoCreateUnits as boolean) ?? false,
     ensureLowStockOnMealieList: (data.ensureLowStockOnMealieList as boolean) ?? false,
+    syncMealieInPossession: (data.syncMealieInPossession as boolean) ?? false,
+    mealieInPossessionOnlyAboveMinStock: (data.mealieInPossessionOnlyAboveMinStock as boolean) ?? false,
     stockOnlyMinStock: (data.stockOnlyMinStock as boolean) ?? false,
   };
 }
@@ -98,6 +108,16 @@ export function getSettingsLocks(): SettingsLocks {
       locked: config.envOverrides.ensureLowStockOnMealieList,
       envVar: SETTING_ENV_VARS.ensureLowStockOnMealieList,
       envValue: config.envRaw.ensureLowStockOnMealieList,
+    },
+    syncMealieInPossession: {
+      locked: config.envOverrides.syncMealieInPossession,
+      envVar: SETTING_ENV_VARS.syncMealieInPossession,
+      envValue: config.envRaw.syncMealieInPossession,
+    },
+    mealieInPossessionOnlyAboveMinStock: {
+      locked: config.envOverrides.mealieInPossessionOnlyAboveMinStock,
+      envVar: SETTING_ENV_VARS.mealieInPossessionOnlyAboveMinStock,
+      envValue: config.envRaw.mealieInPossessionOnlyAboveMinStock,
     },
     stockOnlyMinStock: {
       locked: config.envOverrides.stockOnlyMinStock,
@@ -199,6 +219,24 @@ export async function resolveEnsureLowStockOnMealieList(): Promise<boolean> {
 
   const settings = await getSettings();
   return settings.ensureLowStockOnMealieList;
+}
+
+export async function resolveSyncMealieInPossession(): Promise<boolean> {
+  if (config.envOverrides.syncMealieInPossession) {
+    return config.syncMealieInPossession;
+  }
+
+  const settings = await getSettings();
+  return settings.syncMealieInPossession;
+}
+
+export async function resolveMealieInPossessionOnlyAboveMinStock(): Promise<boolean> {
+  if (config.envOverrides.mealieInPossessionOnlyAboveMinStock) {
+    return config.mealieInPossessionOnlyAboveMinStock;
+  }
+
+  const settings = await getSettings();
+  return settings.mealieInPossessionOnlyAboveMinStock;
 }
 
 export async function resolveStockOnlyMinStock(): Promise<boolean> {

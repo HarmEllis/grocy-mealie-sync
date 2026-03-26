@@ -60,6 +60,8 @@ export const settingsUpdateSchema = z.object({
   autoCreateProducts: z.boolean().optional(),
   autoCreateUnits: z.boolean().optional(),
   ensureLowStockOnMealieList: z.boolean().optional(),
+  syncMealieInPossession: z.boolean().optional(),
+  mealieInPossessionOnlyAboveMinStock: z.boolean().optional(),
   stockOnlyMinStock: z.boolean().optional(),
 });
 

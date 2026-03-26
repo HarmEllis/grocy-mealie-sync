@@ -6,6 +6,7 @@ import { HouseholdsShoppingListItemsService } from '../mealie';
 import type { MealieShoppingItem } from '../mealie/types';
 import { log } from '../logger';
 import { resolveEnsureLowStockOnMealieList, resolveShoppingListId } from '../settings';
+import { syncMealieInPossessionFromGrocy } from './mealie-in-possession';
 import { getSyncState, saveSyncState } from './state';
 import { fetchAllMealieShoppingItems } from './helpers';
 import { eq } from 'drizzle-orm';
@@ -168,6 +169,11 @@ export async function pollGrocyForMissingStock(
       if (skippedSyncRestocked > 0) {
         log.info(`[Grocy→Mealie] ${skippedSyncRestocked} product(s) skipped (restocked by sync, not user)`);
       }
+    }
+
+    const inPossessionResult = await syncMealieInPossessionFromGrocy(state);
+    if (inPossessionResult.status === 'error') {
+      log.error('[Grocy→Mealie] Skipping "In possession" state update because the sync failed');
     }
 
     // Clear all syncRestockedProducts entries after processing.
