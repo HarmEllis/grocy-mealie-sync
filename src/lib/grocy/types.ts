@@ -17,6 +17,7 @@ import type { QuantityUnit } from './client/models/QuantityUnit';
 import type { Location } from './client/models/Location';
 import type { ShoppingListItem } from './client/models/ShoppingListItem';
 import type { CurrentVolatilStockResponse } from './client/models/CurrentVolatilStockResponse';
+import type { CurrentStockResponse } from './client/models/CurrentStockResponse';
 import type { ProductDetailsResponse } from './client/models/ProductDetailsResponse';
 import { StockTransactionType } from './client/models/StockTransactionType';
 
@@ -262,6 +263,13 @@ export async function getVolatileStock(): Promise<GrocyVolatileStock> {
 }
 
 /**
+ * Fetch the current stock overview for all products currently in stock.
+ */
+export async function getCurrentStock(): Promise<CurrentStockResponse[]> {
+  return StockService.getStock();
+}
+
+/**
  * Fetch product details for a given Grocy product ID.
  * Returns the properly typed `ProductDetailsResponse`.
  */
@@ -283,4 +291,4 @@ export async function addProductStock(
 }
 
 // Re-export model types that are commonly used in application code
-export type { Product, QuantityUnit, Location, ShoppingListItem, ProductDetailsResponse };
+export type { Product, QuantityUnit, Location, ShoppingListItem, ProductDetailsResponse, CurrentStockResponse };

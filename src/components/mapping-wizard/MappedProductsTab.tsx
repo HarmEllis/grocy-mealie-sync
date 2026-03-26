@@ -1,0 +1,141 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import { Loader2, Save } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import type { MappedProductsTabData } from './types';
+
+interface MappedProductsTabProps {
+  data: MappedProductsTabData;
+  productSearch: string;
+  setProductSearch: (value: string) => void;
+  onUpdateMinStock: (grocyProductId: number, minStockAmount: number) => Promise<void>;
+}
+
+function formatAmount(value: number): string {
+  if (Number.isInteger(value)) {
+    return String(value);
+  }
+
+  return value.toFixed(2).replace(/\.?0+$/, '');
+}
+
+export function MappedProductsTab({
+  data,
+  productSearch,
+  setProductSearch,
+  onUpdateMinStock,
+}: MappedProductsTabProps) {
+  const [draftMinStock, setDraftMinStock] = useState<Record<number, string>>({});
+  const [savingGrocyProductId, setSavingGrocyProductId] = useState<number | null>(null);
+
+  useEffect(() => {
+    setDraftMinStock(
+      Object.fromEntries(
+        data.mappedProducts.map(product => [product.grocyProductId, String(product.minStockAmount)]),
+      ),
+    );
+  }, [data]);
+
+  const filteredProducts = useMemo(() => {
+    if (!productSearch) {
+      return data.mappedProducts;
+    }
+
+    const query = productSearch.toLowerCase();
+    return data.mappedProducts.filter(product =>
+      product.name.toLowerCase().includes(query) || product.unitName.toLowerCase().includes(query),
+    );
+  }, [data, productSearch]);
+
+  async function saveMinStock(grocyProductId: number) {
+    const rawValue = draftMinStock[grocyProductId] ?? '0';
+    const nextValue = Number(rawValue);
+
+    if (!Number.isFinite(nextValue) || nextValue < 0) {
+      return;
+    }
+
+    setSavingGrocyProductId(grocyProductId);
+    try {
+      await onUpdateMinStock(grocyProductId, nextValue);
+    } finally {
+      setSavingGrocyProductId(current => (current === grocyProductId ? null : current));
+    }
+  }
+
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col space-y-3">
+      <Input
+        placeholder="Filter mapped products by product or unit..."
+        value={productSearch}
+        onChange={event => setProductSearch(event.target.value)}
+        className="max-w-[320px]"
+      />
+
+      <div className="min-h-0 min-w-0 flex-1 rounded-md border">
+        <Table className="min-w-[760px]" containerClassName="h-full min-w-0">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Product</TableHead>
+              <TableHead>Unit</TableHead>
+              <TableHead className="w-[140px]">Current Stock</TableHead>
+              <TableHead className="w-[220px]">Min Stock</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filteredProducts.map(product => {
+              const draftValue = draftMinStock[product.grocyProductId] ?? String(product.minStockAmount);
+              const parsedDraft = Number(draftValue);
+              const isInvalid = !Number.isFinite(parsedDraft) || parsedDraft < 0;
+              const isDirty = !isInvalid && parsedDraft !== product.minStockAmount;
+              const isSaving = savingGrocyProductId === product.grocyProductId;
+
+              return (
+                <TableRow key={product.id}>
+                  <TableCell className="font-medium">{product.name}</TableCell>
+                  <TableCell className="text-muted-foreground">{product.unitName}</TableCell>
+                  <TableCell>{formatAmount(product.currentStock)}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={draftValue}
+                        onChange={event => {
+                          const value = event.target.value;
+                          setDraftMinStock(prev => ({ ...prev, [product.grocyProductId]: value }));
+                        }}
+                        onKeyDown={event => {
+                          if (event.key === 'Enter' && isDirty && !isSaving) {
+                            event.preventDefault();
+                            void saveMinStock(product.grocyProductId);
+                          }
+                        }}
+                        className="h-8"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void saveMinStock(product.grocyProductId)}
+                        disabled={isSaving || !isDirty}
+                        aria-label={`Save minimum stock for ${product.name}`}
+                        title={`Save minimum stock for ${product.name}`}
+                      >
+                        {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}

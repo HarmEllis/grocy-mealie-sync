@@ -42,6 +42,19 @@ export type GrocyMinStockTabData = Pick<
   'unmappedGrocyMinStockProducts' | 'grocyUnits' | 'unmappedMealieFoods' | 'lowStockGrocyProductSuggestions'
 >;
 
+export interface MappedProductRow {
+  id: string;
+  grocyProductId: number;
+  name: string;
+  unitName: string;
+  currentStock: number;
+  minStockAmount: number;
+}
+
+export interface MappedProductsTabData {
+  mappedProducts: MappedProductRow[];
+}
+
 export interface ProductMapping { mealieFoodId: string; grocyProductId: number | null; grocyUnitId: number | null }
 export interface GrocyMinStockProductMapping { grocyProductId: number; mealieFoodId: string | null; grocyUnitId: number | null }
 export interface UnitMapping { mealieUnitId: string; grocyUnitId: number | null }

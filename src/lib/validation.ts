@@ -27,6 +27,12 @@ export const productCreateMealieRequestSchema = z.object({
   unitSelections: z.record(z.string(), z.number().nullable()).optional(),
 });
 
+/** Schema for updating the Grocy minimum stock amount of a mapped product */
+export const mappedProductMinStockUpdateSchema = z.object({
+  grocyProductId: z.number(),
+  minStockAmount: z.number().min(0),
+});
+
 // --- Mapping Wizard: Units ---
 
 /** Schema for a single unit mapping entry (units sync) */

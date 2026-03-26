@@ -16,11 +16,13 @@ import { Wand2, Loader2, Link, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { GrocyMinStockProductsTab } from './GrocyMinStockProductsTab';
+import { MappedProductsTab } from './MappedProductsTab';
 import { UnitsTab } from './UnitsTab';
 import { ProductsTab } from './ProductsTab';
 import type {
   GrocyMinStockProductMapping,
   GrocyMinStockTabData,
+  MappedProductsTabData,
   ProductMapping,
   ProductsTabData,
   UnitMapping,
@@ -47,24 +49,28 @@ const TAB_ENDPOINTS: Record<WizardTab, string> = {
   units: '/api/mapping-wizard/data?tab=units',
   products: '/api/mapping-wizard/data?tab=products',
   'grocy-min-stock': '/api/mapping-wizard/data?tab=grocy-min-stock',
+  'mapped-products': '/api/mapping-wizard/products/mapped',
 };
 
 const INITIAL_TAB_LOADING: Record<WizardTab, boolean> = {
   units: false,
   products: false,
   'grocy-min-stock': false,
+  'mapped-products': false,
 };
 
 const INITIAL_TAB_ERRORS: Record<WizardTab, string | null> = {
   units: null,
   products: null,
   'grocy-min-stock': null,
+  'mapped-products': null,
 };
 
 const INITIAL_DIRTY_TABS: Record<WizardTab, boolean> = {
   units: false,
   products: false,
   'grocy-min-stock': false,
+  'mapped-products': false,
 };
 
 export function MappingWizard() {
@@ -73,12 +79,14 @@ export function MappingWizard() {
   const [unitsData, setUnitsData] = useState<UnitsTabData | null>(null);
   const [productsData, setProductsData] = useState<ProductsTabData | null>(null);
   const [grocyMinStockData, setGrocyMinStockData] = useState<GrocyMinStockTabData | null>(null);
+  const [mappedProductsData, setMappedProductsData] = useState<MappedProductsTabData | null>(null);
   const [tabLoading, setTabLoading] = useState(INITIAL_TAB_LOADING);
   const [tabErrors, setTabErrors] = useState(INITIAL_TAB_ERRORS);
   const [dirtyTabs, setDirtyTabs] = useState(INITIAL_DIRTY_TABS);
   const [actionRunning, setActionRunning] = useState<string | null>(null);
   const [productSearch, setProductSearch] = useState('');
   const [grocyMinStockProductSearch, setGrocyMinStockProductSearch] = useState('');
+  const [mappedProductSearch, setMappedProductSearch] = useState('');
   const [unitSearch, setUnitSearch] = useState('');
 
   // Confirm dialog state
@@ -109,8 +117,8 @@ export function MappingWizard() {
     {
       preserveWizardState = false,
       showLoading = true,
-    }: FetchTabDataOptions = {},
-  ): Promise<UnitsTabData | ProductsTabData | GrocyMinStockTabData | null> => {
+  }: FetchTabDataOptions = {},
+  ): Promise<UnitsTabData | ProductsTabData | GrocyMinStockTabData | MappedProductsTabData | null> => {
     if (showLoading) {
       setTabLoading(prev => ({ ...prev, [targetTab]: true }));
     }
@@ -122,7 +130,7 @@ export function MappingWizard() {
         throw new Error('Failed to fetch');
       }
 
-      let parsedData: UnitsTabData | ProductsTabData | GrocyMinStockTabData | null = null;
+      let parsedData: UnitsTabData | ProductsTabData | GrocyMinStockTabData | MappedProductsTabData | null = null;
 
       switch (targetTab) {
         case 'units': {
@@ -172,6 +180,12 @@ export function MappingWizard() {
           }
           break;
         }
+        case 'mapped-products': {
+          const data: MappedProductsTabData = await res.json();
+          parsedData = data;
+          setMappedProductsData(data);
+          break;
+        }
       }
 
       setDirtyTabs(prev => ({ ...prev, [targetTab]: false }));
@@ -192,7 +206,9 @@ export function MappingWizard() {
       ? unitsData !== null
       : targetTab === 'products'
         ? productsData !== null
-        : grocyMinStockData !== null;
+        : targetTab === 'grocy-min-stock'
+          ? grocyMinStockData !== null
+          : mappedProductsData !== null;
 
     if (hasData && !dirtyTabs[targetTab]) {
       return;
@@ -202,7 +218,7 @@ export function MappingWizard() {
       preserveWizardState: hasData,
       showLoading: true,
     });
-  }, [dirtyTabs, fetchTabData, grocyMinStockData, productsData, unitsData]);
+  }, [dirtyTabs, fetchTabData, grocyMinStockData, mappedProductsData, productsData, unitsData]);
 
   useEffect(() => {
     if (!open) {
@@ -219,6 +235,9 @@ export function MappingWizard() {
       'grocy-min-stock': activeTab === 'grocy-min-stock'
         ? false
         : prev['grocy-min-stock'] || grocyMinStockData !== null,
+      'mapped-products': activeTab === 'mapped-products'
+        ? false
+        : prev['mapped-products'] || mappedProductsData !== null,
     }));
   }
 
@@ -811,8 +830,33 @@ export function MappingWizard() {
     ? unitsData
     : tab === 'products'
       ? productsData
-      : grocyMinStockData;
+      : tab === 'grocy-min-stock'
+        ? grocyMinStockData
+        : mappedProductsData;
   const isRunning = !!actionRunning;
+
+  async function updateMappedProductMinStock(grocyProductId: number, minStockAmount: number) {
+    const res = await fetch('/api/mapping-wizard/products/mapped', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ grocyProductId, minStockAmount }),
+    });
+    const result = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      throw new Error(result?.error || 'Failed to update minimum stock');
+    }
+
+    setMappedProductsData(prev => prev ? ({
+      mappedProducts: prev.mappedProducts.map(product =>
+        product.grocyProductId === grocyProductId
+          ? { ...product, minStockAmount }
+          : product,
+      ),
+    }) : prev);
+    markOtherLoadedTabsDirty('mapped-products');
+    toast.success('Minimum stock updated');
+  }
 
   function renderCurrentTab() {
     if (currentTabLoading && !currentTabData) {
@@ -889,6 +933,15 @@ export function MappingWizard() {
             onAcceptSuggestion={acceptGrocyMinStockProductSuggestion}
           />
         );
+      case 'mapped-products':
+        return (
+          <MappedProductsTab
+            data={mappedProductsData!}
+            productSearch={mappedProductSearch}
+            setProductSearch={setMappedProductSearch}
+            onUpdateMinStock={updateMappedProductMinStock}
+          />
+        );
     }
   }
 
@@ -921,6 +974,9 @@ export function MappingWizard() {
                   <TabsTrigger value="grocy-min-stock">
                     Grocy Min Stock{grocyMinStockData ? ` (${grocyMinStockData.unmappedGrocyMinStockProducts.length} unmapped)` : ''}
                   </TabsTrigger>
+                  <TabsTrigger value="mapped-products">
+                    Mapped Products{mappedProductsData ? ` (${mappedProductsData.mappedProducts.length})` : ''}
+                  </TabsTrigger>
                 </TabsList>
               </div>
 
@@ -930,7 +986,7 @@ export function MappingWizard() {
             </Tabs>
           </div>
 
-          {currentTabData && (
+          {currentTabData && tab !== 'mapped-products' && (
             <WizardFooter
               tab={tab}
               actionRunning={actionRunning}
