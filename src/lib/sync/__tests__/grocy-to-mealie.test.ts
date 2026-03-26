@@ -38,6 +38,7 @@ vi.mock('../../mealie', () => ({
 
 vi.mock('../../settings', () => ({
   resolveShoppingListId: vi.fn(),
+  resolveEnsureLowStockOnMealieList: vi.fn(),
 }));
 
 vi.mock('../state', () => ({
@@ -64,7 +65,7 @@ vi.mock('../../logger', () => ({
 import { pollGrocyForMissingStock } from '../grocy-to-mealie';
 import { getVolatileStock } from '../../grocy/types';
 import { HouseholdsShoppingListItemsService } from '../../mealie';
-import { resolveShoppingListId } from '../../settings';
+import { resolveEnsureLowStockOnMealieList, resolveShoppingListId } from '../../settings';
 import { getSyncState, saveSyncState } from '../state';
 import { fetchAllMealieShoppingItems } from '../helpers';
 import { log } from '../../logger';
@@ -72,6 +73,7 @@ import { log } from '../../logger';
 // Type-safe mock accessors
 const mockedGetVolatileStock = vi.mocked(getVolatileStock);
 const mockedResolveShoppingListId = vi.mocked(resolveShoppingListId);
+const mockedResolveEnsureLowStockOnMealieList = vi.mocked(resolveEnsureLowStockOnMealieList);
 const mockedGetSyncState = vi.mocked(getSyncState);
 const mockedSaveSyncState = vi.mocked(saveSyncState);
 const mockedFetchItems = vi.mocked(fetchAllMealieShoppingItems);
@@ -123,6 +125,7 @@ describe('pollGrocyForMissingStock', () => {
 
     // Sensible defaults: a valid shopping list, empty state, no items on list
     mockedResolveShoppingListId.mockResolvedValue(SHOPPING_LIST_ID);
+    mockedResolveEnsureLowStockOnMealieList.mockResolvedValue(false);
     mockedGetSyncState.mockResolvedValue(mockSyncState());
     mockedSaveSyncState.mockResolvedValue(undefined);
     mockedFetchItems.mockResolvedValue([]);
@@ -217,6 +220,71 @@ describe('pollGrocyForMissingStock', () => {
       // delta = -3, current qty 3, new qty = 0 -> delete
       expect(mockedDelete).toHaveBeenCalledOnce();
       expect(mockedDelete).toHaveBeenCalledWith('mealie-item-1');
+    });
+  });
+
+  describe('ensureLowStockOnMealieList', () => {
+    it('recreates an unchanged missing product when ensure mode is enabled and the item is absent', async () => {
+      mockedResolveEnsureLowStockOnMealieList.mockResolvedValue(true);
+      mockedGetSyncState.mockResolvedValue(
+        mockSyncState({ grocyBelowMinStock: { 101: 2 } }),
+      );
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })],
+      });
+      mockedFetchItems.mockResolvedValue([]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedCreate).toHaveBeenCalledOnce();
+      expect(mockedCreate).toHaveBeenCalledWith({
+        shoppingListId: SHOPPING_LIST_ID,
+        foodId: 'food-1',
+        unitId: undefined,
+        quantity: 2,
+        checked: false,
+      });
+    });
+
+    it('creates the full current missing amount when a changed product is absent and ensure mode is enabled', async () => {
+      mockedResolveEnsureLowStockOnMealieList.mockResolvedValue(true);
+      mockedGetSyncState.mockResolvedValue(
+        mockSyncState({ grocyBelowMinStock: { 101: 2 } }),
+      );
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 5 })],
+      });
+      mockedFetchItems.mockResolvedValue([]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedCreate).toHaveBeenCalledOnce();
+      expect(mockedCreate).toHaveBeenCalledWith({
+        shoppingListId: SHOPPING_LIST_ID,
+        foodId: 'food-1',
+        unitId: undefined,
+        quantity: 5,
+        checked: false,
+      });
+    });
+
+    it('does not touch an unchanged missing product when ensure mode is enabled and the item already exists', async () => {
+      mockedResolveEnsureLowStockOnMealieList.mockResolvedValue(true);
+      mockedGetSyncState.mockResolvedValue(
+        mockSyncState({ grocyBelowMinStock: { 101: 2 } }),
+      );
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })],
+      });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'mealie-item-1', foodId: 'food-1', quantity: 2, checked: false }),
+      ]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedCreate).not.toHaveBeenCalled();
+      expect(mockedUpdate).not.toHaveBeenCalled();
+      expect(mockedDelete).not.toHaveBeenCalled();
     });
   });
 
@@ -359,7 +427,7 @@ describe('pollGrocyForMissingStock', () => {
       setupDbMock([], []);
 
       mockedGetVolatileStock.mockResolvedValue({
-        missing_products: [mockMissingProduct({ id: 999, amount_missing: 1 })],
+        missing_products: [mockMissingProduct({ id: 999, name: 'Bananen', amount_missing: 1 })],
       });
 
       await pollGrocyForMissingStock();
@@ -368,7 +436,7 @@ describe('pollGrocyForMissingStock', () => {
       expect(mockedUpdate).not.toHaveBeenCalled();
       expect(mockedDelete).not.toHaveBeenCalled();
       expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
-        expect.stringContaining('No mapping found for Grocy product ID 999'),
+        '[Grocy→Mealie] No mapping found for Grocy product ID 999 ("Bananen"), skipping',
       );
     });
 

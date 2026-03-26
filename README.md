@@ -7,7 +7,7 @@ Bi-directional sync service between [Grocy](https://grocy.info/) (inventory mana
 ## What it does
 
 1. **Product & unit sync** — Matches products and units between Grocy and Mealie by name. Creates missing items in Grocy automatically.
-2. **Grocy → Mealie** — When stock drops below minimum in Grocy, the item is added to your Mealie shopping list.
+2. **Grocy → Mealie** — When stock drops below minimum in Grocy, the item is added to your Mealie shopping list. Optionally, the app can keep checking that those below-min items still exist as unchecked Mealie list items and recreate them if needed.
 3. **Mealie → Grocy** — When you check off an item on the Mealie shopping list, stock is added in Grocy and the item is removed from Grocy's shopping list.
 
 The service polls both APIs on a configurable interval (default: 60 seconds).
@@ -120,6 +120,7 @@ If polls are not updating, check the container/server logs for errors (likely AP
 | `GET` | `/api/mappings/units` | All unit mappings (Mealie unit ↔ Grocy unit) |
 | `POST` | `/api/sync/products` | Manually trigger product & unit sync |
 | `POST` | `/api/sync/grocy-to-mealie` | Manually trigger Grocy → Mealie poll |
+| `POST` | `/api/sync/grocy-to-mealie/ensure` | Manually ensure all current below-min Grocy products exist on the Mealie list |
 | `POST` | `/api/sync/mealie-to-grocy` | Manually trigger Mealie → Grocy poll |
 
 Manual triggers are useful for testing. The scheduler runs these automatically.
@@ -136,6 +137,8 @@ Manual triggers are useful for testing. The scheduler runs these automatically.
 - Polls Grocy's volatile stock endpoint for `missing_products`
 - Newly missing products are added to the configured Mealie shopping list
 - If the item already exists (unchecked) on the list, the quantity is updated instead of creating a duplicate
+- When `ENSURE_LOW_STOCK_ON_MEALIE_LIST` is enabled, each poll also checks that every mapped below-min product still has an unchecked Mealie list item and recreates it if needed
+- The manual `POST /api/sync/grocy-to-mealie/ensure` endpoint runs that full presence check immediately, even if the setting is disabled
 
 ### Mealie → Grocy (shopping list check-off)
 - Polls Mealie shopping list items for `checked: true` state changes
@@ -152,6 +155,7 @@ The following app-level settings can be configured in the web UI at `http://loca
 - Default unit for new Grocy products: `GROCY_DEFAULT_UNIT_ID`
 - Auto-create products in Grocy: `AUTO_CREATE_PRODUCTS`
 - Auto-create units in Grocy: `AUTO_CREATE_UNITS`
+- Actively ensure below-min items stay on the Mealie list: `ENSURE_LOW_STOCK_ON_MEALIE_LIST`
 - Only restock products with min stock: `STOCK_ONLY_MIN_STOCK`
 
 When one of these environment variables is set, it takes precedence over the stored UI value. The setting is shown as locked in the web UI, and you need to comment out or remove the env var before editing it there.

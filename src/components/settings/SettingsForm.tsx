@@ -34,12 +34,14 @@ interface SettingsData {
   mealieShoppingListId: string | null;
   autoCreateProducts: boolean;
   autoCreateUnits: boolean;
+  ensureLowStockOnMealieList: boolean;
   stockOnlyMinStock: boolean;
   locks: {
     defaultUnitMappingId: SettingLock;
     mealieShoppingListId: SettingLock;
     autoCreateProducts: SettingLock;
     autoCreateUnits: SettingLock;
+    ensureLowStockOnMealieList: SettingLock;
     stockOnlyMinStock: SettingLock;
   };
   availableUnits: UnitOption[];
@@ -165,6 +167,11 @@ export function SettingsForm() {
     if (ok) setSettings(s => s ? { ...s, stockOnlyMinStock: value } : s);
   }
 
+  async function handleEnsureLowStockOnMealieListChange(value: boolean) {
+    const ok = await saveSetting({ ensureLowStockOnMealieList: value });
+    if (ok) setSettings(s => s ? { ...s, ensureLowStockOnMealieList: value } : s);
+  }
+
   return (
     <TooltipProvider>
       <div className="space-y-5">
@@ -218,6 +225,29 @@ export function SettingsForm() {
               ))}
             </select>
           )}
+        </div>
+
+        <Separator />
+
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm font-medium">Grocy to Mealie</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Control how below-minimum Grocy products are kept present on the Mealie shopping list.
+            </p>
+          </div>
+          <label className={`flex items-center gap-2.5 ${settings.locks.ensureLowStockOnMealieList.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
+            <Checkbox
+              checked={settings.ensureLowStockOnMealieList}
+              disabled={settings.locks.ensureLowStockOnMealieList.locked}
+              onCheckedChange={(checked: boolean) => handleEnsureLowStockOnMealieListChange(checked)}
+            />
+            <span className="text-sm">Actively ensure low-stock items stay on Mealie list</span>
+            <LockBadge lock={settings.locks.ensureLowStockOnMealieList} />
+          </label>
+          <p className="pl-6 text-xs text-muted-foreground">
+            When enabled, each Grocy poll checks whether every mapped below-minimum product still exists as an unchecked item on the selected Mealie shopping list, and recreates it if needed.
+          </p>
         </div>
 
         <Separator />

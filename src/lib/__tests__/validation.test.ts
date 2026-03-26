@@ -111,6 +111,7 @@ describe('settingsUpdateSchema', () => {
   it('accepts partial updates', () => {
     const result = settingsUpdateSchema.safeParse({
       autoCreateProducts: true,
+      ensureLowStockOnMealieList: true,
       stockOnlyMinStock: true,
     });
     expect(result.success).toBe(true);

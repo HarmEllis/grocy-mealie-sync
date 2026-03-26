@@ -9,6 +9,7 @@ export interface AppSettings {
   mealieShoppingListId: string | null;
   autoCreateProducts: boolean;
   autoCreateUnits: boolean;
+  ensureLowStockOnMealieList: boolean;
   stockOnlyMinStock: boolean;
 }
 
@@ -17,6 +18,7 @@ export interface SettingsLocks {
   mealieShoppingListId: SettingLock;
   autoCreateProducts: SettingLock;
   autoCreateUnits: SettingLock;
+  ensureLowStockOnMealieList: SettingLock;
   stockOnlyMinStock: SettingLock;
 }
 
@@ -33,6 +35,7 @@ const SETTING_ENV_VARS: Record<SettingKey, string> = {
   mealieShoppingListId: 'MEALIE_SHOPPING_LIST_ID',
   autoCreateProducts: 'AUTO_CREATE_PRODUCTS',
   autoCreateUnits: 'AUTO_CREATE_UNITS',
+  ensureLowStockOnMealieList: 'ENSURE_LOW_STOCK_ON_MEALIE_LIST',
   stockOnlyMinStock: 'STOCK_ONLY_MIN_STOCK',
 };
 
@@ -43,6 +46,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   mealieShoppingListId: null,
   autoCreateProducts: false,
   autoCreateUnits: false,
+  ensureLowStockOnMealieList: false,
   stockOnlyMinStock: false,
 };
 
@@ -63,6 +67,7 @@ export async function getSettings(): Promise<AppSettings> {
     mealieShoppingListId: (data.mealieShoppingListId as string) || null,
     autoCreateProducts: (data.autoCreateProducts as boolean) ?? false,
     autoCreateUnits: (data.autoCreateUnits as boolean) ?? false,
+    ensureLowStockOnMealieList: (data.ensureLowStockOnMealieList as boolean) ?? false,
     stockOnlyMinStock: (data.stockOnlyMinStock as boolean) ?? false,
   };
 }
@@ -88,6 +93,11 @@ export function getSettingsLocks(): SettingsLocks {
       locked: config.envOverrides.autoCreateUnits,
       envVar: SETTING_ENV_VARS.autoCreateUnits,
       envValue: config.envRaw.autoCreateUnits,
+    },
+    ensureLowStockOnMealieList: {
+      locked: config.envOverrides.ensureLowStockOnMealieList,
+      envVar: SETTING_ENV_VARS.ensureLowStockOnMealieList,
+      envValue: config.envRaw.ensureLowStockOnMealieList,
     },
     stockOnlyMinStock: {
       locked: config.envOverrides.stockOnlyMinStock,
@@ -180,6 +190,15 @@ export async function resolveAutoCreateUnits(): Promise<boolean> {
 
   const settings = await getSettings();
   return settings.autoCreateUnits;
+}
+
+export async function resolveEnsureLowStockOnMealieList(): Promise<boolean> {
+  if (config.envOverrides.ensureLowStockOnMealieList) {
+    return config.ensureLowStockOnMealieList;
+  }
+
+  const settings = await getSettings();
+  return settings.ensureLowStockOnMealieList;
 }
 
 export async function resolveStockOnlyMinStock(): Promise<boolean> {

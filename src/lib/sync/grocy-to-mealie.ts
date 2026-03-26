@@ -5,12 +5,23 @@ import type { GrocyMissingProduct } from '../grocy/types';
 import { HouseholdsShoppingListItemsService } from '../mealie';
 import type { MealieShoppingItem } from '../mealie/types';
 import { log } from '../logger';
-import { resolveShoppingListId } from '../settings';
+import { resolveEnsureLowStockOnMealieList, resolveShoppingListId } from '../settings';
 import { getSyncState, saveSyncState } from './state';
 import { fetchAllMealieShoppingItems } from './helpers';
 import { eq } from 'drizzle-orm';
 
-export async function pollGrocyForMissingStock(): Promise<void> {
+interface PollGrocyForMissingStockOptions {
+  ensureAllPresent?: boolean;
+}
+
+interface AdjustMealieShoppingItemOptions {
+  createQuantityWhenMissing?: number;
+  grocyProductName?: string;
+}
+
+export async function pollGrocyForMissingStock(
+  options: PollGrocyForMissingStockOptions = {},
+): Promise<void> {
   log.info('[Grocy→Mealie] Polling for missing stock...');
 
   const shoppingListId = await resolveShoppingListId();
@@ -20,6 +31,7 @@ export async function pollGrocyForMissingStock(): Promise<void> {
   }
 
   try {
+    const ensureAllPresent = options.ensureAllPresent ?? await resolveEnsureLowStockOnMealieList();
     const volatile = await getVolatileStock();
     const missingProducts: GrocyMissingProduct[] = volatile.missing_products || [];
 
@@ -38,7 +50,9 @@ export async function pollGrocyForMissingStock(): Promise<void> {
     const newlyMissing = missingProducts.filter(mp => !(mp.id in previousAmounts));
     let newlyAdded = 0;
     for (const mp of newlyMissing) {
-      if (await adjustMealieShoppingItem(mp.id, mp.amount_missing, shoppingListId, mealieShoppingItems)) newlyAdded++;
+      if (await adjustMealieShoppingItem(mp.id, mp.amount_missing, shoppingListId, mealieShoppingItems, {
+        grocyProductName: mp.name,
+      })) newlyAdded++;
     }
 
     // 2. Still missing, amount changed → adjust by delta
@@ -48,7 +62,22 @@ export async function pollGrocyForMissingStock(): Promise<void> {
     let adjusted = 0;
     for (const mp of amountChanged) {
       const delta = mp.amount_missing - previousAmounts[mp.id];
-      if (await adjustMealieShoppingItem(mp.id, delta, shoppingListId, mealieShoppingItems)) adjusted++;
+      if (await adjustMealieShoppingItem(mp.id, delta, shoppingListId, mealieShoppingItems, {
+        createQuantityWhenMissing: ensureAllPresent ? mp.amount_missing : undefined,
+        grocyProductName: mp.name,
+      })) adjusted++;
+    }
+
+    // 2b. Still missing, amount unchanged → optionally recreate the item if
+    // it was manually removed from Mealie while the product is still below min.
+    const unchangedMissing = ensureAllPresent
+      ? missingProducts.filter(mp => mp.id in previousAmounts && previousAmounts[mp.id] === mp.amount_missing)
+      : [];
+    for (const mp of unchangedMissing) {
+      await adjustMealieShoppingItem(mp.id, 0, shoppingListId, mealieShoppingItems, {
+        createQuantityWhenMissing: mp.amount_missing,
+        grocyProductName: mp.name,
+      });
     }
 
     // 3. No longer missing → subtract Grocy's contribution
@@ -76,6 +105,9 @@ export async function pollGrocyForMissingStock(): Promise<void> {
     if (amountChanged.length > 0) {
       log.info(`[Grocy→Mealie] ${adjusted}/${amountChanged.length} product(s) quantity adjusted`);
     }
+    if (ensureAllPresent && unchangedMissing.length > 0) {
+      log.info(`[Grocy→Mealie] Presence check completed for ${unchangedMissing.length} still-missing product(s)`);
+    }
     if (noLongerMissing.length > 0) {
       const manuallyRestocked = noLongerMissing.length - skippedSyncRestocked;
       if (manuallyRestocked > 0) {
@@ -101,10 +133,15 @@ export async function pollGrocyForMissingStock(): Promise<void> {
   }
 }
 
+export async function ensureGrocyMissingStockOnMealie(): Promise<void> {
+  await pollGrocyForMissingStock({ ensureAllPresent: true });
+}
+
 /**
  * Adjust a Mealie shopping list item's quantity by a delta.
  * Positive delta: increase quantity (or create item).
  * Negative delta: decrease quantity (or remove item if result ≤ 0).
+ * Zero delta: only create the item when createQuantityWhenMissing is supplied.
  *
  * @param mealieShoppingItems Pre-fetched list of all current Mealie shopping items (avoids N+1 fetches).
  */
@@ -113,6 +150,7 @@ async function adjustMealieShoppingItem(
   delta: number,
   shoppingListId: string,
   mealieShoppingItems: MealieShoppingItem[],
+  options: AdjustMealieShoppingItemOptions = {},
 ): Promise<boolean> {
   const mappings = await db.select()
     .from(productMappings)
@@ -120,7 +158,8 @@ async function adjustMealieShoppingItem(
     .limit(1);
 
   if (mappings.length === 0) {
-    log.warn(`[Grocy→Mealie] No mapping found for Grocy product ID ${grocyProductId}, skipping`);
+    const productNameSuffix = options.grocyProductName ? ` ("${options.grocyProductName}")` : '';
+    log.warn(`[Grocy→Mealie] No mapping found for Grocy product ID ${grocyProductId}${productNameSuffix}, skipping`);
     return false;
   }
 
@@ -144,6 +183,10 @@ async function adjustMealieShoppingItem(
   );
 
   if (existingItem) {
+    if (delta === 0) {
+      return true;
+    }
+
     const currentQty = existingItem.quantity || 0;
     const newQty = currentQty + delta;
 
@@ -164,19 +207,21 @@ async function adjustMealieShoppingItem(
         }
       );
     }
-  } else if (delta > 0) {
+  } else {
+    const createQuantity = options.createQuantityWhenMissing ?? delta;
+    if (createQuantity <= 0) {
+      return true;
+    }
+
     // No existing item, create new one
-    log.info(`[Grocy→Mealie] Adding "${mapping.mealieFoodName}" to Mealie shopping list (qty: ${delta})`);
+    log.info(`[Grocy→Mealie] Adding "${mapping.mealieFoodName}" to Mealie shopping list (qty: ${createQuantity})`);
     await HouseholdsShoppingListItemsService.createOneApiHouseholdsShoppingItemsPost({
       shoppingListId: shoppingListId,
       foodId: mapping.mealieFoodId,
       unitId: unitId || undefined,
-      quantity: delta,
+      quantity: createQuantity,
       checked: false,
     });
-  } else {
-    // No existing item and delta ≤ 0, nothing to do
-    return true;
   }
   return true;
 }

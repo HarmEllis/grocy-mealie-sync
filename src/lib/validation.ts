@@ -47,6 +47,7 @@ export const settingsUpdateSchema = z.object({
   mealieShoppingListId: z.string().nullable().optional(),
   autoCreateProducts: z.boolean().optional(),
   autoCreateUnits: z.boolean().optional(),
+  ensureLowStockOnMealieList: z.boolean().optional(),
   stockOnlyMinStock: z.boolean().optional(),
 });
 

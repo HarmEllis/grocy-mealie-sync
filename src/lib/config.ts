@@ -75,6 +75,11 @@ export const config = {
   grocyDefaultUnitId: parseOptionalIntEnv(process.env.GROCY_DEFAULT_UNIT_ID, 'GROCY_DEFAULT_UNIT_ID'),
   autoCreateProducts: parseBooleanEnv(process.env.AUTO_CREATE_PRODUCTS, false, 'AUTO_CREATE_PRODUCTS'),
   autoCreateUnits: parseBooleanEnv(process.env.AUTO_CREATE_UNITS, false, 'AUTO_CREATE_UNITS'),
+  ensureLowStockOnMealieList: parseBooleanEnv(
+    process.env.ENSURE_LOW_STOCK_ON_MEALIE_LIST,
+    false,
+    'ENSURE_LOW_STOCK_ON_MEALIE_LIST',
+  ),
   stockOnlyMinStock: parseBooleanEnv(process.env.STOCK_ONLY_MIN_STOCK, false, 'STOCK_ONLY_MIN_STOCK'),
   databasePath: process.env.DATABASE_PATH || './data/sync.db',
   envOverrides: {
@@ -82,6 +87,7 @@ export const config = {
     grocyDefaultUnitId: hasConfiguredValue(process.env.GROCY_DEFAULT_UNIT_ID),
     autoCreateProducts: hasConfiguredValue(process.env.AUTO_CREATE_PRODUCTS),
     autoCreateUnits: hasConfiguredValue(process.env.AUTO_CREATE_UNITS),
+    ensureLowStockOnMealieList: hasConfiguredValue(process.env.ENSURE_LOW_STOCK_ON_MEALIE_LIST),
     stockOnlyMinStock: hasConfiguredValue(process.env.STOCK_ONLY_MIN_STOCK),
   },
   envRaw: {
@@ -89,6 +95,7 @@ export const config = {
     grocyDefaultUnitId: process.env.GROCY_DEFAULT_UNIT_ID?.trim() || null,
     autoCreateProducts: process.env.AUTO_CREATE_PRODUCTS?.trim() || null,
     autoCreateUnits: process.env.AUTO_CREATE_UNITS?.trim() || null,
+    ensureLowStockOnMealieList: process.env.ENSURE_LOW_STOCK_ON_MEALIE_LIST?.trim() || null,
     stockOnlyMinStock: process.env.STOCK_ONLY_MIN_STOCK?.trim() || null,
   },
 };

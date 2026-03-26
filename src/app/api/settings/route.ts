@@ -7,6 +7,7 @@ import {
   resolveAutoCreateProducts,
   resolveAutoCreateUnits,
   resolveDefaultUnitMappingId,
+  resolveEnsureLowStockOnMealieList,
   resolveShoppingListId,
   resolveStockOnlyMinStock,
   saveSettings,
@@ -30,6 +31,7 @@ export async function GET() {
   );
   const autoCreateProducts = await resolveAutoCreateProducts();
   const autoCreateUnits = await resolveAutoCreateUnits();
+  const ensureLowStockOnMealieList = await resolveEnsureLowStockOnMealieList();
   const stockOnlyMinStock = await resolveStockOnlyMinStock();
 
   let availableShoppingLists: { id: string; name: string }[] = [];
@@ -50,6 +52,7 @@ export async function GET() {
     mealieShoppingListId: effectiveShoppingListId,
     autoCreateProducts,
     autoCreateUnits,
+    ensureLowStockOnMealieList,
     stockOnlyMinStock,
     locks,
     availableUnits: units.map(u => ({
@@ -110,6 +113,10 @@ export async function PUT(request: Request) {
 
   if (data.autoCreateUnits !== undefined) {
     settings.autoCreateUnits = data.autoCreateUnits;
+  }
+
+  if (data.ensureLowStockOnMealieList !== undefined) {
+    settings.ensureLowStockOnMealieList = data.ensureLowStockOnMealieList;
   }
 
   if (data.stockOnlyMinStock !== undefined) {

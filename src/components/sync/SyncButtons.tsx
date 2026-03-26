@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 const syncActions = [
   { label: 'Sync Products & Units', endpoint: '/api/sync/products', icon: RefreshCw },
   { label: 'Grocy \u2192 Mealie', endpoint: '/api/sync/grocy-to-mealie', icon: ArrowRight },
+  { label: 'Ensure Low-Stock in Mealie', endpoint: '/api/sync/grocy-to-mealie/ensure', icon: RefreshCw },
   { label: 'Mealie \u2192 Grocy', endpoint: '/api/sync/mealie-to-grocy', icon: ArrowLeftRight },
 ] as const;
 
