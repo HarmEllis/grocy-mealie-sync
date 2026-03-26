@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.1.0] - 2026-03-26
+
+This release adds a manual “ensure low-stock” sync path and makes the docs screenshot workflow reproducible by generating the screenshot from a locally built production app.
+
+### Added
+
+- A new `POST /api/sync/grocy-to-mealie/ensure` endpoint and matching UI action to ensure current below-minimum Grocy products exist on the configured Mealie shopping list.
+- A Playwright-based docs screenshot workflow, including the generated dashboard image and setup notes for local and remote Linux development environments.
+
+### Changed
+
+- The docs screenshot script now runs `next build` and starts the app locally in production mode before capturing the image, avoiding development-only UI artifacts in the exported screenshot.
+- The README now documents the production-backed screenshot flow instead of a `next dev` capture path.
+
 ## [1.0.0] - 2026-03-25
 
 This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the project is materially stronger in configuration handling, mapping workflow stability, and sync correctness.
@@ -32,5 +46,6 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.1.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v0.0.1...v1.0.0
 [0.0.1]: https://github.com/HarmEllis/grocy-mealie-sync/tree/v0.0.1
