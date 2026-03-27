@@ -33,3 +33,9 @@ export const syncState = sqliteTable('sync_state', {
   id: text('id').primaryKey(),
   stateData: text('state_data').notNull(), // JSON blob for lastGrocyPoll, lastMealiePoll, etc.
 });
+
+export const runtimeLocks = sqliteTable('runtime_locks', {
+  name: text('name').primaryKey(),
+  ownerId: text('owner_id').notNull(),
+  expiresAt: integer('expires_at', { mode: 'number' }).notNull(),
+});

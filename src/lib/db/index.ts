@@ -32,5 +32,5 @@ if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
 }
 
-const sqlite = new Database(dbPath);
+export const sqlite = new Database(dbPath);
 export const db = drizzle(sqlite, { schema });

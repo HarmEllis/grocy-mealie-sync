@@ -29,6 +29,13 @@
       "when": 1774619746876,
       "tag": "0003_yellow_human_robot",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1774624399363,
+      "tag": "0004_jazzy_patriot",
+      "breakpoints": true
     }
   ]
 }

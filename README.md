@@ -95,6 +95,10 @@ The app runs on `http://localhost:3000`.
 
 When auth is enabled, open `http://localhost:3000/login` and sign in with `AUTH_SECRET`.
 
+Deployment note:
+
+- Run a single scheduler instance by default. The app now uses a SQLite-backed lease lock to prevent overlapping sync runs if a second instance is started accidentally, but it is still designed as a single-instance service.
+
 **Development with a VS Code devcontainer:**
 
 A ready-to-use devcontainer is included at [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json). It provides Node.js 24, forwards port `3000`, forwards the bundled Mealie and Grocy services on `9000` and `9001`, and includes Docker CLI access so you can use the local development services from `compose-dev.yml`.
