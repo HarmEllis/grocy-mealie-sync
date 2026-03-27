@@ -26,6 +26,7 @@ vi.mock('../../db', () => ({
 
 vi.mock('../../grocy/types', () => ({
   getVolatileStock: vi.fn(),
+  getGrocyEntities: vi.fn(),
 }));
 
 vi.mock('../../mealie', () => ({
@@ -78,7 +79,7 @@ vi.mock('../../logger', () => ({
 // ---------------------------------------------------------------------------
 
 import { pollGrocyForMissingStock } from '../grocy-to-mealie';
-import { getVolatileStock } from '../../grocy/types';
+import { getGrocyEntities, getVolatileStock } from '../../grocy/types';
 import { HouseholdsShoppingListItemsService } from '../../mealie';
 import { resolveEnsureLowStockOnMealieList, resolveShoppingListId } from '../../settings';
 import { getSyncState, saveSyncState } from '../state';
@@ -86,6 +87,7 @@ import { fetchAllMealieShoppingItems } from '../helpers';
 import { log } from '../../logger';
 
 // Type-safe mock accessors
+const mockedGetGrocyEntities = vi.mocked(getGrocyEntities);
 const mockedGetVolatileStock = vi.mocked(getVolatileStock);
 const mockedResolveShoppingListId = vi.mocked(resolveShoppingListId);
 const mockedResolveEnsureLowStockOnMealieList = vi.mocked(resolveEnsureLowStockOnMealieList);
@@ -145,6 +147,9 @@ describe('pollGrocyForMissingStock', () => {
     mockedSaveSyncState.mockResolvedValue(undefined);
     mockedFetchItems.mockResolvedValue([]);
     mockedGetVolatileStock.mockResolvedValue({ missing_products: [] });
+    mockedGetGrocyEntities.mockResolvedValue([
+      { id: 101, name: 'Milk', qu_id_purchase: 10 },
+    ] as any);
 
     // Default DB: mapping exists, no unit mapping
     setupDbMock([DEFAULT_MAPPING], []);
@@ -642,9 +647,8 @@ describe('pollGrocyForMissingStock', () => {
       expect(mockedDelete).not.toHaveBeenCalled();
     });
 
-    it('resolves unitId from unitMappings when mapping has unitMappingId', async () => {
-      const mappingWithUnit = mockProductMapping({ unitMappingId: 'unit-mapping-1' });
-      setupDbMock([mappingWithUnit], [DEFAULT_UNIT_MAPPING]);
+    it('resolves unitId from the current Grocy purchase unit mapping', async () => {
+      setupDbMock([DEFAULT_MAPPING], [DEFAULT_UNIT_MAPPING]);
 
       mockedGetVolatileStock.mockResolvedValue({
         missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })],
@@ -658,6 +662,70 @@ describe('pollGrocyForMissingStock', () => {
         shoppingListId: SHOPPING_LIST_ID,
         foodId: 'food-1',
         unitId: 'mealie-unit-1',
+        quantity: 2,
+        checked: false,
+      });
+    });
+
+    it('falls back to the stored product mapping unit when Grocy product lookup has no purchase unit', async () => {
+      const mappingWithUnit = mockProductMapping({ unitMappingId: 'unit-mapping-1' });
+      setupDbMock([mappingWithUnit], [DEFAULT_UNIT_MAPPING]);
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Milk', qu_id_purchase: null },
+      ] as any);
+
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })],
+      });
+      mockedFetchItems.mockResolvedValue([]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedCreate).toHaveBeenCalledOnce();
+      expect(mockedCreate).toHaveBeenCalledWith({
+        shoppingListId: SHOPPING_LIST_ID,
+        foodId: 'food-1',
+        unitId: 'mealie-unit-1',
+        quantity: 2,
+        checked: false,
+      });
+    });
+
+    it('prefers the current Grocy purchase unit over a stale product mapping unit', async () => {
+      const staleUnitMapping = mockUnitMapping({
+        id: 'unit-mapping-stale',
+        mealieUnitId: 'mealie-unit-stale',
+        mealieUnitName: 'Cup',
+        mealieUnitAbbreviation: 'cup',
+        grocyUnitId: 11,
+        grocyUnitName: 'Cup',
+      });
+      const currentUnitMapping = mockUnitMapping({
+        id: 'unit-mapping-current',
+        mealieUnitId: 'mealie-unit-current',
+        mealieUnitName: 'Bottle',
+        mealieUnitAbbreviation: 'btl',
+        grocyUnitId: 20,
+        grocyUnitName: 'Bottle',
+      });
+      const staleMapping = mockProductMapping({ unitMappingId: 'unit-mapping-stale' });
+      setupDbMock([staleMapping], [currentUnitMapping, staleUnitMapping]);
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Milk', qu_id_purchase: 20 },
+      ] as any);
+
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })],
+      });
+      mockedFetchItems.mockResolvedValue([]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedCreate).toHaveBeenCalledOnce();
+      expect(mockedCreate).toHaveBeenCalledWith({
+        shoppingListId: SHOPPING_LIST_ID,
+        foodId: 'food-1',
+        unitId: 'mealie-unit-current',
         quantity: 2,
         checked: false,
       });

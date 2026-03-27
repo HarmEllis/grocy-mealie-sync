@@ -176,6 +176,7 @@ Manual triggers are useful for testing. The scheduler runs these automatically.
 ### Grocy → Mealie (stock below minimum)
 - Polls Grocy's volatile stock endpoint for `missing_products`
 - Newly missing products are added to the configured Mealie shopping list
+- The Mealie shopping-list unit is derived from the current Grocy purchase unit (`qu_id_purchase`) through the stored unit mapping
 - If the item already exists (unchecked) on the list, the quantity is updated instead of creating a duplicate
 - When `ENSURE_LOW_STOCK_ON_MEALIE_LIST` is enabled, each poll also checks that every mapped below-min product still has an unchecked Mealie list item and recreates it if needed
 - The manual `POST /api/sync/grocy-to-mealie/ensure` endpoint runs that full presence check immediately, even if the setting is disabled

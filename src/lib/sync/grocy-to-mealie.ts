@@ -1,7 +1,7 @@
 import { db } from '../db';
 import { productMappings, unitMappings } from '../db/schema';
-import { getVolatileStock } from '../grocy/types';
-import type { GrocyMissingProduct } from '../grocy/types';
+import { getGrocyEntities, getVolatileStock } from '../grocy/types';
+import type { GrocyMissingProduct, Product } from '../grocy/types';
 import { HouseholdsShoppingListItemsService } from '../mealie';
 import type { MealieShoppingItem } from '../mealie/types';
 import { log } from '../logger';
@@ -90,14 +90,31 @@ export async function pollGrocyForMissingStock(
 
     // Fetch all Mealie shopping list items once, to be reused across all adjustments
     const mealieShoppingItems = await fetchAllMealieShoppingItems(shoppingListId);
+    let grocyProductsById = new Map<number, Product>();
+    try {
+      const grocyProducts = await getGrocyEntities('products');
+      grocyProductsById = new Map(grocyProducts.map(product => [Number(product.id), product]));
+    } catch (error) {
+      log.warn(
+        '[Grocy→Mealie] Could not fetch Grocy products for purchase-unit resolution; falling back to stored unit mappings:',
+        error,
+      );
+    }
 
     // 1. Newly missing → add to Mealie
     const newlyMissing = missingProducts.filter(mp => !(mp.id in previousAmounts));
     let newlyAdded = 0;
     for (const mp of newlyMissing) {
-      const result = await adjustMealieShoppingItem(mp.id, mp.amount_missing, shoppingListId, mealieShoppingItems, {
-        grocyProductName: mp.name,
-      });
+      const result = await adjustMealieShoppingItem(
+        mp.id,
+        mp.amount_missing,
+        shoppingListId,
+        mealieShoppingItems,
+        grocyProductsById,
+        {
+          grocyProductName: mp.name,
+        },
+      );
       recordMissingStockResult(summary, result);
       if (result === 'ensured') newlyAdded++;
     }
@@ -109,10 +126,17 @@ export async function pollGrocyForMissingStock(
     let adjusted = 0;
     for (const mp of amountChanged) {
       const delta = mp.amount_missing - previousAmounts[mp.id];
-      const result = await adjustMealieShoppingItem(mp.id, delta, shoppingListId, mealieShoppingItems, {
-        createQuantityWhenMissing: ensureAllPresent ? mp.amount_missing : undefined,
-        grocyProductName: mp.name,
-      });
+      const result = await adjustMealieShoppingItem(
+        mp.id,
+        delta,
+        shoppingListId,
+        mealieShoppingItems,
+        grocyProductsById,
+        {
+          createQuantityWhenMissing: ensureAllPresent ? mp.amount_missing : undefined,
+          grocyProductName: mp.name,
+        },
+      );
       recordMissingStockResult(summary, result);
       if (result === 'ensured') adjusted++;
     }
@@ -124,11 +148,18 @@ export async function pollGrocyForMissingStock(
       : [];
     let unmappedPresenceCheckProducts = 0;
     for (const mp of unchangedMissing) {
-      const result = await adjustMealieShoppingItem(mp.id, 0, shoppingListId, mealieShoppingItems, {
-        createQuantityWhenMissing: mp.amount_missing,
-        grocyProductName: mp.name,
-        logWhenMappingMissing: logUnmappedPresenceCheckProducts,
-      });
+      const result = await adjustMealieShoppingItem(
+        mp.id,
+        0,
+        shoppingListId,
+        mealieShoppingItems,
+        grocyProductsById,
+        {
+          createQuantityWhenMissing: mp.amount_missing,
+          grocyProductName: mp.name,
+          logWhenMappingMissing: logUnmappedPresenceCheckProducts,
+        },
+      );
       recordMissingStockResult(summary, result);
       if (result === 'unmapped') {
         unmappedPresenceCheckProducts++;
@@ -156,6 +187,7 @@ export async function pollGrocyForMissingStock(
         -previousAmounts[grocyProductId],
         shoppingListId,
         mealieShoppingItems,
+        grocyProductsById,
       );
       if (result === 'ensured') restocked++;
     }
@@ -232,6 +264,7 @@ async function adjustMealieShoppingItem(
   delta: number,
   shoppingListId: string,
   mealieShoppingItems: MealieShoppingItem[],
+  grocyProductsById: Map<number, Product>,
   options: AdjustMealieShoppingItemOptions = {},
 ): Promise<AdjustMealieShoppingItemResult> {
   const mappings = await db.select()
@@ -249,17 +282,7 @@ async function adjustMealieShoppingItem(
 
   const mapping = mappings[0];
 
-  // Resolve Mealie unit from mapping
-  let unitId: string | undefined;
-  if (mapping.unitMappingId) {
-    const units = await db.select()
-      .from(unitMappings)
-      .where(eq(unitMappings.id, mapping.unitMappingId))
-      .limit(1);
-    if (units.length > 0) {
-      unitId = units[0].mealieUnitId;
-    }
-  }
+  const unitId = await resolveMappedMealieUnitId(mapping.grocyProductId, mapping.unitMappingId, grocyProductsById);
 
   // Find existing unchecked item on the list using pre-fetched items
   const existingItem = mealieShoppingItems.find(item =>
@@ -308,6 +331,35 @@ async function adjustMealieShoppingItem(
     });
   }
   return 'ensured';
+}
+
+async function resolveMappedMealieUnitId(
+  grocyProductId: number,
+  fallbackUnitMappingId: string | null,
+  grocyProductsById: Map<number, Product>,
+): Promise<string | undefined> {
+  const grocyPurchaseUnitId = Number(grocyProductsById.get(grocyProductId)?.qu_id_purchase ?? 0);
+  if (grocyPurchaseUnitId > 0) {
+    const units = await db.select()
+      .from(unitMappings)
+      .where(eq(unitMappings.grocyUnitId, grocyPurchaseUnitId))
+      .limit(1);
+    if (units.length > 0) {
+      return units[0].mealieUnitId || undefined;
+    }
+  }
+
+  if (fallbackUnitMappingId) {
+    const units = await db.select()
+      .from(unitMappings)
+      .where(eq(unitMappings.id, fallbackUnitMappingId))
+      .limit(1);
+    if (units.length > 0) {
+      return units[0].mealieUnitId || undefined;
+    }
+  }
+
+  return undefined;
 }
 
 async function resolveGrocyProductName(grocyProductId: number): Promise<string> {
