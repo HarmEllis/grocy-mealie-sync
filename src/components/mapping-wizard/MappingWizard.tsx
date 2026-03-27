@@ -33,6 +33,7 @@ import {
   buildGrocyMinStockProductMaps,
   buildProductMaps,
   buildUnitMaps,
+  getPendingUnitMappings,
   mergeCheckedState,
   mergeGrocyMinStockProductMaps,
   mergeProductMaps,
@@ -89,6 +90,7 @@ export function MappingWizard() {
   const [grocyMinStockProductSearch, setGrocyMinStockProductSearch] = useState('');
   const [mappedProductSearch, setMappedProductSearch] = useState('');
   const [unitSearch, setUnitSearch] = useState('');
+  const [unitFilter, setUnitFilter] = useState<'unmapped' | 'mapped' | 'all'>('unmapped');
   const [showOnlyGrocyMinStockBelowMinimum, setShowOnlyGrocyMinStockBelowMinimum] = useState(false);
   const [showOnlyMappedProductsBelowMinimum, setShowOnlyMappedProductsBelowMinimum] = useState(false);
 
@@ -724,9 +726,9 @@ export function MappingWizard() {
   }
 
   async function syncUnits() {
-    const filled = Object.values(unitMaps).filter(mapping => mapping.grocyUnitId !== null);
+    const filled = unitsData ? getPendingUnitMappings(unitsData, unitMaps) : [];
     if (filled.length === 0) {
-      toast.info('No units mapped');
+      toast.info('No unit changes to sync');
       return;
     }
 
@@ -842,6 +844,32 @@ export function MappingWizard() {
     }
   }
 
+  async function unmapUnit(mappingId: string, mealieUnitId: string, mealieUnitName: string) {
+    await runAction('unmapUnit', async () => {
+      setUnitMaps(prev => ({
+        ...prev,
+        [mealieUnitId]: {
+          mealieUnitId,
+          grocyUnitId: null,
+        },
+      }));
+
+      const res = await fetch('/api/mapping-wizard/units/unmap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: mappingId }),
+      });
+      const result = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(result?.error || 'Failed to unmap unit');
+      }
+
+      await fetchTabData('units', { preserveWizardState: true, showLoading: false });
+      markOtherLoadedTabsDirty('units');
+      toast.success(`Unmapped "${mealieUnitName}"`);
+    });
+  }
+
   const currentTabLoading = tabLoading[tab];
   const currentTabError = tabErrors[tab];
   const currentTabData = tab === 'units'
@@ -907,11 +935,20 @@ export function MappingWizard() {
             setCreateUnitChecked={setCreateUnitChecked}
             unitSearch={unitSearch}
             setUnitSearch={setUnitSearch}
+            unitFilter={unitFilter}
+            setUnitFilter={setUnitFilter}
             grocyUnitOptions={unitGrocyUnitOptions}
             actionRunning={actionRunning}
             onAcceptAllSuggestions={acceptAllUnitSuggestions}
             onAcceptSuggestion={acceptUnitSuggestion}
             onNormalizeUnits={normalizeUnits}
+            onUnmapUnit={(mappingId, mealieUnitId, mealieUnitName) => openConfirm(
+              `unmapUnit_${mappingId}`,
+              `Unmap "${mealieUnitName}"?`,
+              () => { void unmapUnit(mappingId, mealieUnitId, mealieUnitName); },
+              [mealieUnitName],
+              'This removes the saved unit mapping immediately. You can remap it again in the wizard afterwards.',
+            )}
           />
         );
       case 'products':
@@ -1013,7 +1050,7 @@ export function MappingWizard() {
             <WizardFooter
               tab={tab}
               actionRunning={actionRunning}
-              unitMappedCount={Object.values(unitMaps).filter(mapping => mapping.grocyUnitId !== null).length}
+              unitMappedCount={unitsData ? getPendingUnitMappings(unitsData, unitMaps).length : 0}
               checkedUnitCount={unmappedUnitIds.filter(id => createUnitChecked[id]).length}
               orphanUnitCount={unitsData?.orphanGrocyUnitCount ?? 0}
               productMappedCount={Object.values(productMaps).filter(mapping => mapping.grocyProductId !== null).length}

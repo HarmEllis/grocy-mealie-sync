@@ -98,6 +98,7 @@ async function fetchExistingUnitMappings(): Promise<UnitMappingRow[]> {
   return db.select({
     id: unitMappings.id,
     mealieUnitId: unitMappings.mealieUnitId,
+    mealieUnitAbbreviation: unitMappings.mealieUnitAbbreviation,
     grocyUnitId: unitMappings.grocyUnitId,
     grocyUnitName: unitMappings.grocyUnitName,
     mealieUnitName: unitMappings.mealieUnitName,
@@ -259,8 +260,10 @@ async function loadUnitsTabData(): Promise<UnitsTabData> {
   const unmappedMealieUnits = buildUnmappedMealieUnits(mealieUnits, existingUnitMappings);
 
   return {
+    mealieUnits,
     unmappedMealieUnits,
     grocyUnits,
+    existingUnitMappings,
     unitSuggestions: buildUnitSuggestions(unmappedMealieUnits, grocyUnits, existingUnitMappings),
     orphanGrocyUnitCount: countOrphanGrocyUnits(mealieUnits, grocyUnits, existingUnitMappings),
   };
@@ -346,6 +349,7 @@ async function loadFullWizardData(): Promise<WizardData> {
 
   return {
     unmappedMealieFoods,
+    mealieUnits,
     unmappedMealieUnits,
     unmappedGrocyMinStockProducts,
     grocyProducts,

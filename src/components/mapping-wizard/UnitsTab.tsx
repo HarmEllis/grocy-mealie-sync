@@ -12,6 +12,8 @@ import { ScoreBadge } from '@/components/shared/ScoreBadge';
 import type { UnitsTabData, UnitMapping, SelectOption } from './types';
 import { sortByName } from './types';
 
+type UnitFilter = 'unmapped' | 'mapped' | 'all';
+
 interface UnitsTabProps {
   data: UnitsTabData;
   unitMaps: Record<string, UnitMapping>;
@@ -20,11 +22,14 @@ interface UnitsTabProps {
   setCreateUnitChecked: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   unitSearch: string;
   setUnitSearch: (value: string) => void;
+  unitFilter: UnitFilter;
+  setUnitFilter: (value: UnitFilter) => void;
   grocyUnitOptions: SelectOption[];
   actionRunning: string | null;
   onAcceptAllSuggestions: () => void;
   onAcceptSuggestion: (id: string) => void;
   onNormalizeUnits: () => void;
+  onUnmapUnit: (mappingId: string, mealieUnitId: string, mealieUnitName: string) => void;
 }
 
 export function UnitsTab({
@@ -35,20 +40,53 @@ export function UnitsTab({
   setCreateUnitChecked,
   unitSearch,
   setUnitSearch,
+  unitFilter,
+  setUnitFilter,
   grocyUnitOptions,
   actionRunning,
   onAcceptAllSuggestions,
   onAcceptSuggestion,
   onNormalizeUnits,
+  onUnmapUnit,
 }: UnitsTabProps) {
   const isRunning = !!actionRunning;
+  const existingUnitMappingsByMealieUnitId = useMemo(
+    () => new Map(data.existingUnitMappings.map(mapping => [mapping.mealieUnitId, mapping])),
+    [data.existingUnitMappings],
+  );
+  const grocyUnitLabelById = useMemo(
+    () => new Map(grocyUnitOptions.map(option => [option.value, option.label])),
+    [grocyUnitOptions],
+  );
 
   const filteredUnits = useMemo(() => {
-    const sorted = sortByName(data.unmappedMealieUnits);
-    if (!unitSearch) return sorted;
-    const q = unitSearch.toLowerCase();
-    return sorted.filter(u => u.name.toLowerCase().includes(q) || u.abbreviation.toLowerCase().includes(q));
-  }, [data, unitSearch]);
+    const sorted = sortByName(data.mealieUnits);
+    const q = unitSearch.trim().toLowerCase();
+
+    return sorted.filter(unit => {
+      const persistedMapping = existingUnitMappingsByMealieUnitId.get(unit.id);
+
+      if (unitFilter === 'mapped' && !persistedMapping) {
+        return false;
+      }
+
+      if (unitFilter === 'unmapped' && persistedMapping) {
+        return false;
+      }
+
+      if (!q) {
+        return true;
+      }
+
+      const selectedGrocyUnitName = unitMaps[unit.id]?.grocyUnitId !== null
+        ? grocyUnitLabelById.get(unitMaps[unit.id].grocyUnitId ?? -1) ?? ''
+        : '';
+
+      return unit.name.toLowerCase().includes(q)
+        || unit.abbreviation.toLowerCase().includes(q)
+        || selectedGrocyUnitName.toLowerCase().includes(q);
+    });
+  }, [data.mealieUnits, existingUnitMappingsByMealieUnitId, grocyUnitLabelById, unitFilter, unitMaps, unitSearch]);
 
   const unmappedUnitIds = useMemo(() =>
     Object.entries(unitMaps).filter(([, m]) => m.grocyUnitId === null).map(([id]) => id),
@@ -64,19 +102,17 @@ export function UnitsTab({
   const checkedUnitCount = unmappedUnitIds.filter(id => createUnitChecked[id]).length;
   const unitMappedCount = Object.values(unitMaps).filter(m => m.grocyUnitId !== null).length;
 
-  if (data.unmappedMealieUnits.length === 0) {
-    return (
-      <Alert className="border-success/30 bg-success/10">
-        <CheckCircle2 className="size-4 text-success" />
-        <AlertDescription className="text-success">
-          All Mealie units are mapped. You can continue to the Products tab.
-        </AlertDescription>
-      </Alert>
-    );
-  }
-
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col space-y-3">
+      {data.unmappedMealieUnits.length === 0 && (
+        <Alert className="border-success/30 bg-success/10">
+          <CheckCircle2 className="size-4 text-success" />
+          <AlertDescription className="text-success">
+            All Mealie units are mapped. Switch the filter to review or update existing mappings.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Actions bar */}
       <div className="flex flex-wrap items-center gap-2">
         {Object.keys(data.unitSuggestions).length > 0 && (
@@ -87,6 +123,15 @@ export function UnitsTab({
         <Button variant="outline" size="sm" onClick={onNormalizeUnits} disabled={isRunning}>
           Normalize (lowercase)
         </Button>
+        <select
+          value={unitFilter}
+          onChange={event => setUnitFilter(event.target.value as UnitFilter)}
+          className="h-8 rounded-md border border-input bg-background px-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+        >
+          <option value="unmapped">Unmapped</option>
+          <option value="mapped">Mapped</option>
+          <option value="all">All</option>
+        </select>
         <Input
           placeholder="Filter Mealie units..."
           value={unitSearch}
@@ -116,13 +161,29 @@ export function UnitsTab({
               <TableHead>Abbr.</TableHead>
               <TableHead className="w-[40%]">Grocy Unit</TableHead>
               <TableHead className="w-[70px]">Match</TableHead>
+              <TableHead className="w-[110px]">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
+            {filteredUnits.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} className="py-6 text-center text-sm text-muted-foreground">
+                  No units match the current filters.
+                </TableCell>
+              </TableRow>
+            )}
             {filteredUnits.map(unit => {
               const mapping = unitMaps[unit.id];
               const suggestion = data.unitSuggestions[unit.id];
               const isAccepted = mapping?.grocyUnitId !== null;
+              const persistedMapping = existingUnitMappingsByMealieUnitId.get(unit.id);
+              const rowOptions = grocyUnitOptions.filter(option =>
+                option.value === mapping?.grocyUnitId
+                || !Object.values(unitMaps).some(other =>
+                  other.mealieUnitId !== unit.id && other.grocyUnitId === option.value,
+                ),
+              );
+
               return (
                 <TableRow key={unit.id} className={isAccepted ? 'bg-success/5' : undefined}>
                   <TableCell className="text-center">
@@ -137,7 +198,7 @@ export function UnitsTab({
                   <TableCell className="text-muted-foreground">{unit.abbreviation || '-'}</TableCell>
                   <TableCell>
                     <SearchableSelect
-                      options={grocyUnitOptions}
+                      options={rowOptions}
                       value={mapping?.grocyUnitId ?? null}
                       onChange={val => {
                         setUnitMaps(prev => ({ ...prev, [unit.id]: { ...prev[unit.id], grocyUnitId: val } }));
@@ -147,6 +208,7 @@ export function UnitsTab({
                       }}
                       placeholder="Select Grocy unit..."
                       className="max-w-[280px]"
+                      clearable={!persistedMapping}
                     />
                   </TableCell>
                   <TableCell>
@@ -160,6 +222,19 @@ export function UnitsTab({
                       </button>
                     ) : suggestion ? (
                       <ScoreBadge score={suggestion.score} />
+                    ) : null}
+                  </TableCell>
+                  <TableCell>
+                    {persistedMapping ? (
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        disabled={isRunning}
+                        onClick={() => onUnmapUnit(persistedMapping.id, unit.id, unit.name)}
+                      >
+                        Unmap
+                      </Button>
                     ) : null}
                   </TableCell>
                 </TableRow>

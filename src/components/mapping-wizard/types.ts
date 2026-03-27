@@ -12,13 +12,21 @@ export interface GrocyMinStockProduct {
   currentStock: number;
   isBelowMinimum: boolean;
 }
-export interface UnitMappingRef { id: string; grocyUnitId: number; grocyUnitName: string; mealieUnitName: string }
+export interface UnitMappingRef {
+  id: string;
+  mealieUnitId: string;
+  mealieUnitName: string;
+  mealieUnitAbbreviation: string;
+  grocyUnitId: number;
+  grocyUnitName: string;
+}
 export interface ProductSuggestion { grocyProductId: number; grocyProductName: string; score: number; suggestedUnitId: number | null }
 export interface ReverseProductSuggestion { mealieFoodId: string; mealieFoodName: string; score: number }
 export interface UnitSuggestion { grocyUnitId: number; grocyUnitName: string; score: number }
 
 export interface WizardData {
   unmappedMealieFoods: MealieFood[];
+  mealieUnits: MealieUnit[];
   unmappedMealieUnits: MealieUnit[];
   unmappedGrocyMinStockProducts: GrocyMinStockProduct[];
   grocyProducts: GrocyProduct[];
@@ -33,7 +41,7 @@ export interface WizardData {
 
 export type UnitsTabData = Pick<
   WizardData,
-  'unmappedMealieUnits' | 'grocyUnits' | 'unitSuggestions' | 'orphanGrocyUnitCount'
+  'mealieUnits' | 'unmappedMealieUnits' | 'grocyUnits' | 'existingUnitMappings' | 'unitSuggestions' | 'orphanGrocyUnitCount'
 >;
 
 export type ProductsTabData = Pick<

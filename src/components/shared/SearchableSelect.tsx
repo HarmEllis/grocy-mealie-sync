@@ -16,6 +16,7 @@ interface SearchableSelectProps<T extends string | number> {
   onChange: (value: T | null) => void;
   placeholder?: string;
   className?: string;
+  clearable?: boolean;
 }
 
 interface DropdownPosition {
@@ -33,6 +34,7 @@ export function SearchableSelect<T extends string | number>({
   onChange,
   placeholder = 'Search...',
   className,
+  clearable = true,
 }: SearchableSelectProps<T>) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -255,7 +257,7 @@ export function SearchableSelect<T extends string | number>({
             {value !== null ? selectedLabel : placeholder}
           </span>
         )}
-        {value !== null && (
+        {clearable && value !== null && (
           <button
             type="button"
             onClick={handleClear}

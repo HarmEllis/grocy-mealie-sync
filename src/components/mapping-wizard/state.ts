@@ -38,12 +38,16 @@ export function buildProductMaps(
 }
 
 export function buildUnitMaps(
-  data: Pick<UnitsTabData, 'unmappedMealieUnits'>,
+  data: Pick<UnitsTabData, 'mealieUnits' | 'existingUnitMappings'>,
 ): Record<string, UnitMapping> {
+  const existingMappingsByMealieUnitId = new Map(
+    data.existingUnitMappings.map(mapping => [mapping.mealieUnitId, mapping.grocyUnitId]),
+  );
+
   return Object.fromEntries(
-    data.unmappedMealieUnits.map(unit => [
+    data.mealieUnits.map(unit => [
       unit.id,
-      { mealieUnitId: unit.id, grocyUnitId: null },
+      { mealieUnitId: unit.id, grocyUnitId: existingMappingsByMealieUnitId.get(unit.id) ?? null },
     ]),
   );
 }
@@ -88,13 +92,20 @@ export function mergeGrocyMinStockProductMaps(
 }
 
 export function mergeUnitMaps(
-  data: Pick<UnitsTabData, 'unmappedMealieUnits'>,
+  data: Pick<UnitsTabData, 'mealieUnits' | 'existingUnitMappings'>,
   previousMaps: Record<string, UnitMapping>,
 ): Record<string, UnitMapping> {
+  const existingMappingsByMealieUnitId = new Map(
+    data.existingUnitMappings.map(mapping => [mapping.mealieUnitId, mapping.grocyUnitId]),
+  );
+
   return Object.fromEntries(
-    data.unmappedMealieUnits.map(unit => [
+    data.mealieUnits.map(unit => [
       unit.id,
-      previousMaps[unit.id] ?? { mealieUnitId: unit.id, grocyUnitId: null },
+      previousMaps[unit.id] ?? {
+        mealieUnitId: unit.id,
+        grocyUnitId: existingMappingsByMealieUnitId.get(unit.id) ?? null,
+      },
     ]),
   );
 }
@@ -113,4 +124,21 @@ export function mergeCheckedState(
   }
 
   return nextChecked;
+}
+
+export function getPendingUnitMappings(
+  data: Pick<UnitsTabData, 'existingUnitMappings'>,
+  unitMaps: Record<string, UnitMapping>,
+): UnitMapping[] {
+  const existingMappingsByMealieUnitId = new Map(
+    data.existingUnitMappings.map(mapping => [mapping.mealieUnitId, mapping.grocyUnitId]),
+  );
+
+  return Object.values(unitMaps).filter(mapping => {
+    if (mapping.grocyUnitId === null) {
+      return false;
+    }
+
+    return existingMappingsByMealieUnitId.get(mapping.mealieUnitId) !== mapping.grocyUnitId;
+  });
 }

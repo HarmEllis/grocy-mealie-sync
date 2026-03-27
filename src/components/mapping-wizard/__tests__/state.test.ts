@@ -4,6 +4,7 @@ import {
   buildGrocyMinStockProductMaps,
   buildProductMaps,
   buildUnitMaps,
+  getPendingUnitMappings,
   getDefaultWizardTab,
   mergeCheckedState,
   mergeGrocyMinStockProductMaps,
@@ -16,6 +17,10 @@ function createWizardData(overrides: Partial<WizardData> = {}): WizardData {
     unmappedMealieFoods: [
       { id: 'food-1', name: 'Milk' },
       { id: 'food-2', name: 'Bread' },
+    ],
+    mealieUnits: [
+      { id: 'unit-1', name: 'Piece', abbreviation: 'pc' },
+      { id: 'unit-2', name: 'Liter', abbreviation: 'l' },
     ],
     unmappedMealieUnits: [
       { id: 'unit-1', name: 'Piece', abbreviation: 'pc' },
@@ -69,9 +74,23 @@ describe('buildProductMaps', () => {
 });
 
 describe('buildUnitMaps', () => {
-  it('creates empty unit mappings for all unmapped units', () => {
-    expect(buildUnitMaps(createWizardData())).toEqual({
-      'unit-1': { mealieUnitId: 'unit-1', grocyUnitId: null },
+  it('creates unit mappings for all mealie units, including existing mapped units', () => {
+    expect(buildUnitMaps(createWizardData({
+      existingUnitMappings: [
+        {
+          id: 'map-1',
+          mealieUnitId: 'unit-1',
+          mealieUnitName: 'Piece',
+          mealieUnitAbbreviation: 'pc',
+          grocyUnitId: 10,
+          grocyUnitName: 'Piece',
+        },
+      ],
+      unmappedMealieUnits: [
+        { id: 'unit-2', name: 'Liter', abbreviation: 'l' },
+      ],
+    }))).toEqual({
+      'unit-1': { mealieUnitId: 'unit-1', grocyUnitId: 10 },
       'unit-2': { mealieUnitId: 'unit-2', grocyUnitId: null },
     });
   });
@@ -108,12 +127,26 @@ describe('mergeProductMaps', () => {
 });
 
 describe('mergeUnitMaps', () => {
-  it('preserves existing selections and adds new units with empty state', () => {
+  it('preserves existing selections, keeps existing mappings, and adds new units with empty state', () => {
     const merged = mergeUnitMaps(
       createWizardData({
-        unmappedMealieUnits: [
+        mealieUnits: [
+          { id: 'unit-1', name: 'Piece', abbreviation: 'pc' },
           { id: 'unit-2', name: 'Liter', abbreviation: 'l' },
           { id: 'unit-3', name: 'Gram', abbreviation: 'g' },
+        ],
+        unmappedMealieUnits: [
+          { id: 'unit-2', name: 'Liter', abbreviation: 'l' },
+        ],
+        existingUnitMappings: [
+          {
+            id: 'map-1',
+            mealieUnitId: 'unit-1',
+            mealieUnitName: 'Piece',
+            mealieUnitAbbreviation: 'pc',
+            grocyUnitId: 10,
+            grocyUnitName: 'Piece',
+          },
         ],
       }),
       {
@@ -123,6 +156,7 @@ describe('mergeUnitMaps', () => {
     );
 
     expect(merged).toEqual({
+      'unit-1': { mealieUnitId: 'unit-1', grocyUnitId: 10 },
       'unit-2': { mealieUnitId: 'unit-2', grocyUnitId: 11 },
       'unit-3': { mealieUnitId: 'unit-3', grocyUnitId: null },
     });
@@ -170,5 +204,44 @@ describe('mergeCheckedState', () => {
     })).toEqual({
       '1': true,
     });
+  });
+});
+
+describe('getPendingUnitMappings', () => {
+  it('returns only new or changed unit mappings, not unchanged persisted ones', () => {
+    const data = createWizardData({
+      mealieUnits: [
+        { id: 'unit-1', name: 'Piece', abbreviation: 'pc' },
+        { id: 'unit-2', name: 'Liter', abbreviation: 'l' },
+        { id: 'unit-3', name: 'Gram', abbreviation: 'g' },
+      ],
+      existingUnitMappings: [
+        {
+          id: 'map-1',
+          mealieUnitId: 'unit-1',
+          mealieUnitName: 'Piece',
+          mealieUnitAbbreviation: 'pc',
+          grocyUnitId: 10,
+          grocyUnitName: 'Piece',
+        },
+        {
+          id: 'map-2',
+          mealieUnitId: 'unit-2',
+          mealieUnitName: 'Liter',
+          mealieUnitAbbreviation: 'l',
+          grocyUnitId: 11,
+          grocyUnitName: 'Liter',
+        },
+      ],
+    });
+
+    expect(getPendingUnitMappings(data, {
+      'unit-1': { mealieUnitId: 'unit-1', grocyUnitId: 10 },
+      'unit-2': { mealieUnitId: 'unit-2', grocyUnitId: 12 },
+      'unit-3': { mealieUnitId: 'unit-3', grocyUnitId: 13 },
+    })).toEqual([
+      { mealieUnitId: 'unit-2', grocyUnitId: 12 },
+      { mealieUnitId: 'unit-3', grocyUnitId: 13 },
+    ]);
   });
 });

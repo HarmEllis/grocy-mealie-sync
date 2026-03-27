@@ -166,7 +166,14 @@ describe('mapping wizard data route', () => {
       { id: 11, name: 'Liter' },
     ];
     mockState.unitMappingsRows = [
-      { id: 'unit-map-1', mealieUnitId: 'unit-1', grocyUnitId: 10, grocyUnitName: 'Piece', mealieUnitName: 'Piece' },
+      {
+        id: 'unit-map-1',
+        mealieUnitId: 'unit-1',
+        mealieUnitAbbreviation: 'pc',
+        grocyUnitId: 10,
+        grocyUnitName: 'Piece',
+        mealieUnitName: 'Piece',
+      },
     ];
 
     const response = await GET(createRequest('http://localhost/api/mapping-wizard/data?tab=units'));
@@ -174,12 +181,26 @@ describe('mapping wizard data route', () => {
 
     expect(response.status).toBe(200);
     expect(body).toEqual({
+      mealieUnits: [
+        { id: 'unit-1', name: 'Piece', abbreviation: 'pc' },
+        { id: 'unit-2', name: 'Liter', abbreviation: 'l' },
+      ],
       unmappedMealieUnits: [
         { id: 'unit-2', name: 'Liter', abbreviation: 'l' },
       ],
       grocyUnits: [
         { id: 10, name: 'Piece' },
         { id: 11, name: 'Liter' },
+      ],
+      existingUnitMappings: [
+        {
+          id: 'unit-map-1',
+          mealieUnitId: 'unit-1',
+          mealieUnitAbbreviation: 'pc',
+          grocyUnitId: 10,
+          grocyUnitName: 'Piece',
+          mealieUnitName: 'Piece',
+        },
       ],
       unitSuggestions: {
         'unit-2': {
