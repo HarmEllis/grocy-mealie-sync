@@ -491,9 +491,17 @@ describe('pollGrocyForMissingStock', () => {
 
       const result = await pollGrocyForMissingStock({ ensureAllPresent: true });
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         status: 'partial',
         inPossessionStatus: 'skipped',
+        inPossessionSummary: {
+          processedProducts: 0,
+          updatedProducts: 0,
+          enabledProducts: 0,
+          disabledProducts: 0,
+          unchangedProducts: 0,
+          failedProducts: 0,
+        },
         summary: {
           processedProducts: 2,
           ensuredProducts: 1,
@@ -518,9 +526,17 @@ describe('pollGrocyForMissingStock', () => {
 
       const result = await pollGrocyForMissingStock();
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         status: 'partial',
         inPossessionStatus: 'skipped',
+        inPossessionSummary: {
+          processedProducts: 0,
+          updatedProducts: 0,
+          enabledProducts: 0,
+          disabledProducts: 0,
+          unchangedProducts: 0,
+          failedProducts: 0,
+        },
         summary: {
           processedProducts: 1,
           ensuredProducts: 0,
@@ -767,10 +783,18 @@ describe('pollGrocyForMissingStock', () => {
       expect(mockedGetSyncState).toHaveBeenCalledOnce();
       expect(mockedSyncMealieInPossessionFromGrocy).toHaveBeenCalledOnce();
       expect(mockedSaveSyncState).toHaveBeenCalledOnce();
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         status: 'skipped',
         reason: 'no-shopping-list',
         inPossessionStatus: 'skipped',
+        inPossessionSummary: {
+          processedProducts: 0,
+          updatedProducts: 0,
+          enabledProducts: 0,
+          disabledProducts: 0,
+          unchangedProducts: 0,
+          failedProducts: 0,
+        },
         summary: {
           processedProducts: 0,
           ensuredProducts: 0,
@@ -854,9 +878,17 @@ describe('pollGrocyForMissingStock', () => {
 
       const result = await pollGrocyForMissingStock();
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         status: 'partial',
         inPossessionStatus: 'error',
+        inPossessionSummary: {
+          processedProducts: 1,
+          updatedProducts: 0,
+          enabledProducts: 0,
+          disabledProducts: 0,
+          unchangedProducts: 0,
+          failedProducts: 1,
+        },
         summary: {
           processedProducts: 1,
           ensuredProducts: 1,

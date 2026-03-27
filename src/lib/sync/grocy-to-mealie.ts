@@ -32,6 +32,7 @@ export interface GrocyMissingStockPollResult {
   status: 'ok' | 'partial' | 'skipped' | 'error';
   reason?: 'no-shopping-list';
   inPossessionStatus?: MealieInPossessionSyncResult['status'];
+  inPossessionSummary?: MealieInPossessionSyncResult['summary'];
   summary: GrocyMissingStockSyncSummary;
 }
 
@@ -233,6 +234,7 @@ export async function pollGrocyForMissingStock(
         status: 'partial',
         reason: lowStockSyncSkipped ? 'no-shopping-list' : undefined,
         inPossessionStatus: inPossessionResult.status,
+        inPossessionSummary: inPossessionResult.summary,
         summary,
       };
     }
@@ -242,6 +244,7 @@ export async function pollGrocyForMissingStock(
         status: 'skipped',
         reason: 'no-shopping-list',
         inPossessionStatus: inPossessionResult.status,
+        inPossessionSummary: inPossessionResult.summary,
         summary,
       };
     }
@@ -249,6 +252,7 @@ export async function pollGrocyForMissingStock(
     return {
       status: 'ok',
       inPossessionStatus: inPossessionResult.status,
+      inPossessionSummary: inPossessionResult.summary,
       summary,
     };
   } catch (error) {

@@ -70,6 +70,13 @@ export interface MappingConflictCheckSummary {
   open: number;
 }
 
+export interface MappingConflictCheckResult {
+  conflicts: MappingConflictRecord[];
+  openedConflicts: MappingConflictRecord[];
+  resolvedConflicts: MappingConflictRecord[];
+  summary: MappingConflictCheckSummary;
+}
+
 export async function listOpenMappingConflicts(): Promise<MappingConflictRecord[]> {
   ensureMappingConflictStorage();
   const rows = await db.select().from(mappingConflicts);
@@ -78,10 +85,7 @@ export async function listOpenMappingConflicts(): Promise<MappingConflictRecord[
     .sort((left, right) => right.lastSeenAt.getTime() - left.lastSeenAt.getTime());
 }
 
-export async function runMappingConflictCheck(): Promise<{
-  conflicts: MappingConflictRecord[];
-  summary: MappingConflictCheckSummary;
-}> {
+export async function runMappingConflictCheck(): Promise<MappingConflictCheckResult> {
   ensureMappingConflictStorage();
   const detected = await fetchDetectedMappingConflicts();
   const existingConflicts = await db.select().from(mappingConflicts);
@@ -91,6 +95,8 @@ export async function runMappingConflictCheck(): Promise<{
   const now = new Date();
   const seenKeys = new Set<string>();
   let opened = 0;
+  const openedConflictIds = new Set<string>();
+  const resolvedConflictIds = new Set<string>();
 
   for (const conflict of detected) {
     seenKeys.add(conflict.key);
@@ -118,12 +124,14 @@ export async function runMappingConflictCheck(): Promise<{
         .where(eq(mappingConflicts.id, existing.id));
       if (!wasOpen) {
         opened++;
+        openedConflictIds.add(existing.id);
       }
       continue;
     }
 
+    const conflictId = randomUUID();
     await db.insert(mappingConflicts).values({
-      id: randomUUID(),
+      id: conflictId,
       conflictKey: conflict.key,
       type: conflict.type,
       status: 'open',
@@ -142,6 +150,7 @@ export async function runMappingConflictCheck(): Promise<{
       resolvedAt: null,
     });
     opened++;
+    openedConflictIds.add(conflictId);
   }
 
   const staleOpenConflicts = existingConflicts.filter(conflict =>
@@ -156,12 +165,27 @@ export async function runMappingConflictCheck(): Promise<{
         lastSeenAt: now,
       })
       .where(eq(mappingConflicts.id, conflict.id));
+    resolvedConflictIds.add(conflict.id);
   }
 
   const conflicts = await listOpenMappingConflicts();
+  const latestConflicts = await db.select().from(mappingConflicts);
+  const latestConflictsById = new Map(
+    latestConflicts.map(conflict => [conflict.id, conflict]),
+  );
+  const openedConflicts = Array.from(openedConflictIds)
+    .map(conflictId => latestConflictsById.get(conflictId))
+    .filter((conflict): conflict is MappingConflictRecord => Boolean(conflict))
+    .sort((left, right) => right.lastSeenAt.getTime() - left.lastSeenAt.getTime());
+  const resolvedConflicts = Array.from(resolvedConflictIds)
+    .map(conflictId => latestConflictsById.get(conflictId))
+    .filter((conflict): conflict is MappingConflictRecord => Boolean(conflict))
+    .sort((left, right) => right.lastSeenAt.getTime() - left.lastSeenAt.getTime());
 
   return {
     conflicts,
+    openedConflicts,
+    resolvedConflicts,
     summary: {
       detected: detected.length,
       opened,

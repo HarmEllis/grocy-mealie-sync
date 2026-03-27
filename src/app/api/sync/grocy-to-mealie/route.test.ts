@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockState = vi.hoisted(() => ({
   pollGrocyForMissingStock: vi.fn(),
+  recordHistoryRun: vi.fn(),
   acquireSyncLock: vi.fn(() => true),
   releaseSyncLock: vi.fn(),
   logError: vi.fn(),
@@ -9,6 +10,10 @@ const mockState = vi.hoisted(() => ({
 
 vi.mock('@/lib/sync/grocy-to-mealie', () => ({
   pollGrocyForMissingStock: mockState.pollGrocyForMissingStock,
+}));
+
+vi.mock('@/lib/history-store', () => ({
+  recordHistoryRun: mockState.recordHistoryRun,
 }));
 
 vi.mock('@/lib/sync/mutex', () => ({
@@ -27,6 +32,8 @@ import { POST } from './route';
 describe('grocy-to-mealie route', () => {
   beforeEach(() => {
     mockState.pollGrocyForMissingStock.mockReset();
+    mockState.recordHistoryRun.mockReset();
+    mockState.recordHistoryRun.mockResolvedValue(null);
     mockState.acquireSyncLock.mockReset();
     mockState.acquireSyncLock.mockReturnValue(true);
     mockState.releaseSyncLock.mockClear();
@@ -37,6 +44,7 @@ describe('grocy-to-mealie route', () => {
     mockState.pollGrocyForMissingStock.mockResolvedValue({
       status: 'skipped',
       reason: 'no-shopping-list',
+      inPossessionSummary: null,
       summary: {
         processedProducts: 0,
         ensuredProducts: 0,
@@ -63,6 +71,7 @@ describe('grocy-to-mealie route', () => {
   it('returns 500 when the poller reports an error result', async () => {
     mockState.pollGrocyForMissingStock.mockResolvedValue({
       status: 'error',
+      inPossessionSummary: null,
       summary: {
         processedProducts: 0,
         ensuredProducts: 0,
@@ -85,6 +94,7 @@ describe('grocy-to-mealie route', () => {
     mockState.pollGrocyForMissingStock.mockResolvedValue({
       status: 'partial',
       inPossessionStatus: 'ok',
+      inPossessionSummary: null,
       summary: {
         processedProducts: 3,
         ensuredProducts: 2,
@@ -111,6 +121,7 @@ describe('grocy-to-mealie route', () => {
     mockState.pollGrocyForMissingStock.mockResolvedValue({
       status: 'partial',
       inPossessionStatus: 'error',
+      inPossessionSummary: null,
       summary: {
         processedProducts: 1,
         ensuredProducts: 1,

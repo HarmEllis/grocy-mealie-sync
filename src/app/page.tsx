@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { getSyncState } from '@/lib/sync/state';
 import { db } from '@/lib/db';
 import { productMappings, unitMappings } from '@/lib/db/schema';
@@ -5,16 +6,18 @@ import { count } from 'drizzle-orm';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { buttonVariants } from '@/components/ui/button-styles';
 import { SettingsForm } from '@/components/settings/SettingsForm';
 import { SyncButtons } from '@/components/sync/SyncButtons';
 import { SyncRecoveryControls } from '@/components/sync/SyncRecoveryControls';
 import { MappingWizard } from '@/components/mapping-wizard/MappingWizard';
 import { LogoutButton } from '@/components/auth/LogoutButton';
-import { ArrowLeftRight, Settings, Wand2, Activity, Database, Clock, Terminal, AlertTriangle } from 'lucide-react';
+import { ArrowLeftRight, Settings, Wand2, Activity, Database, Clock, Terminal, AlertTriangle, History as HistoryIcon } from 'lucide-react';
 import { ThemeSwitcher } from '@/components/theme/ThemeSwitcher';
 import { getAuthConfig } from '@/lib/auth';
 import { config } from '@/lib/config';
 import { formatDateTime } from '@/lib/date-time';
+import { cn } from '@/lib/utils';
 
 interface SyncStatus {
   lastGrocyPoll: string | Date | null;
@@ -176,6 +179,41 @@ export default async function Home() {
           </CardHeader>
           <CardContent>
             <SyncRecoveryControls />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <HistoryIcon className="size-4" />
+              History
+            </CardTitle>
+            <CardDescription>
+              {config.historyEnabled
+                ? `Audit log for scheduler and manual actions. Retention: ${config.historyRetentionDays} day${config.historyRetentionDays === 1 ? '' : 's'}.`
+                : 'Disabled via HISTORY_RETENTION_DAYS=-1.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              {config.historyEnabled
+                ? 'Open recent sync runs, conflict checks, and lock recovery events.'
+                : 'The History page is unavailable while history storage is disabled.'}
+            </p>
+            {config.historyEnabled ? (
+              <Link href="/history" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                <HistoryIcon className="size-4" />
+                Open History
+              </Link>
+            ) : (
+              <span
+                aria-disabled="true"
+                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'cursor-not-allowed opacity-50')}
+              >
+                <HistoryIcon className="size-4" />
+                History Disabled
+              </span>
+            )}
           </CardContent>
         </Card>
 

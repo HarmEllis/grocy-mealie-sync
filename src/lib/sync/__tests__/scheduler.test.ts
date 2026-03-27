@@ -7,6 +7,7 @@ const mockState = vi.hoisted(() => ({
   },
   runFullProductSync: vi.fn(),
   runMappingConflictCheck: vi.fn(),
+  recordHistoryRun: vi.fn(),
   sendSchedulerNotifications: vi.fn(),
   pollGrocyForMissingStock: vi.fn(),
   pollMealieForCheckedItems: vi.fn(),
@@ -29,6 +30,10 @@ vi.mock('../product-sync', () => ({
 
 vi.mock('../../mapping-conflicts-store', () => ({
   runMappingConflictCheck: mockState.runMappingConflictCheck,
+}));
+
+vi.mock('../../history-store', () => ({
+  recordHistoryRun: mockState.recordHistoryRun,
 }));
 
 vi.mock('../../scheduler-notifications', () => ({
@@ -83,10 +88,18 @@ describe('scheduler startup lock', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockState.runFullProductSync.mockReset();
-    mockState.runFullProductSync.mockResolvedValue(undefined);
+    mockState.runFullProductSync.mockResolvedValue({
+      status: 'ok',
+      summary: {
+        units: { created: 0, linked: 0, skipped: 0 },
+        products: { created: 0, linked: 0, skipped: 0, backfilled: 0 },
+      },
+    });
     mockState.runMappingConflictCheck.mockReset();
     mockState.runMappingConflictCheck.mockResolvedValue({
       conflicts: [],
+      openedConflicts: [],
+      resolvedConflicts: [],
       summary: {
         detected: 0,
         opened: 0,
@@ -94,10 +107,35 @@ describe('scheduler startup lock', () => {
         open: 0,
       },
     });
+    mockState.recordHistoryRun.mockReset();
+    mockState.recordHistoryRun.mockResolvedValue(null);
     mockState.pollGrocyForMissingStock.mockReset();
-    mockState.pollGrocyForMissingStock.mockResolvedValue(undefined);
+    mockState.pollGrocyForMissingStock.mockResolvedValue({
+      status: 'ok',
+      inPossessionStatus: 'ok',
+      inPossessionSummary: {
+        processedProducts: 0,
+        updatedProducts: 0,
+        enabledProducts: 0,
+        disabledProducts: 0,
+        unchangedProducts: 0,
+        failedProducts: 0,
+      },
+      summary: {
+        processedProducts: 0,
+        ensuredProducts: 0,
+        unmappedProducts: 0,
+      },
+    });
     mockState.pollMealieForCheckedItems.mockReset();
-    mockState.pollMealieForCheckedItems.mockResolvedValue(undefined);
+    mockState.pollMealieForCheckedItems.mockResolvedValue({
+      status: 'ok',
+      summary: {
+        checkedItems: 0,
+        restockedProducts: 0,
+        failedItems: 0,
+      },
+    });
     mockState.sendSchedulerNotifications.mockReset();
     mockState.sendSchedulerNotifications.mockResolvedValue(undefined);
     mockState.acquireSyncLock.mockReset();

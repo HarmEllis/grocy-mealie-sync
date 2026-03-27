@@ -75,7 +75,24 @@ describe('scheduler notifications', () => {
 
     expect(body).toContain('Status: partial');
     expect(body).toContain('Succeeded: mealie_to_grocy');
+    expect(body).toContain('Partial: none');
+    expect(body).toContain('Skipped: none');
     expect(body).toContain('Failed: grocy_to_mealie (Shopping list missing)');
+  });
+
+  it('treats partial step results as a partial cycle', () => {
+    const summary = summarizeSchedulerCycle({
+      cycleType: 'poll',
+      startedAt: new Date('2026-03-27T10:00:00.000Z'),
+      finishedAt: new Date('2026-03-27T10:00:30.000Z'),
+      steps: [
+        { name: 'mealie_to_grocy', status: 'success' },
+        { name: 'grocy_to_mealie', status: 'partial' },
+        { name: 'conflict_check', status: 'skipped' },
+      ],
+    });
+
+    expect(summary.status).toBe('partial');
   });
 
   it('builds a generic webhook payload', () => {

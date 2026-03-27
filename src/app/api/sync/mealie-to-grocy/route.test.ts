@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockState = vi.hoisted(() => ({
   pollMealieForCheckedItems: vi.fn(),
+  recordHistoryRun: vi.fn(),
   acquireSyncLock: vi.fn(() => true),
   releaseSyncLock: vi.fn(),
   logError: vi.fn(),
@@ -9,6 +10,10 @@ const mockState = vi.hoisted(() => ({
 
 vi.mock('@/lib/sync/mealie-to-grocy', () => ({
   pollMealieForCheckedItems: mockState.pollMealieForCheckedItems,
+}));
+
+vi.mock('@/lib/history-store', () => ({
+  recordHistoryRun: mockState.recordHistoryRun,
 }));
 
 vi.mock('@/lib/sync/mutex', () => ({
@@ -27,6 +32,8 @@ import { POST } from './route';
 describe('mealie-to-grocy route', () => {
   beforeEach(() => {
     mockState.pollMealieForCheckedItems.mockReset();
+    mockState.recordHistoryRun.mockReset();
+    mockState.recordHistoryRun.mockResolvedValue(null);
     mockState.acquireSyncLock.mockReset();
     mockState.acquireSyncLock.mockReturnValue(true);
     mockState.releaseSyncLock.mockClear();

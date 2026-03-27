@@ -115,6 +115,20 @@ export function parseTimeZoneEnv(value: string | undefined, name: string): strin
   return resolved;
 }
 
+export function parseHistoryRetentionDaysEnv(value: string | undefined, name: string): number {
+  if (!hasConfiguredValue(value)) {
+    return 7;
+  }
+
+  const parsed = parseInt(value!.trim(), 10);
+  if (isNaN(parsed) || parsed < -1) {
+    log.warn(`[Config] ${name} must be -1 or a non-negative integer (got "${value}"). Falling back to 7.`);
+    return 7;
+  }
+
+  return parsed;
+}
+
 export function resolveLocaleForConfiguredTimeZone(timeZone: string | null): string | null {
   return resolveLocaleFromTimeZone(timeZone);
 }
@@ -142,6 +156,10 @@ export function parseMinStockStepEnv(
 
 const configuredTimeZone = parseTimeZoneEnv(process.env.TZ, 'TZ');
 const configuredLocale = resolveLocaleForConfiguredTimeZone(configuredTimeZone);
+const configuredHistoryRetentionDays = parseHistoryRetentionDaysEnv(
+  process.env.HISTORY_RETENTION_DAYS,
+  'HISTORY_RETENTION_DAYS',
+);
 
 export const config = {
   grocyUrl: validateServiceUrl(process.env.GROCY_URL, 'GROCY_URL', GROCY_DEFAULT_URL),
@@ -181,6 +199,8 @@ export const config = {
     false,
     'ALLOW_INSECURE_TLS',
   ),
+  historyEnabled: configuredHistoryRetentionDays !== -1,
+  historyRetentionDays: configuredHistoryRetentionDays === -1 ? null : configuredHistoryRetentionDays,
   timeZone: configuredTimeZone,
   timeZoneLocale: configuredLocale,
   notificationWebhookUrl: parseOptionalUrlEnv(process.env.NOTIFICATION_WEBHOOK_URL, 'NOTIFICATION_WEBHOOK_URL'),

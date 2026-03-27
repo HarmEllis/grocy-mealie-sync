@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockState = vi.hoisted(() => ({
   ensureGrocyMissingStockOnMealie: vi.fn(),
+  recordHistoryRun: vi.fn(),
   acquireSyncLock: vi.fn(() => true),
   releaseSyncLock: vi.fn(),
   logError: vi.fn(),
@@ -9,6 +10,10 @@ const mockState = vi.hoisted(() => ({
 
 vi.mock('@/lib/sync/grocy-to-mealie', () => ({
   ensureGrocyMissingStockOnMealie: mockState.ensureGrocyMissingStockOnMealie,
+}));
+
+vi.mock('@/lib/history-store', () => ({
+  recordHistoryRun: mockState.recordHistoryRun,
 }));
 
 vi.mock('@/lib/sync/mutex', () => ({
@@ -27,6 +32,8 @@ import { POST } from './route';
 describe('grocy-to-mealie ensure route', () => {
   beforeEach(() => {
     mockState.ensureGrocyMissingStockOnMealie.mockReset();
+    mockState.recordHistoryRun.mockReset();
+    mockState.recordHistoryRun.mockResolvedValue(null);
     mockState.acquireSyncLock.mockReset();
     mockState.acquireSyncLock.mockReturnValue(true);
     mockState.releaseSyncLock.mockClear();
@@ -36,6 +43,7 @@ describe('grocy-to-mealie ensure route', () => {
   it('returns a partial response with ensure counts when products are unmapped', async () => {
     mockState.ensureGrocyMissingStockOnMealie.mockResolvedValue({
       status: 'ok',
+      inPossessionSummary: null,
       summary: {
         processedProducts: 4,
         ensuredProducts: 3,
@@ -70,6 +78,7 @@ describe('grocy-to-mealie ensure route', () => {
   it('does not enable per-product presence-check mapping logs without the UI trigger header', async () => {
     mockState.ensureGrocyMissingStockOnMealie.mockResolvedValue({
       status: 'ok',
+      inPossessionSummary: null,
       summary: {
         processedProducts: 0,
         ensuredProducts: 0,
@@ -90,6 +99,7 @@ describe('grocy-to-mealie ensure route', () => {
     mockState.ensureGrocyMissingStockOnMealie.mockResolvedValue({
       status: 'partial',
       inPossessionStatus: 'error',
+      inPossessionSummary: null,
       summary: {
         processedProducts: 2,
         ensuredProducts: 2,

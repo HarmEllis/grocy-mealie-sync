@@ -3,12 +3,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mockState = vi.hoisted(() => ({
   clearSchedulerLock: vi.fn(),
   clearSyncLock: vi.fn(),
+  recordHistoryRun: vi.fn(),
   logError: vi.fn(),
 }));
 
 vi.mock('@/lib/sync/mutex', () => ({
   clearSchedulerLock: mockState.clearSchedulerLock,
   clearSyncLock: mockState.clearSyncLock,
+}));
+
+vi.mock('@/lib/history-store', () => ({
+  recordHistoryRun: mockState.recordHistoryRun,
 }));
 
 vi.mock('@/lib/logger', () => ({
@@ -23,6 +28,8 @@ describe('sync unlock route', () => {
   beforeEach(() => {
     mockState.clearSchedulerLock.mockReset();
     mockState.clearSyncLock.mockReset();
+    mockState.recordHistoryRun.mockReset();
+    mockState.recordHistoryRun.mockResolvedValue(null);
     mockState.logError.mockClear();
   });
 

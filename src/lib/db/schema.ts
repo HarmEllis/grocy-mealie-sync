@@ -61,3 +61,28 @@ export const mappingConflicts = sqliteTable('mapping_conflicts', {
 }, (table) => [
   uniqueIndex('idx_mapping_conflicts_conflict_key').on(table.conflictKey),
 ]);
+
+export const historyRuns = sqliteTable('history_runs', {
+  id: text('id').primaryKey(),
+  trigger: text('trigger').notNull(),
+  action: text('action').notNull(),
+  status: text('status').notNull(),
+  message: text('message'),
+  summaryJson: text('summary_json'),
+  startedAt: integer('started_at', { mode: 'timestamp' }).notNull(),
+  finishedAt: integer('finished_at', { mode: 'timestamp' }).notNull(),
+});
+
+export const historyEvents = sqliteTable('history_events', {
+  id: text('id').primaryKey(),
+  runId: text('run_id').notNull(),
+  level: text('level').notNull(),
+  category: text('category').notNull(),
+  entityKind: text('entity_kind'),
+  entityRef: text('entity_ref'),
+  message: text('message').notNull(),
+  detailsJson: text('details_json'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, (table) => [
+  uniqueIndex('idx_history_events_run_id_created_at').on(table.runId, table.createdAt, table.id),
+]);

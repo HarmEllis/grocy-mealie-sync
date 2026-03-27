@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mockState = vi.hoisted(() => ({
   listOpenMappingConflicts: vi.fn(),
   runMappingConflictCheck: vi.fn(),
+  recordHistoryRun: vi.fn(),
   acquireSyncLock: vi.fn(() => true),
   releaseSyncLock: vi.fn(),
   logError: vi.fn(),
@@ -11,6 +12,10 @@ const mockState = vi.hoisted(() => ({
 vi.mock('@/lib/mapping-conflicts-store', () => ({
   listOpenMappingConflicts: mockState.listOpenMappingConflicts,
   runMappingConflictCheck: mockState.runMappingConflictCheck,
+}));
+
+vi.mock('@/lib/history-store', () => ({
+  recordHistoryRun: mockState.recordHistoryRun,
 }));
 
 vi.mock('@/lib/logger', () => ({
@@ -30,6 +35,8 @@ describe('mapping wizard conflicts route', () => {
   beforeEach(() => {
     mockState.listOpenMappingConflicts.mockReset();
     mockState.runMappingConflictCheck.mockReset();
+    mockState.recordHistoryRun.mockReset();
+    mockState.recordHistoryRun.mockResolvedValue(null);
     mockState.acquireSyncLock.mockReset();
     mockState.acquireSyncLock.mockReturnValue(true);
     mockState.releaseSyncLock.mockClear();
@@ -75,6 +82,8 @@ describe('mapping wizard conflicts route', () => {
   it('runs a conflict check on POST', async () => {
     mockState.runMappingConflictCheck.mockResolvedValue({
       conflicts: [],
+      openedConflicts: [],
+      resolvedConflicts: [],
       summary: {
         detected: 3,
         opened: 1,
@@ -89,6 +98,8 @@ describe('mapping wizard conflicts route', () => {
     expect(response.status).toBe(200);
     expect(body).toEqual({
       conflicts: [],
+      openedConflicts: [],
+      resolvedConflicts: [],
       summary: {
         detected: 3,
         opened: 1,

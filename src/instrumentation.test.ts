@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockState = vi.hoisted(() => ({
   migrate: vi.fn(),
+  initializeHistoryStorage: vi.fn(),
   getSettings: vi.fn(async () => ({
     defaultUnitMappingId: null,
     mealieShoppingListId: null,
@@ -20,6 +21,10 @@ vi.mock('drizzle-orm/better-sqlite3/migrator', () => ({
 
 vi.mock('./lib/db', () => ({
   db: {},
+}));
+
+vi.mock('./lib/history-store', () => ({
+  initializeHistoryStorage: mockState.initializeHistoryStorage,
 }));
 
 vi.mock('./lib/config', () => ({
@@ -48,6 +53,8 @@ describe('instrumentation register', () => {
   beforeEach(() => {
     vi.resetModules();
     mockState.migrate.mockReset();
+    mockState.initializeHistoryStorage.mockReset();
+    mockState.initializeHistoryStorage.mockResolvedValue(undefined);
     mockState.getSettings.mockClear();
     mockState.startScheduler.mockReset();
     mockState.stopScheduler.mockReset();

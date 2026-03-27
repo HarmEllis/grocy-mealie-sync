@@ -1,11 +1,14 @@
 import { config } from '../config';
 import { log } from '../logger';
+import { buildConflictCheckHistoryOutcome, buildGrocyToMealieHistoryOutcome, buildMealieToGrocyHistoryOutcome, buildProductSyncHistoryOutcome, prefixHistoryEvents } from '../history-events';
+import { recordHistoryRun, type HistoryEventInput } from '../history-store';
 import {
   sendSchedulerNotifications,
   summarizeSchedulerCycle,
   type SchedulerCycleType,
   type SchedulerStepName,
   type SchedulerStepResult,
+  type SchedulerStepStatus,
 } from '../scheduler-notifications';
 import { runMappingConflictCheck } from '../mapping-conflicts-store';
 import { runFullProductSync } from './product-sync';
@@ -23,10 +26,17 @@ let productSyncTimer: ReturnType<typeof setInterval> | null = null;
 let started = false;
 let schedulerLockHeld = false;
 
+interface SchedulerStepExecutionResult {
+  status?: SchedulerStepStatus;
+  message?: string;
+  summary?: unknown;
+  events?: HistoryEventInput[];
+}
+
 interface SchedulerStepDefinition {
   name: SchedulerStepName;
   failureLogPrefix: string;
-  run: () => Promise<void>;
+  run: () => Promise<SchedulerStepExecutionResult | void>;
 }
 
 function formatSchedulerError(error: unknown): string {
@@ -37,36 +47,111 @@ function formatSchedulerError(error: unknown): string {
   return String(error);
 }
 
+function getSchedulerStepEventLevel(status: SchedulerStepStatus): 'info' | 'warning' | 'error' {
+  switch (status) {
+    case 'failure':
+      return 'error';
+    case 'partial':
+    case 'skipped':
+      return 'warning';
+    case 'success':
+      return 'info';
+  }
+}
+
+function getSchedulerStepCategory(name: SchedulerStepName): HistoryEventInput['category'] {
+  return name === 'conflict_check' ? 'conflict' : 'sync';
+}
+
+function getSchedulerStepLabel(name: SchedulerStepName): string {
+  switch (name) {
+    case 'product_sync':
+      return 'Product sync';
+    case 'mealie_to_grocy':
+      return 'Mealie to Grocy';
+    case 'grocy_to_mealie':
+      return 'Grocy to Mealie';
+    case 'conflict_check':
+      return 'Conflict check';
+  }
+}
+
 async function runSchedulerCycle(
   cycleType: SchedulerCycleType,
   steps: SchedulerStepDefinition[],
 ): Promise<void> {
   const startedAt = new Date();
   const stepResults: SchedulerStepResult[] = [];
+  const historyEvents: HistoryEventInput[] = [];
 
   for (const step of steps) {
     try {
-      await step.run();
+      const result = await step.run();
+      const status = result?.status ?? 'success';
       stepResults.push({
         name: step.name,
-        status: 'success',
+        status,
+        message: result?.message,
+        summary: result?.summary,
       });
+      historyEvents.push({
+        level: getSchedulerStepEventLevel(status),
+        category: getSchedulerStepCategory(step.name),
+        entityKind: status === 'failure' ? 'system' : null,
+        entityRef: step.name,
+        message: `${getSchedulerStepLabel(step.name)} step ${status}.`,
+        details: result?.summary ?? null,
+      });
+      if (result?.events?.length) {
+        historyEvents.push(...prefixHistoryEvents(getSchedulerStepLabel(step.name), result.events));
+      }
     } catch (error) {
+      const formattedError = formatSchedulerError(error);
       log.error(step.failureLogPrefix, error);
       stepResults.push({
         name: step.name,
         status: 'failure',
-        error: formatSchedulerError(error),
+        error: formattedError,
+      });
+      historyEvents.push({
+        level: 'error',
+        category: getSchedulerStepCategory(step.name),
+        entityKind: 'system',
+        entityRef: step.name,
+        message: `${getSchedulerStepLabel(step.name)} step failed.`,
+        details: { error: formattedError },
       });
     }
   }
 
-  await sendSchedulerNotifications(summarizeSchedulerCycle({
+  const finishedAt = new Date();
+  const cycleSummary = summarizeSchedulerCycle({
     cycleType,
     startedAt,
-    finishedAt: new Date(),
+    finishedAt,
     steps: stepResults,
-  }));
+  });
+
+  await sendSchedulerNotifications(cycleSummary);
+
+  try {
+    await recordHistoryRun({
+      trigger: 'scheduler',
+      action: 'scheduler_cycle',
+      status: cycleSummary.status,
+      message: `Scheduler ${cycleType} cycle ${cycleSummary.status}.`,
+      startedAt,
+      finishedAt,
+      summary: {
+        cycleType,
+        durationMs: cycleSummary.durationMs,
+        steps: stepResults,
+      },
+      events: historyEvents,
+    });
+  } catch (error) {
+    log.warn('[Scheduler] Failed to record history:', error);
+  }
 }
 
 export function startScheduler(): void {
@@ -93,13 +178,17 @@ export function startScheduler(): void {
       {
         name: 'product_sync',
         failureLogPrefix: '[Scheduler] Initial product sync failed:',
-        run: () => runFullProductSync(),
+        run: async () => {
+          const result = await runFullProductSync();
+          return buildProductSyncHistoryOutcome(result);
+        },
       },
       {
         name: 'conflict_check',
         failureLogPrefix: '[Scheduler] Initial conflict check failed:',
         run: async () => {
-          await runMappingConflictCheck();
+          const result = await runMappingConflictCheck();
+          return buildConflictCheckHistoryOutcome(result);
         },
       },
     ]);
@@ -129,21 +218,24 @@ function startTimers(): void {
           name: 'mealie_to_grocy',
           failureLogPrefix: '[Scheduler] Mealie poll error:',
           run: async () => {
-            await pollMealieForCheckedItems();
+            const result = await pollMealieForCheckedItems();
+            return buildMealieToGrocyHistoryOutcome(result);
           },
         },
         {
           name: 'grocy_to_mealie',
           failureLogPrefix: '[Scheduler] Grocy poll error:',
           run: async () => {
-            await pollGrocyForMissingStock();
+            const result = await pollGrocyForMissingStock();
+            return buildGrocyToMealieHistoryOutcome('grocy_to_mealie', result);
           },
         },
         {
           name: 'conflict_check',
           failureLogPrefix: '[Scheduler] Conflict check error:',
           run: async () => {
-            await runMappingConflictCheck();
+            const result = await runMappingConflictCheck();
+            return buildConflictCheckHistoryOutcome(result);
           },
         },
       ]);
@@ -166,13 +258,17 @@ function startTimers(): void {
         {
           name: 'product_sync',
           failureLogPrefix: '[Scheduler] Product sync error:',
-          run: () => runFullProductSync(),
+          run: async () => {
+            const result = await runFullProductSync();
+            return buildProductSyncHistoryOutcome(result);
+          },
         },
         {
           name: 'conflict_check',
           failureLogPrefix: '[Scheduler] Conflict check error:',
           run: async () => {
-            await runMappingConflictCheck();
+            const result = await runMappingConflictCheck();
+            return buildConflictCheckHistoryOutcome(result);
           },
         },
       ]);

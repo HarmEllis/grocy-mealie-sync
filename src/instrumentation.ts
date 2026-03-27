@@ -32,6 +32,9 @@ export async function register() {
     const { db } = await import('./lib/db');
     migrate(db, { migrationsFolder: './drizzle' });
 
+    const { initializeHistoryStorage } = await import('./lib/history-store');
+    await initializeHistoryStorage();
+
     // Log config warnings
     const { config } = await import('./lib/config');
     const { log } = await import('./lib/logger');

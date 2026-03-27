@@ -34,6 +34,27 @@ async function getDefaultLocationId(): Promise<number | null> {
   }
 }
 
+export interface UnitSyncSummary {
+  created: number;
+  linked: number;
+  skipped: number;
+}
+
+export interface ProductSyncSummary {
+  created: number;
+  linked: number;
+  skipped: number;
+  backfilled: number;
+}
+
+export interface FullProductSyncResult {
+  status: 'ok';
+  summary: {
+    units: UnitSyncSummary;
+    products: ProductSyncSummary;
+  };
+}
+
 function findUnitMappingByGrocyId(
   allUnitMappings: { id: string; grocyUnitId: number }[],
   grocyUnitId: number,
@@ -42,7 +63,7 @@ function findUnitMappingByGrocyId(
   return match ? match.id : null;
 }
 
-export async function syncUnits() {
+export async function syncUnits(): Promise<UnitSyncSummary> {
   log.info('[ProductSync] Starting unit sync');
 
   const autoCreateUnits = await resolveAutoCreateUnits();
@@ -114,9 +135,15 @@ export async function syncUnits() {
     log.info(`[ProductSync] ${skipped} unit(s) skipped — enable "Auto-create units" in settings or use the Mapping Wizard`);
   }
   log.info(`[ProductSync] Units done: ${created} created, ${linked} linked, ${skipped} skipped`);
+
+  return {
+    created,
+    linked,
+    skipped,
+  };
 }
 
-export async function syncProducts() {
+export async function syncProducts(): Promise<ProductSyncSummary> {
   log.info('[ProductSync] Starting product sync');
 
   const mealieFoodsRes = await RecipesFoodsService.getAllApiFoodsGet(
@@ -217,6 +244,7 @@ export async function syncProducts() {
   const emptyMappings = await db.select().from(productMappings).where(
     or(isNull(productMappings.unitMappingId), eq(productMappings.unitMappingId, ''))
   );
+  let backfilled = 0;
   if (emptyMappings.length > 0) {
     log.info(`[ProductSync] Backfilling ${emptyMappings.length} product mapping(s) with missing unit`);
     for (const mapping of emptyMappings) {
@@ -230,6 +258,7 @@ export async function syncProducts() {
             await db.update(productMappings)
               .set({ unitMappingId: umId, updatedAt: new Date() })
               .where(eq(productMappings.id, mapping.id));
+            backfilled++;
           }
         }
       }
@@ -240,10 +269,25 @@ export async function syncProducts() {
     log.info(`[ProductSync] ${skipped} product(s) skipped — enable "Auto-create products" in settings or use the Mapping Wizard`);
   }
   log.info(`[ProductSync] Products done: ${created} created, ${linked} linked, ${skipped} skipped`);
+
+  return {
+    created,
+    linked,
+    skipped,
+    backfilled,
+  };
 }
 
-export async function runFullProductSync() {
-  await syncUnits();
-  await syncProducts();
+export async function runFullProductSync(): Promise<FullProductSyncResult> {
+  const units = await syncUnits();
+  const products = await syncProducts();
   log.info('[ProductSync] Full sync complete');
+
+  return {
+    status: 'ok',
+    summary: {
+      units,
+      products,
+    },
+  };
 }

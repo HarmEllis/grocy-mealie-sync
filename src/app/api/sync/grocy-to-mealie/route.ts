@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { pollGrocyForMissingStock } from '@/lib/sync/grocy-to-mealie';
 import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
 import { log } from '@/lib/logger';
+import { buildGrocyToMealieHistoryOutcome } from '@/lib/history-events';
+import { recordHistoryRun } from '@/lib/history-store';
 
 function formatUnmappedProductsMessage(unmappedProducts: number): string {
   const skippedLabel = `${unmappedProducts} low-stock product${unmappedProducts === 1 ? '' : 's'}`;
@@ -35,7 +37,27 @@ function formatPartialMessage(result: Awaited<ReturnType<typeof pollGrocyForMiss
 }
 
 export async function POST() {
+  const startedAt = new Date();
+
   if (!acquireSyncLock()) {
+    await recordHistoryRun({
+      trigger: 'manual',
+      action: 'grocy_to_mealie',
+      status: 'skipped',
+      message: 'A sync is already in progress.',
+      startedAt,
+      finishedAt: new Date(),
+      events: [
+        {
+          level: 'warning',
+          category: 'sync',
+          entityKind: 'system',
+          entityRef: 'grocy-to-mealie',
+          message: 'Grocy to Mealie sync skipped because another sync is already running.',
+        },
+      ],
+    }).catch(error => log.error('[History] Failed to record Grocy to Mealie skip:', error));
+
     return NextResponse.json(
       { status: 'busy', message: 'A sync is already in progress' },
       { status: 409 }
@@ -43,6 +65,18 @@ export async function POST() {
   }
   try {
     const result = await pollGrocyForMissingStock();
+    const historyOutcome = buildGrocyToMealieHistoryOutcome('grocy_to_mealie', result);
+
+    await recordHistoryRun({
+      trigger: 'manual',
+      action: 'grocy_to_mealie',
+      status: historyOutcome.status,
+      message: historyOutcome.message,
+      startedAt,
+      finishedAt: new Date(),
+      summary: historyOutcome.summary,
+      events: historyOutcome.events,
+    }).catch(error => log.error('[History] Failed to record Grocy to Mealie sync:', error));
 
     if (result.status === 'error') {
       return NextResponse.json(
@@ -74,6 +108,27 @@ export async function POST() {
     });
   } catch (error) {
     log.error('[API] Grocy→Mealie sync failed:', error);
+    await recordHistoryRun({
+      trigger: 'manual',
+      action: 'grocy_to_mealie',
+      status: 'failure',
+      message: 'An internal error occurred during Grocy to Mealie sync.',
+      startedAt,
+      finishedAt: new Date(),
+      events: [
+        {
+          level: 'error',
+          category: 'sync',
+          entityKind: 'system',
+          entityRef: 'grocy-to-mealie',
+          message: 'Grocy to Mealie sync failed.',
+          details: {
+            error: error instanceof Error ? error.message : String(error),
+          },
+        },
+      ],
+    }).catch(historyError => log.error('[History] Failed to record Grocy to Mealie failure:', historyError));
+
     return NextResponse.json(
       { status: 'error', message: 'An internal error occurred during Grocy-to-Mealie sync' },
       { status: 500 }

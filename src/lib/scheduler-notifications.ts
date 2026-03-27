@@ -5,12 +5,14 @@ import { buildServerFetchInit } from './server-fetch';
 export type SchedulerCycleType = 'initial' | 'poll' | 'product_sync';
 export type SchedulerCycleStatus = 'success' | 'partial' | 'failure';
 export type SchedulerStepName = 'product_sync' | 'mealie_to_grocy' | 'grocy_to_mealie' | 'conflict_check';
-export type SchedulerStepStatus = 'success' | 'failure';
+export type SchedulerStepStatus = 'success' | 'partial' | 'skipped' | 'failure';
 
 export interface SchedulerStepResult {
   name: SchedulerStepName;
   status: SchedulerStepStatus;
   error?: string;
+  message?: string;
+  summary?: unknown;
 }
 
 export interface SchedulerCycleSummary {
@@ -31,8 +33,9 @@ interface SummarizeSchedulerCycleInput {
 
 function toCycleStatus(steps: SchedulerStepResult[]): SchedulerCycleStatus {
   const failureCount = steps.filter(step => step.status === 'failure').length;
+  const partialCount = steps.filter(step => step.status === 'partial').length;
 
-  if (failureCount === 0) {
+  if (failureCount === 0 && partialCount === 0) {
     return 'success';
   }
 
@@ -95,6 +98,8 @@ export function buildHealthchecksBody(summary: SchedulerCycleSummary): string {
     `Finished: ${summary.finishedAt}`,
     `DurationMs: ${summary.durationMs}`,
     `Succeeded: ${formatStepList(summary.steps, 'success')}`,
+    `Partial: ${formatStepList(summary.steps, 'partial')}`,
+    `Skipped: ${formatStepList(summary.steps, 'skipped')}`,
     `Failed: ${formatStepList(summary.steps, 'failure')}`,
   ].join('\n');
 }

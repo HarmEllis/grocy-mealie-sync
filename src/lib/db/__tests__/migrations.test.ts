@@ -100,5 +100,7 @@ describe('SQLite migrations', () => {
 
     expect(getSqliteObjectSql(dbPath, 'mapping_conflicts')).toContain('CREATE TABLE `mapping_conflicts`');
     expect(getSqliteObjectSql(dbPath, 'idx_mapping_conflicts_conflict_key')).toContain('CREATE UNIQUE INDEX');
+    expect(getSqliteObjectSql(dbPath, 'history_runs')).toContain('CREATE TABLE `history_runs`');
+    expect(getSqliteObjectSql(dbPath, 'history_events')).toContain('CREATE TABLE `history_events`');
   });
 });

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseBooleanEnv,
+  parseHistoryRetentionDaysEnv,
   parseIntOrDefault,
   parseOptionalIntEnv,
   parseOptionalUrlEnv,
@@ -137,6 +138,24 @@ describe('parseTimeZoneEnv', () => {
 
   it('returns null for invalid timezones', () => {
     expect(parseTimeZoneEnv('not-a-timezone', 'TZ')).toBeNull();
+  });
+});
+
+describe('parseHistoryRetentionDaysEnv', () => {
+  it('defaults to seven days when unset', () => {
+    expect(parseHistoryRetentionDaysEnv(undefined, 'HISTORY_RETENTION_DAYS')).toBe(7);
+    expect(parseHistoryRetentionDaysEnv('', 'HISTORY_RETENTION_DAYS')).toBe(7);
+  });
+
+  it('accepts -1 to disable history and non-negative retention values', () => {
+    expect(parseHistoryRetentionDaysEnv('-1', 'HISTORY_RETENTION_DAYS')).toBe(-1);
+    expect(parseHistoryRetentionDaysEnv('0', 'HISTORY_RETENTION_DAYS')).toBe(0);
+    expect(parseHistoryRetentionDaysEnv('14', 'HISTORY_RETENTION_DAYS')).toBe(14);
+  });
+
+  it('falls back to seven days for invalid values', () => {
+    expect(parseHistoryRetentionDaysEnv('-2', 'HISTORY_RETENTION_DAYS')).toBe(7);
+    expect(parseHistoryRetentionDaysEnv('abc', 'HISTORY_RETENTION_DAYS')).toBe(7);
   });
 });
 
