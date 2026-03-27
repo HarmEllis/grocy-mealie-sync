@@ -8,6 +8,7 @@ import type { ApiResult } from './ApiResult';
 import { CancelablePromise } from './CancelablePromise';
 import type { OnCancel } from './CancelablePromise';
 import type { OpenAPIConfig } from './OpenAPI';
+import { buildServerFetchInit } from '../../../server-fetch';
 
 export const isDefined = <T>(value: T | null | undefined): value is Exclude<T, null | undefined> => {
     return value !== undefined && value !== null;
@@ -203,12 +204,12 @@ export const sendRequest = async (
 ): Promise<Response> => {
     const controller = new AbortController();
 
-    const request: RequestInit = {
+    const request = buildServerFetchInit({
         headers,
         body: body ?? formData,
         method: options.method,
         signal: controller.signal,
-    };
+    }, config.ALLOW_INSECURE_TLS === true);
 
     if (config.WITH_CREDENTIALS) {
         request.credentials = config.CREDENTIALS;

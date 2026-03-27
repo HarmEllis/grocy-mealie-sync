@@ -17,6 +17,7 @@ export type OpenAPIConfig = {
     PASSWORD?: string | Resolver<string> | undefined;
     HEADERS?: Headers | Resolver<Headers> | undefined;
     ENCODE_PATH?: ((path: string) => string) | undefined;
+    ALLOW_INSECURE_TLS?: boolean;
 };
 
 export const OpenAPI: OpenAPIConfig = {
@@ -29,4 +30,5 @@ export const OpenAPI: OpenAPIConfig = {
     PASSWORD: undefined,
     HEADERS: undefined,
     ENCODE_PATH: undefined,
+    ALLOW_INSECURE_TLS: false,
 };

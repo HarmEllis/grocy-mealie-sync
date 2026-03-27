@@ -1,5 +1,6 @@
 import { config } from './config';
 import { log } from './logger';
+import { buildServerFetchInit } from './server-fetch';
 
 export type SchedulerCycleType = 'initial' | 'poll' | 'product_sync';
 export type SchedulerCycleStatus = 'success' | 'partial' | 'failure';
@@ -117,11 +118,13 @@ async function postHealthchecks(summary: SchedulerCycleSummary) {
   }
 
   const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-    },
-    body: buildHealthchecksBody(summary),
+    ...buildServerFetchInit({
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+      },
+      body: buildHealthchecksBody(summary),
+    }, config.allowInsecureTls),
   });
 
   if (!response.ok) {
@@ -139,11 +142,13 @@ async function postGenericWebhook(summary: SchedulerCycleSummary) {
   }
 
   const response = await fetch(config.notificationWebhookUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(buildGenericWebhookPayload(summary)),
+    ...buildServerFetchInit({
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(buildGenericWebhookPayload(summary)),
+    }, config.allowInsecureTls),
   });
 
   if (!response.ok) {

@@ -10,3 +10,4 @@ OpenAPI.BASE = config.grocyUrl + '/api';
 OpenAPI.HEADERS = {
   'GROCY-API-KEY': config.grocyApiKey,
 };
+OpenAPI.ALLOW_INSECURE_TLS = config.allowInsecureTls;

@@ -152,6 +152,11 @@ export const config = {
   ),
   stockOnlyMinStock: parseBooleanEnv(process.env.STOCK_ONLY_MIN_STOCK, false, 'STOCK_ONLY_MIN_STOCK'),
   healthchecksPingUrl: parseOptionalUrlEnv(process.env.HEALTHCHECKS_PING_URL, 'HEALTHCHECKS_PING_URL'),
+  allowInsecureTls: parseBooleanEnv(
+    process.env.ALLOW_INSECURE_TLS,
+    false,
+    'ALLOW_INSECURE_TLS',
+  ),
   notificationWebhookUrl: parseOptionalUrlEnv(process.env.NOTIFICATION_WEBHOOK_URL, 'NOTIFICATION_WEBHOOK_URL'),
   notificationWebhookMode: parseWebhookModeEnv(process.env.NOTIFICATION_WEBHOOK_MODE, 'NOTIFICATION_WEBHOOK_MODE'),
   databasePath: process.env.DATABASE_PATH || './data/sync.db',

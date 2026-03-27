@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mockState = vi.hoisted(() => ({
   config: {
     healthchecksPingUrl: null as string | null,
+    allowInsecureTls: false,
     notificationWebhookUrl: null as string | null,
     notificationWebhookMode: 'errors_only' as 'always' | 'errors_only',
   },
@@ -31,6 +32,7 @@ describe('scheduler notifications', () => {
 
   beforeEach(() => {
     mockState.config.healthchecksPingUrl = null;
+    mockState.config.allowInsecureTls = false;
     mockState.config.notificationWebhookUrl = null;
     mockState.config.notificationWebhookMode = 'errors_only';
     mockState.logWarn.mockReset();
@@ -130,6 +132,30 @@ describe('scheduler notifications', () => {
       'https://hooks.test/notify',
       expect.objectContaining({
         method: 'POST',
+      }),
+    );
+  });
+
+  it('passes an insecure dispatcher to healthchecks when configured', async () => {
+    mockState.config.healthchecksPingUrl = 'https://hc-ping.test/abc123';
+    mockState.config.allowInsecureTls = true;
+    fetchMock.mockResolvedValue({ ok: true });
+
+    await sendSchedulerNotifications({
+      cycleType: 'poll',
+      status: 'success',
+      startedAt: '2026-03-27T10:00:00.000Z',
+      finishedAt: '2026-03-27T10:00:30.000Z',
+      durationMs: 30_000,
+      steps: [
+        { name: 'mealie_to_grocy', status: 'success' },
+      ],
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://hc-ping.test/abc123',
+      expect.objectContaining({
+        dispatcher: expect.anything(),
       }),
     );
   });
