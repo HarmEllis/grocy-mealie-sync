@@ -8,7 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
-import { ScoreBadge } from '@/components/shared/ScoreBadge';
+import { SuggestionScoreIndicator } from './SuggestionScoreIndicator';
 import type { GrocyMinStockProductMapping, GrocyMinStockTabData, SelectOption } from './types';
 import { sortByName } from './types';
 import { isBelowMinimumStock } from './stock';
@@ -116,7 +116,7 @@ export function GrocyMinStockProductsTab({
       <div className="flex flex-wrap items-center gap-2">
         {Object.keys(data.lowStockGrocyProductSuggestions).length > 0 && (
           <Button variant="secondary" size="sm" onClick={onAcceptAllSuggestions} disabled={isRunning}>
-            Accept All Suggestions ({Object.keys(data.lowStockGrocyProductSuggestions).length})
+            Fill Suggestions... ({Object.keys(data.lowStockGrocyProductSuggestions).length})
           </Button>
         )}
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -227,16 +227,14 @@ export function GrocyMinStockProductsTab({
                     />
                   </TableCell>
                   <TableCell>
-                    {suggestion && !isAccepted ? (
-                      <button
-                        className="cursor-pointer"
-                        onClick={() => onAcceptSuggestion(product.id)}
-                        title={`Accept: ${suggestion.mealieFoodName}`}
-                      >
-                        <ScoreBadge score={suggestion.score} />
-                      </button>
-                    ) : suggestion ? (
-                      <ScoreBadge score={suggestion.score} />
+                    {suggestion ? (
+                      <SuggestionScoreIndicator
+                        score={suggestion.score}
+                        ambiguous={suggestion.ambiguous}
+                        runnerUp={suggestion.runnerUp}
+                        acceptTitle={`Accept: ${suggestion.mealieFoodName}`}
+                        onAccept={!isAccepted ? () => onAcceptSuggestion(product.id) : undefined}
+                      />
                     ) : null}
                   </TableCell>
                 </TableRow>

@@ -127,6 +127,8 @@ describe('mapping wizard data route', () => {
         mealieFoodId: 'food-2',
         mealieFoodName: 'Butter',
         score: 100,
+        ambiguous: false,
+        runnerUp: null,
       },
     });
   });
@@ -207,9 +209,46 @@ describe('mapping wizard data route', () => {
           grocyUnitId: 11,
           grocyUnitName: 'Liter',
           score: 100,
+          ambiguous: false,
+          runnerUp: null,
         },
       },
       orphanGrocyUnitCount: 0,
+    });
+  });
+
+  it('builds unit suggestions from plural names, abbreviations, and aliases', async () => {
+    mockState.mealieUnits = [
+      {
+        id: 'unit-1',
+        name: 'Tablespoon',
+        pluralName: 'Tablespoons',
+        abbreviation: 'tbsp',
+        pluralAbbreviation: 'tbsps',
+        aliases: [{ name: 'eetlepel' }],
+      },
+    ];
+    mockState.grocyUnits = [
+      {
+        id: 20,
+        name: 'Eetlepel',
+        name_plural: 'Eetlepels',
+        plural_forms: 'tbsp,tbsps,tablespoon,tablespoons',
+      },
+    ];
+
+    const response = await GET(createRequest('http://localhost/api/mapping-wizard/data?tab=units'));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.unitSuggestions).toEqual({
+      'unit-1': {
+        grocyUnitId: 20,
+        grocyUnitName: 'Eetlepel',
+        score: 100,
+        ambiguous: false,
+        runnerUp: null,
+      },
     });
   });
 });

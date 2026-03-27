@@ -4,7 +4,7 @@ import { productMappings, unitMappings } from '@/lib/db/schema';
 import { getCurrentStock, getGrocyEntities, getVolatileStock } from '@/lib/grocy/types';
 import { RecipesFoodsService, RecipesUnitsService } from '@/lib/mealie';
 import { extractFoods, extractUnits } from '@/lib/mealie/types';
-import { fuzzyMatch } from '@/lib/fuzzy-match';
+import { findSuggestedMatch, type MatchVariant } from '@/lib/fuzzy-match';
 import { log } from '@/lib/logger';
 import type {
   GrocyMinStockProduct,
@@ -28,7 +28,88 @@ interface UnitMappingRow extends UnitMappingRef {
   mealieUnitId: string;
 }
 
-async function fetchMealieFoods(): Promise<MealieFood[]> {
+interface SuggestibleMealieFood extends MealieFood {
+  pluralName: string;
+  aliases: string[];
+}
+
+interface SuggestibleMealieUnit extends MealieUnit {
+  pluralName: string;
+  pluralAbbreviation: string;
+  aliases: string[];
+}
+
+interface SuggestibleGrocyUnit extends GrocyUnit {
+  pluralName: string;
+  pluralForms: string[];
+}
+
+function parseAliasNames(aliases: Array<{ name?: string | null }> | null | undefined): string[] {
+  return (aliases ?? [])
+    .map(alias => alias.name?.trim() ?? '')
+    .filter(Boolean);
+}
+
+function parsePluralForms(value: string | null | undefined): string[] {
+  return (value ?? '')
+    .split(/[,\n;|]/)
+    .map(part => part.trim())
+    .filter(Boolean);
+}
+
+function roundSuggestionScore(score: number): number {
+  return Math.round(score * 100);
+}
+
+function toPublicMealieFoods(foods: SuggestibleMealieFood[]): MealieFood[] {
+  return foods.map(food => ({
+    id: food.id,
+    name: food.name,
+  }));
+}
+
+function toPublicMealieUnits(units: SuggestibleMealieUnit[]): MealieUnit[] {
+  return units.map(unit => ({
+    id: unit.id,
+    name: unit.name,
+    abbreviation: unit.abbreviation,
+  }));
+}
+
+function toPublicGrocyUnits(units: SuggestibleGrocyUnit[]): GrocyUnit[] {
+  return units.map(unit => ({
+    id: unit.id,
+    name: unit.name,
+  }));
+}
+
+function buildFoodVariants(food: Pick<SuggestibleMealieFood, 'name' | 'pluralName' | 'aliases'>): MatchVariant[] {
+  return [
+    { text: food.name, kind: 'name', weight: 1 },
+    { text: food.pluralName, kind: 'plural', weight: 1 },
+    ...food.aliases.map(alias => ({ text: alias, kind: 'alias', weight: 1 })),
+  ];
+}
+
+function buildUnitVariants(unit: Pick<SuggestibleMealieUnit, 'name' | 'pluralName' | 'abbreviation' | 'pluralAbbreviation' | 'aliases'>): MatchVariant[] {
+  return [
+    { text: unit.name, kind: 'name', weight: 1 },
+    { text: unit.pluralName, kind: 'plural', weight: 1 },
+    { text: unit.abbreviation, kind: 'abbreviation', weight: 1 },
+    { text: unit.pluralAbbreviation, kind: 'plural-abbreviation', weight: 1 },
+    ...unit.aliases.map(alias => ({ text: alias, kind: 'alias', weight: 1 })),
+  ];
+}
+
+function buildGrocyUnitVariants(unit: Pick<SuggestibleGrocyUnit, 'name' | 'pluralName' | 'pluralForms'>): MatchVariant[] {
+  return [
+    { text: unit.name, kind: 'name', weight: 1 },
+    { text: unit.pluralName, kind: 'plural', weight: 1 },
+    ...unit.pluralForms.map(form => ({ text: form, kind: 'plural-form', weight: 1 })),
+  ];
+}
+
+async function fetchMealieFoods(): Promise<SuggestibleMealieFood[]> {
   const mealieFoodsRes = await RecipesFoodsService.getAllApiFoodsGet(
     undefined, undefined, undefined, undefined, undefined, undefined, 1, 10000,
   );
@@ -38,10 +119,12 @@ async function fetchMealieFoods(): Promise<MealieFood[]> {
     .map(food => ({
       id: food.id,
       name: food.name || 'Unknown',
+      pluralName: food.pluralName || '',
+      aliases: parseAliasNames(food.aliases),
     }));
 }
 
-async function fetchMealieUnits(): Promise<MealieUnit[]> {
+async function fetchMealieUnits(): Promise<SuggestibleMealieUnit[]> {
   const mealieUnitsRes = await RecipesUnitsService.getAllApiUnitsGet(
     undefined, undefined, undefined, undefined, undefined, undefined, 1, 1000,
   );
@@ -52,6 +135,9 @@ async function fetchMealieUnits(): Promise<MealieUnit[]> {
       id: unit.id,
       name: unit.name || 'Unknown',
       abbreviation: unit.abbreviation || '',
+      pluralName: unit.pluralName || '',
+      pluralAbbreviation: unit.pluralAbbreviation || '',
+      aliases: parseAliasNames(unit.aliases),
     }));
 }
 
@@ -65,11 +151,13 @@ async function fetchGrocyProducts(): Promise<GrocyProduct[]> {
   }));
 }
 
-async function fetchGrocyUnits(): Promise<GrocyUnit[]> {
+async function fetchGrocyUnits(): Promise<SuggestibleGrocyUnit[]> {
   const grocyUnits = await getGrocyEntities('quantity_units');
   return grocyUnits.map(unit => ({
     id: Number(unit.id),
     name: unit.name || 'Unknown',
+    pluralName: unit.name_plural || '',
+    pluralForms: parsePluralForms(unit.plural_forms),
   }));
 }
 
@@ -106,23 +194,23 @@ async function fetchExistingUnitMappings(): Promise<UnitMappingRow[]> {
 }
 
 function buildUnmappedMealieFoods(
-  mealieFoods: MealieFood[],
+  mealieFoods: SuggestibleMealieFood[],
   existingProductMappings: ProductMappingRow[],
-): MealieFood[] {
+): SuggestibleMealieFood[] {
   const mappedMealieFoodIds = new Set(existingProductMappings.map(mapping => mapping.mealieFoodId));
   return mealieFoods.filter(food => !mappedMealieFoodIds.has(food.id));
 }
 
 function buildUnmappedMealieUnits(
-  mealieUnits: MealieUnit[],
+  mealieUnits: SuggestibleMealieUnit[],
   existingUnitMappings: UnitMappingRow[],
-): MealieUnit[] {
+): SuggestibleMealieUnit[] {
   const mappedMealieUnitIds = new Set(existingUnitMappings.map(mapping => mapping.mealieUnitId));
   return mealieUnits.filter(unit => !mappedMealieUnitIds.has(unit.id));
 }
 
 function buildProductSuggestions(
-  unmappedMealieFoods: MealieFood[],
+  unmappedMealieFoods: SuggestibleMealieFood[],
   grocyProducts: GrocyProduct[],
   existingProductMappings: ProductMappingRow[],
   existingUnitMappings: UnitMappingRow[],
@@ -132,20 +220,29 @@ function buildProductSuggestions(
   const suggestions: ProductsTabData['productSuggestions'] = {};
 
   for (const mealieFood of unmappedMealieFoods) {
-    const matches = fuzzyMatch(mealieFood.name, availableGrocyProducts, product => product.name, 0.3, 1);
-    if (matches.length === 0) {
+    const match = findSuggestedMatch(
+      buildFoodVariants(mealieFood),
+      availableGrocyProducts,
+      product => [{ text: product.name, kind: 'name', weight: 1 }],
+    );
+    if (!match.best) {
       continue;
     }
 
-    const best = matches[0];
-    const grocyUnitId = best.item.quIdPurchase;
+    const grocyUnitId = match.best.item.quIdPurchase;
     const hasMappedUnit = existingUnitMappings.some(mapping => mapping.grocyUnitId === grocyUnitId);
 
     suggestions[mealieFood.id] = {
-      grocyProductId: best.item.id,
-      grocyProductName: best.item.name,
-      score: Math.round(best.score * 100),
+      grocyProductId: match.best.item.id,
+      grocyProductName: match.best.item.name,
+      score: roundSuggestionScore(match.best.score),
       suggestedUnitId: grocyUnitId && hasMappedUnit ? grocyUnitId : null,
+      ambiguous: match.ambiguous,
+      runnerUp: match.runnerUp ? {
+        id: match.runnerUp.item.id,
+        name: match.runnerUp.item.name,
+        score: roundSuggestionScore(match.runnerUp.score),
+      } : null,
     };
   }
 
@@ -153,8 +250,8 @@ function buildProductSuggestions(
 }
 
 function buildUnitSuggestions(
-  unmappedMealieUnits: MealieUnit[],
-  grocyUnits: GrocyUnit[],
+  unmappedMealieUnits: SuggestibleMealieUnit[],
+  grocyUnits: SuggestibleGrocyUnit[],
   existingUnitMappings: UnitMappingRow[],
 ): UnitsTabData['unitSuggestions'] {
   const mappedGrocyUnitIds = new Set(existingUnitMappings.map(mapping => mapping.grocyUnitId));
@@ -162,20 +259,26 @@ function buildUnitSuggestions(
   const suggestions: UnitsTabData['unitSuggestions'] = {};
 
   for (const mealieUnit of unmappedMealieUnits) {
-    const nameMatches = fuzzyMatch(mealieUnit.name, availableGrocyUnits, unit => unit.name, 0.3, 1);
-    const abbreviationMatches = mealieUnit.abbreviation
-      ? fuzzyMatch(mealieUnit.abbreviation, availableGrocyUnits, unit => unit.name, 0.4, 1)
-      : [];
-    const best = [...nameMatches, ...abbreviationMatches].sort((left, right) => right.score - left.score)[0];
+    const match = findSuggestedMatch(
+      buildUnitVariants(mealieUnit),
+      availableGrocyUnits,
+      buildGrocyUnitVariants,
+    );
 
-    if (!best) {
+    if (!match.best) {
       continue;
     }
 
     suggestions[mealieUnit.id] = {
-      grocyUnitId: best.item.id,
-      grocyUnitName: best.item.name,
-      score: Math.round(best.score * 100),
+      grocyUnitId: match.best.item.id,
+      grocyUnitName: match.best.item.name,
+      score: roundSuggestionScore(match.best.score),
+      ambiguous: match.ambiguous,
+      runnerUp: match.runnerUp ? {
+        id: match.runnerUp.item.id,
+        name: match.runnerUp.item.name,
+        score: roundSuggestionScore(match.runnerUp.score),
+      } : null,
     };
   }
 
@@ -200,21 +303,30 @@ function buildUnmappedGrocyMinStockProducts(
 
 function buildLowStockGrocyProductSuggestions(
   unmappedGrocyMinStockProducts: GrocyMinStockProduct[],
-  unmappedMealieFoods: MealieFood[],
+  unmappedMealieFoods: SuggestibleMealieFood[],
 ): GrocyMinStockTabData['lowStockGrocyProductSuggestions'] {
   const suggestions: GrocyMinStockTabData['lowStockGrocyProductSuggestions'] = {};
 
   for (const grocyProduct of unmappedGrocyMinStockProducts) {
-    const matches = fuzzyMatch(grocyProduct.name, unmappedMealieFoods, food => food.name, 0.3, 1);
-    if (matches.length === 0) {
+    const match = findSuggestedMatch(
+      [{ text: grocyProduct.name, kind: 'name', weight: 1 }],
+      unmappedMealieFoods,
+      buildFoodVariants,
+    );
+    if (!match.best) {
       continue;
     }
 
-    const best = matches[0];
     suggestions[String(grocyProduct.id)] = {
-      mealieFoodId: best.item.id,
-      mealieFoodName: best.item.name,
-      score: Math.round(best.score * 100),
+      mealieFoodId: match.best.item.id,
+      mealieFoodName: match.best.item.name,
+      score: roundSuggestionScore(match.best.score),
+      ambiguous: match.ambiguous,
+      runnerUp: match.runnerUp ? {
+        id: match.runnerUp.item.id,
+        name: match.runnerUp.item.name,
+        score: roundSuggestionScore(match.runnerUp.score),
+      } : null,
     };
   }
 
@@ -260,9 +372,9 @@ async function loadUnitsTabData(): Promise<UnitsTabData> {
   const unmappedMealieUnits = buildUnmappedMealieUnits(mealieUnits, existingUnitMappings);
 
   return {
-    mealieUnits,
-    unmappedMealieUnits,
-    grocyUnits,
+    mealieUnits: toPublicMealieUnits(mealieUnits),
+    unmappedMealieUnits: toPublicMealieUnits(unmappedMealieUnits),
+    grocyUnits: toPublicGrocyUnits(grocyUnits),
     existingUnitMappings,
     unitSuggestions: buildUnitSuggestions(unmappedMealieUnits, grocyUnits, existingUnitMappings),
     orphanGrocyUnitCount: countOrphanGrocyUnits(mealieUnits, grocyUnits, existingUnitMappings),
@@ -282,9 +394,9 @@ async function loadProductsTabData(): Promise<ProductsTabData> {
   const unmappedMealieFoods = buildUnmappedMealieFoods(mealieFoods, existingProductMappings);
 
   return {
-    unmappedMealieFoods,
+    unmappedMealieFoods: toPublicMealieFoods(unmappedMealieFoods),
     grocyProducts,
-    grocyUnits,
+    grocyUnits: toPublicGrocyUnits(grocyUnits),
     existingUnitMappings,
     productSuggestions: buildProductSuggestions(
       unmappedMealieFoods,
@@ -315,8 +427,8 @@ async function loadGrocyMinStockTabData(): Promise<GrocyMinStockTabData> {
   );
 
   return {
-    unmappedMealieFoods,
-    grocyUnits,
+    unmappedMealieFoods: toPublicMealieFoods(unmappedMealieFoods),
+    grocyUnits: toPublicGrocyUnits(grocyUnits),
     unmappedGrocyMinStockProducts,
     lowStockGrocyProductSuggestions: buildLowStockGrocyProductSuggestions(
       unmappedGrocyMinStockProducts,
@@ -348,12 +460,12 @@ async function loadFullWizardData(): Promise<WizardData> {
   );
 
   return {
-    unmappedMealieFoods,
-    mealieUnits,
-    unmappedMealieUnits,
+    unmappedMealieFoods: toPublicMealieFoods(unmappedMealieFoods),
+    mealieUnits: toPublicMealieUnits(mealieUnits),
+    unmappedMealieUnits: toPublicMealieUnits(unmappedMealieUnits),
     unmappedGrocyMinStockProducts,
     grocyProducts,
-    grocyUnits,
+    grocyUnits: toPublicGrocyUnits(grocyUnits),
     existingUnitMappings,
     productSuggestions: buildProductSuggestions(
       unmappedMealieFoods,

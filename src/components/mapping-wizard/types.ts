@@ -20,9 +20,33 @@ export interface UnitMappingRef {
   grocyUnitId: number;
   grocyUnitName: string;
 }
-export interface ProductSuggestion { grocyProductId: number; grocyProductName: string; score: number; suggestedUnitId: number | null }
-export interface ReverseProductSuggestion { mealieFoodId: string; mealieFoodName: string; score: number }
-export interface UnitSuggestion { grocyUnitId: number; grocyUnitName: string; score: number }
+export interface SuggestionRunnerUp<TId extends string | number = number> {
+  id: TId;
+  name: string;
+  score: number;
+}
+export interface ProductSuggestion {
+  grocyProductId: number;
+  grocyProductName: string;
+  score: number;
+  suggestedUnitId: number | null;
+  ambiguous: boolean;
+  runnerUp: SuggestionRunnerUp<number> | null;
+}
+export interface ReverseProductSuggestion {
+  mealieFoodId: string;
+  mealieFoodName: string;
+  score: number;
+  ambiguous: boolean;
+  runnerUp: SuggestionRunnerUp<string> | null;
+}
+export interface UnitSuggestion {
+  grocyUnitId: number;
+  grocyUnitName: string;
+  score: number;
+  ambiguous: boolean;
+  runnerUp: SuggestionRunnerUp<number> | null;
+}
 
 export interface WizardData {
   unmappedMealieFoods: MealieFood[];

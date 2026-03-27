@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CheckCircle2 } from 'lucide-react';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
-import { ScoreBadge } from '@/components/shared/ScoreBadge';
+import { SuggestionScoreIndicator } from './SuggestionScoreIndicator';
 import type { ProductsTabData, ProductMapping, SelectOption } from './types';
 import { sortByName } from './types';
 
@@ -111,7 +111,7 @@ export function ProductsTab({
       <div className="flex flex-wrap items-center gap-2">
         {Object.keys(data.productSuggestions).length > 0 && (
           <Button variant="secondary" size="sm" onClick={onAcceptAllSuggestions} disabled={isRunning}>
-            Accept All Suggestions ({Object.keys(data.productSuggestions).length})
+            Fill Suggestions... ({Object.keys(data.productSuggestions).length})
           </Button>
         )}
         <Button variant="outline" size="sm" onClick={onNormalizeProducts} disabled={isRunning}>
@@ -153,6 +153,12 @@ export function ProductsTab({
               const mapping = productMaps[food.id];
               const suggestion = data.productSuggestions[food.id];
               const isAccepted = mapping?.grocyProductId !== null;
+              const rowProductOptions = grocyProductOptions.filter(option =>
+                option.value === mapping?.grocyProductId
+                || !Object.values(productMaps).some(other =>
+                  other.mealieFoodId !== food.id && other.grocyProductId === option.value,
+                ),
+              );
               return (
                 <TableRow key={food.id} className={isAccepted ? 'bg-success/5' : undefined}>
                   <TableCell className="text-center">
@@ -166,7 +172,7 @@ export function ProductsTab({
                   <TableCell className="font-medium">{food.name}</TableCell>
                   <TableCell>
                     <SearchableSelect
-                      options={grocyProductOptions}
+                      options={rowProductOptions}
                       value={mapping?.grocyProductId ?? null}
                       onChange={val => {
                         const gp = data.grocyProducts.find(p => p.id === val);
@@ -199,16 +205,14 @@ export function ProductsTab({
                     />
                   </TableCell>
                   <TableCell>
-                    {suggestion && !isAccepted ? (
-                      <button
-                        className="cursor-pointer"
-                        onClick={() => onAcceptSuggestion(food.id)}
-                        title={`Accept: ${suggestion.grocyProductName}`}
-                      >
-                        <ScoreBadge score={suggestion.score} />
-                      </button>
-                    ) : suggestion ? (
-                      <ScoreBadge score={suggestion.score} />
+                    {suggestion ? (
+                      <SuggestionScoreIndicator
+                        score={suggestion.score}
+                        ambiguous={suggestion.ambiguous}
+                        runnerUp={suggestion.runnerUp}
+                        acceptTitle={`Accept: ${suggestion.grocyProductName}`}
+                        onAccept={!isAccepted ? () => onAcceptSuggestion(food.id) : undefined}
+                      />
                     ) : null}
                   </TableCell>
                 </TableRow>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -44,6 +45,7 @@ import {
   type WizardTab,
 } from './state';
 import { OPEN_MAPPING_WIZARD_EVENT } from './events';
+import { applyBulkSuggestions, isSuggestionTargetAvailable } from './suggestion-actions';
 
 interface FetchTabDataOptions {
   preserveWizardState?: boolean;
@@ -101,6 +103,8 @@ export function MappingWizard() {
   const [unitFilter, setUnitFilter] = useState<'unmapped' | 'mapped' | 'all'>('unmapped');
   const [showOnlyGrocyMinStockBelowMinimum, setShowOnlyGrocyMinStockBelowMinimum] = useState(false);
   const [showOnlyMappedProductsBelowMinimum, setShowOnlyMappedProductsBelowMinimum] = useState(false);
+  const [bulkSuggestionTab, setBulkSuggestionTab] = useState<'units' | 'products' | 'grocy-min-stock' | null>(null);
+  const [bulkSuggestionThreshold, setBulkSuggestionThreshold] = useState('90');
 
   // Confirm dialog state
   const [confirmAction, setConfirmAction] = useState<string | null>(null);
@@ -388,32 +392,54 @@ export function MappingWizard() {
     );
   }
 
-  // --- Accept Suggestions ---
+  function openBulkSuggestionDialog(targetTab: 'units' | 'products' | 'grocy-min-stock') {
+    setBulkSuggestionTab(targetTab);
+    setBulkSuggestionThreshold('90');
+  }
 
-  function acceptAllProductSuggestions() {
-    if (!productsData) {
-      return;
+  function closeBulkSuggestionDialog() {
+    setBulkSuggestionTab(null);
+    setBulkSuggestionThreshold('90');
+  }
+
+  function parseBulkSuggestionThreshold(): number | null {
+    const parsed = Number.parseInt(bulkSuggestionThreshold, 10);
+
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
+      toast.error('Enter a threshold between 0 and 100');
+      return null;
     }
 
-    setProductMaps(prev => {
-      const next = { ...prev };
-      for (const food of productsData.unmappedMealieFoods) {
-        const suggestion = productsData.productSuggestions[food.id];
-        if (suggestion) {
-          next[food.id] = {
-            mealieFoodId: food.id,
-            grocyProductId: suggestion.grocyProductId,
-            grocyUnitId: suggestion.suggestedUnitId,
-          };
-        }
-      }
-      return next;
-    });
+    return parsed;
   }
+
+  // --- Accept Suggestions ---
+
+  const currentProductTargetIds = useMemo(() =>
+    Object.fromEntries(Object.entries(productMaps).map(([id, mapping]) => [id, mapping.grocyProductId])),
+    [productMaps],
+  );
+  const currentGrocyMinStockTargetIds = useMemo(() =>
+    Object.fromEntries(Object.entries(grocyMinStockProductMaps).map(([id, mapping]) => [id, mapping.mealieFoodId])),
+    [grocyMinStockProductMaps],
+  );
+  const currentUnitTargetIds = useMemo(() =>
+    Object.fromEntries(Object.entries(unitMaps).map(([id, mapping]) => [id, mapping.grocyUnitId])),
+    [unitMaps],
+  );
 
   function acceptProductSuggestion(id: string) {
     const suggestion = productsData?.productSuggestions[id];
     if (!suggestion) {
+      return;
+    }
+
+    if (!isSuggestionTargetAvailable({
+      sourceId: id,
+      targetId: suggestion.grocyProductId,
+      currentTargetIdsBySourceId: currentProductTargetIds,
+    })) {
+      toast.info('That Grocy product is already selected for another row');
       return;
     }
 
@@ -425,25 +451,9 @@ export function MappingWizard() {
         grocyUnitId: suggestion.suggestedUnitId,
       },
     }));
-  }
-
-  function acceptAllGrocyMinStockProductSuggestions() {
-    if (!grocyMinStockData) {
-      return;
-    }
-
-    setGrocyMinStockProductMaps(prev => {
+    setCreateProductChecked(prev => {
       const next = { ...prev };
-      for (const product of grocyMinStockData.unmappedGrocyMinStockProducts) {
-        const suggestion = grocyMinStockData.lowStockGrocyProductSuggestions[String(product.id)];
-        if (suggestion) {
-          next[String(product.id)] = {
-            grocyProductId: product.id,
-            mealieFoodId: suggestion.mealieFoodId,
-            grocyUnitId: product.quIdPurchase || null,
-          };
-        }
-      }
+      delete next[id];
       return next;
     });
   }
@@ -459,6 +469,15 @@ export function MappingWizard() {
       return;
     }
 
+    if (!isSuggestionTargetAvailable({
+      sourceId: String(grocyProductId),
+      targetId: suggestion.mealieFoodId,
+      currentTargetIdsBySourceId: currentGrocyMinStockTargetIds,
+    })) {
+      toast.info('That Mealie product is already selected for another row');
+      return;
+    }
+
     setGrocyMinStockProductMaps(prev => ({
       ...prev,
       [String(grocyProductId)]: {
@@ -467,21 +486,9 @@ export function MappingWizard() {
         grocyUnitId: grocyProduct.quIdPurchase || null,
       },
     }));
-  }
-
-  function acceptAllUnitSuggestions() {
-    if (!unitsData) {
-      return;
-    }
-
-    setUnitMaps(prev => {
+    setCreateMealieProductChecked(prev => {
       const next = { ...prev };
-      for (const unit of unitsData.unmappedMealieUnits) {
-        const suggestion = unitsData.unitSuggestions[unit.id];
-        if (suggestion) {
-          next[unit.id] = { mealieUnitId: unit.id, grocyUnitId: suggestion.grocyUnitId };
-        }
-      }
+      delete next[String(grocyProductId)];
       return next;
     });
   }
@@ -492,7 +499,207 @@ export function MappingWizard() {
       return;
     }
 
+    if (!isSuggestionTargetAvailable({
+      sourceId: id,
+      targetId: suggestion.grocyUnitId,
+      currentTargetIdsBySourceId: currentUnitTargetIds,
+    })) {
+      toast.info('That Grocy unit is already selected for another row');
+      return;
+    }
+
     setUnitMaps(prev => ({ ...prev, [id]: { mealieUnitId: id, grocyUnitId: suggestion.grocyUnitId } }));
+    setCreateUnitChecked(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }
+
+  function applyBulkProductSuggestions(threshold: number) {
+    if (!productsData) {
+      return;
+    }
+
+    const result = applyBulkSuggestions({
+      threshold,
+      currentTargetIdsBySourceId: currentProductTargetIds,
+      suggestionsBySourceId: Object.fromEntries(
+        Object.entries(productsData.productSuggestions).map(([id, suggestion]) => [
+          id,
+          {
+            targetId: suggestion.grocyProductId,
+            score: suggestion.score,
+            ambiguous: suggestion.ambiguous,
+          },
+        ]),
+      ),
+    });
+
+    if (result.appliedSourceIds.length === 0) {
+      toast.info(`No product suggestions meet the ${threshold}% threshold`);
+      return;
+    }
+
+    setProductMaps(prev => {
+      const next = { ...prev };
+      for (const id of result.appliedSourceIds) {
+        const suggestion = productsData.productSuggestions[id];
+        if (!suggestion) {
+          continue;
+        }
+
+        next[id] = {
+          mealieFoodId: id,
+          grocyProductId: suggestion.grocyProductId,
+          grocyUnitId: suggestion.suggestedUnitId,
+        };
+      }
+      return next;
+    });
+    setCreateProductChecked(prev => {
+      const next = { ...prev };
+      for (const id of result.appliedSourceIds) {
+        delete next[id];
+      }
+      return next;
+    });
+
+    toast.success(
+      `Filled ${result.appliedSourceIds.length} product suggestions >= ${threshold}%`
+      + (result.ambiguousSourceIds.length > 0 ? `, ${result.ambiguousSourceIds.length} need review` : ''),
+    );
+  }
+
+  function applyBulkGrocyMinStockSuggestions(threshold: number) {
+    if (!grocyMinStockData) {
+      return;
+    }
+
+    const result = applyBulkSuggestions({
+      threshold,
+      currentTargetIdsBySourceId: currentGrocyMinStockTargetIds,
+      suggestionsBySourceId: Object.fromEntries(
+        Object.entries(grocyMinStockData.lowStockGrocyProductSuggestions).map(([id, suggestion]) => [
+          id,
+          {
+            targetId: suggestion.mealieFoodId,
+            score: suggestion.score,
+            ambiguous: suggestion.ambiguous,
+          },
+        ]),
+      ),
+    });
+
+    if (result.appliedSourceIds.length === 0) {
+      toast.info(`No Grocy min-stock suggestions meet the ${threshold}% threshold`);
+      return;
+    }
+
+    setGrocyMinStockProductMaps(prev => {
+      const next = { ...prev };
+      for (const id of result.appliedSourceIds) {
+        const suggestion = grocyMinStockData.lowStockGrocyProductSuggestions[id];
+        const grocyProduct = grocyMinStockData.unmappedGrocyMinStockProducts.find(product => String(product.id) === id);
+        if (!suggestion || !grocyProduct) {
+          continue;
+        }
+
+        next[id] = {
+          grocyProductId: grocyProduct.id,
+          mealieFoodId: suggestion.mealieFoodId,
+          grocyUnitId: grocyProduct.quIdPurchase || null,
+        };
+      }
+      return next;
+    });
+    setCreateMealieProductChecked(prev => {
+      const next = { ...prev };
+      for (const id of result.appliedSourceIds) {
+        delete next[id];
+      }
+      return next;
+    });
+
+    toast.success(
+      `Filled ${result.appliedSourceIds.length} Grocy min-stock suggestions >= ${threshold}%`
+      + (result.ambiguousSourceIds.length > 0 ? `, ${result.ambiguousSourceIds.length} need review` : ''),
+    );
+  }
+
+  function applyBulkUnitSuggestions(threshold: number) {
+    if (!unitsData) {
+      return;
+    }
+
+    const result = applyBulkSuggestions({
+      threshold,
+      currentTargetIdsBySourceId: currentUnitTargetIds,
+      suggestionsBySourceId: Object.fromEntries(
+        Object.entries(unitsData.unitSuggestions).map(([id, suggestion]) => [
+          id,
+          {
+            targetId: suggestion.grocyUnitId,
+            score: suggestion.score,
+            ambiguous: suggestion.ambiguous,
+          },
+        ]),
+      ),
+    });
+
+    if (result.appliedSourceIds.length === 0) {
+      toast.info(`No unit suggestions meet the ${threshold}% threshold`);
+      return;
+    }
+
+    setUnitMaps(prev => {
+      const next = { ...prev };
+      for (const id of result.appliedSourceIds) {
+        const suggestion = unitsData.unitSuggestions[id];
+        if (!suggestion) {
+          continue;
+        }
+
+        next[id] = {
+          mealieUnitId: id,
+          grocyUnitId: suggestion.grocyUnitId,
+        };
+      }
+      return next;
+    });
+    setCreateUnitChecked(prev => {
+      const next = { ...prev };
+      for (const id of result.appliedSourceIds) {
+        delete next[id];
+      }
+      return next;
+    });
+
+    toast.success(
+      `Filled ${result.appliedSourceIds.length} unit suggestions >= ${threshold}%`
+      + (result.ambiguousSourceIds.length > 0 ? `, ${result.ambiguousSourceIds.length} need review` : ''),
+    );
+  }
+
+  function applyBulkSuggestionsForCurrentTab() {
+    const threshold = parseBulkSuggestionThreshold();
+    if (threshold === null || !bulkSuggestionTab) {
+      return;
+    }
+
+    switch (bulkSuggestionTab) {
+      case 'products':
+        applyBulkProductSuggestions(threshold);
+        break;
+      case 'grocy-min-stock':
+        applyBulkGrocyMinStockSuggestions(threshold);
+        break;
+      case 'units':
+        applyBulkUnitSuggestions(threshold);
+        break;
+    }
+
+    closeBulkSuggestionDialog();
   }
 
   // --- Product Actions ---
@@ -1000,7 +1207,7 @@ export function MappingWizard() {
             setUnitFilter={setUnitFilter}
             grocyUnitOptions={unitGrocyUnitOptions}
             actionRunning={actionRunning}
-            onAcceptAllSuggestions={acceptAllUnitSuggestions}
+            onAcceptAllSuggestions={() => openBulkSuggestionDialog('units')}
             onAcceptSuggestion={acceptUnitSuggestion}
             onNormalizeUnits={normalizeUnits}
             onUnmapUnit={(mappingId, mealieUnitId, mealieUnitName) => openConfirm(
@@ -1028,7 +1235,7 @@ export function MappingWizard() {
             defaultCreateUnitId={defaultCreateUnitId}
             setDefaultCreateUnitId={setDefaultCreateUnitId}
             actionRunning={actionRunning}
-            onAcceptAllSuggestions={acceptAllProductSuggestions}
+            onAcceptAllSuggestions={() => openBulkSuggestionDialog('products')}
             onAcceptSuggestion={acceptProductSuggestion}
             onNormalizeProducts={normalizeProducts}
           />
@@ -1048,7 +1255,7 @@ export function MappingWizard() {
             mealieProductOptions={mealieProductOptions}
             grocyUnitOptions={grocyMinStockGrocyUnitOptions}
             actionRunning={actionRunning}
-            onAcceptAllSuggestions={acceptAllGrocyMinStockProductSuggestions}
+            onAcceptAllSuggestions={() => openBulkSuggestionDialog('grocy-min-stock')}
             onAcceptSuggestion={acceptGrocyMinStockProductSuggestion}
           />
         );
@@ -1191,6 +1398,44 @@ export function MappingWizard() {
             itemNames={confirmItemNames}
             running={isRunning}
           />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkSuggestionTab !== null} onOpenChange={open => { if (!open) closeBulkSuggestionDialog(); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Fill Suggestions</DialogTitle>
+            <DialogDescription>
+              Fill the best suggestions for the current tab using a temporary minimum score.
+              Existing selections are kept and targets stay one-to-one.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <label htmlFor="bulk-suggestion-threshold" className="text-sm font-medium">
+              Minimum score (%)
+            </label>
+            <Input
+              id="bulk-suggestion-threshold"
+              type="number"
+              min={0}
+              max={100}
+              value={bulkSuggestionThreshold}
+              onChange={event => setBulkSuggestionThreshold(event.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Default is 90. Ambiguous rows can still be filled, but they will show a warning icon for review.
+            </p>
+          </div>
+
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button variant="outline" onClick={closeBulkSuggestionDialog}>
+              Cancel
+            </Button>
+            <Button onClick={applyBulkSuggestionsForCurrentTab}>
+              Fill Suggestions
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

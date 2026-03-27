@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CheckCircle2 } from 'lucide-react';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
-import { ScoreBadge } from '@/components/shared/ScoreBadge';
+import { SuggestionScoreIndicator } from './SuggestionScoreIndicator';
 import type { UnitsTabData, UnitMapping, SelectOption } from './types';
 import { sortByName } from './types';
 
@@ -117,7 +117,7 @@ export function UnitsTab({
       <div className="flex flex-wrap items-center gap-2">
         {Object.keys(data.unitSuggestions).length > 0 && (
           <Button variant="secondary" size="sm" onClick={onAcceptAllSuggestions} disabled={isRunning}>
-            Accept All Suggestions ({Object.keys(data.unitSuggestions).length})
+            Fill Suggestions... ({Object.keys(data.unitSuggestions).length})
           </Button>
         )}
         <Button variant="outline" size="sm" onClick={onNormalizeUnits} disabled={isRunning}>
@@ -212,16 +212,14 @@ export function UnitsTab({
                     />
                   </TableCell>
                   <TableCell>
-                    {suggestion && !isAccepted ? (
-                      <button
-                        className="cursor-pointer"
-                        onClick={() => onAcceptSuggestion(unit.id)}
-                        title={`Accept: ${suggestion.grocyUnitName}`}
-                      >
-                        <ScoreBadge score={suggestion.score} />
-                      </button>
-                    ) : suggestion ? (
-                      <ScoreBadge score={suggestion.score} />
+                    {suggestion ? (
+                      <SuggestionScoreIndicator
+                        score={suggestion.score}
+                        ambiguous={suggestion.ambiguous}
+                        runnerUp={suggestion.runnerUp}
+                        acceptTitle={`Accept: ${suggestion.grocyUnitName}`}
+                        onAccept={!isAccepted ? () => onAcceptSuggestion(unit.id) : undefined}
+                      />
                     ) : null}
                   </TableCell>
                   <TableCell>

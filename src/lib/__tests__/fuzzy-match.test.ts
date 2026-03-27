@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { fuzzyScore, fuzzyMatch } from '../fuzzy-match';
+import { findSuggestedMatch, fuzzyScore, fuzzyMatch, normalizeMatchText } from '../fuzzy-match';
+
+describe('normalizeMatchText', () => {
+  it('normalizes accents, ampersands, punctuation, and whitespace', () => {
+    expect(normalizeMatchText("  Crème fraîche & milk!  ")).toBe('creme fraiche and milk');
+  });
+});
 
 describe('fuzzyScore', () => {
   it('returns 1.0 for exact matches', () => {
@@ -39,6 +45,11 @@ describe('fuzzyScore', () => {
   it('handles partial token matches', () => {
     const score = fuzzyScore('Chick', 'Chicken Breast');
     expect(score).toBeGreaterThan(0.5);
+  });
+
+  it('scores plural and singular forms as a strong match', () => {
+    const score = fuzzyScore('Tablespoons', 'Tablespoon');
+    expect(score).toBeGreaterThan(0.9);
   });
 
   it('skips character similarity for very long strings (>60 chars)', () => {
@@ -89,5 +100,69 @@ describe('fuzzyMatch', () => {
     const results = fuzzyMatch('Pasta', items, (x) => x.name);
     expect(results.length).toBeGreaterThanOrEqual(1);
     expect(results[0].item.name).toContain('Pasta');
+  });
+});
+
+describe('findSuggestedMatch', () => {
+  it('matches against weighted variants such as abbreviations and aliases', () => {
+    const candidates = [
+      {
+        id: 1,
+        name: 'Tablespoon',
+        variants: [
+          { text: 'Tablespoon', kind: 'name' },
+          { text: 'Tablespoons', kind: 'plural' },
+          { text: 'tbsp', kind: 'abbreviation' },
+          { text: 'eetlepel', kind: 'alias' },
+        ],
+      },
+      {
+        id: 2,
+        name: 'Teaspoon',
+        variants: [
+          { text: 'Teaspoon', kind: 'name' },
+          { text: 'Teaspoons', kind: 'plural' },
+          { text: 'tsp', kind: 'abbreviation' },
+        ],
+      },
+    ];
+
+    const result = findSuggestedMatch(
+      [
+        { text: 'Eetlepel', kind: 'alias', weight: 0.95 },
+        { text: 'tbsp', kind: 'abbreviation', weight: 0.92 },
+      ],
+      candidates,
+      candidate => candidate.variants,
+    );
+
+    expect(result.best?.item.id).toBe(1);
+    expect(result.best?.score).toBeGreaterThan(0.9);
+    expect(result.best?.kind).toBe('alias');
+    expect(result.runnerUp).toBeNull();
+    expect(result.ambiguous).toBe(false);
+  });
+
+  it('returns a runner-up and marks close scores as ambiguous', () => {
+    const candidates = [
+      {
+        name: 'Brown Rice',
+        variants: [{ text: 'Brown Rice', kind: 'name' }],
+      },
+      {
+        name: 'White Rice',
+        variants: [{ text: 'White Rice', kind: 'name' }],
+      },
+    ];
+
+    const result = findSuggestedMatch(
+      [{ text: 'Rice', kind: 'name' }],
+      candidates,
+      candidate => candidate.variants,
+    );
+
+    expect(result.best?.item.name).toBe('Brown Rice');
+    expect(result.runnerUp?.item.name).toBe('White Rice');
+    expect(result.ambiguous).toBe(true);
   });
 });
