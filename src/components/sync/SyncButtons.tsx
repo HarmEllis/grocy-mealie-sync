@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowLeftRight, ArrowRight, RefreshCw, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { openMappingWizard } from '@/components/mapping-wizard/events';
+import { getPartialToastConfig, type SyncActionResponse } from './toast';
 
 const syncActions = [
   { label: 'Sync Products & Units', endpoint: '/api/sync/products', icon: RefreshCw },
@@ -12,13 +14,6 @@ const syncActions = [
   { label: 'Reconcile In Possession', endpoint: '/api/sync/grocy-to-mealie/in-possession', icon: RefreshCw },
   { label: 'Mealie \u2192 Grocy', endpoint: '/api/sync/mealie-to-grocy', icon: ArrowLeftRight },
 ] as const;
-
-interface SyncActionResponse {
-  status?: 'ok' | 'partial' | 'skipped' | 'busy' | 'error';
-  message?: string;
-  error?: string;
-  summary?: Record<string, number>;
-}
 
 export function SyncButtons() {
   const [running, setRunning] = useState<string | null>(null);
@@ -45,7 +40,20 @@ export function SyncButtons() {
       const description = body?.summary ? body.message : undefined;
 
       if (body?.status === 'partial') {
-        toast.warning(`${label} partially completed`, { description });
+        const partialToast = getPartialToastConfig(endpoint, body);
+        toast.warning(
+          `${label} partially completed`,
+          partialToast.mappingWizardTab
+            ? {
+              description: partialToast.description,
+              action: {
+                label: 'Open Mapping Wizard',
+                onClick: () => openMappingWizard({ tab: partialToast.mappingWizardTab }),
+              },
+              duration: partialToast.duration,
+            }
+            : { description: partialToast.description },
+        );
         return;
       }
 

@@ -11,6 +11,7 @@ import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { ScoreBadge } from '@/components/shared/ScoreBadge';
 import type { GrocyMinStockProductMapping, GrocyMinStockTabData, SelectOption } from './types';
 import { sortByName } from './types';
+import { isBelowMinimumStock } from './stock';
 
 interface GrocyMinStockProductsTabProps {
   data: GrocyMinStockTabData;
@@ -20,6 +21,8 @@ interface GrocyMinStockProductsTabProps {
   setCreateProductChecked: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   productSearch: string;
   setProductSearch: (value: string) => void;
+  showOnlyBelowMinimumStock: boolean;
+  setShowOnlyBelowMinimumStock: (value: boolean) => void;
   mealieProductOptions: SelectOption<string>[];
   grocyUnitOptions: SelectOption[];
   actionRunning: string | null;
@@ -35,6 +38,8 @@ export function GrocyMinStockProductsTab({
   setCreateProductChecked,
   productSearch,
   setProductSearch,
+  showOnlyBelowMinimumStock,
+  setShowOnlyBelowMinimumStock,
   mealieProductOptions,
   grocyUnitOptions,
   actionRunning,
@@ -43,12 +48,28 @@ export function GrocyMinStockProductsTab({
 }: GrocyMinStockProductsTabProps) {
   const isRunning = !!actionRunning;
 
+  const belowMinimumCount = useMemo(() =>
+    data.unmappedGrocyMinStockProducts.filter(product =>
+      isBelowMinimumStock(product.currentStock, product.minStockAmount),
+    ).length,
+    [data],
+  );
+
   const filteredProducts = useMemo(() => {
     const sorted = sortByName(data.unmappedGrocyMinStockProducts);
-    if (!productSearch) return sorted;
     const q = productSearch.toLowerCase();
-    return sorted.filter(product => product.name.toLowerCase().includes(q));
-  }, [data, productSearch]);
+    return sorted.filter(product => {
+      if (showOnlyBelowMinimumStock && !isBelowMinimumStock(product.currentStock, product.minStockAmount)) {
+        return false;
+      }
+
+      if (!productSearch) {
+        return true;
+      }
+
+      return product.name.toLowerCase().includes(q);
+    });
+  }, [data, productSearch, showOnlyBelowMinimumStock]);
 
   const unmappedProductIds = useMemo(() =>
     Object.entries(productMaps)
@@ -94,6 +115,13 @@ export function GrocyMinStockProductsTab({
             Accept All Suggestions ({Object.keys(data.lowStockGrocyProductSuggestions).length})
           </Button>
         )}
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Checkbox
+            checked={showOnlyBelowMinimumStock}
+            onCheckedChange={(checked: boolean) => setShowOnlyBelowMinimumStock(checked)}
+          />
+          <span>Only currently below minimum ({belowMinimumCount})</span>
+        </label>
         <Input
           placeholder="Filter Grocy min-stock products..."
           value={productSearch}
@@ -126,6 +154,13 @@ export function GrocyMinStockProductsTab({
             </TableRow>
           </TableHeader>
           <TableBody>
+            {filteredProducts.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} className="py-6 text-center text-sm text-muted-foreground">
+                  No Grocy min-stock products match the current filters.
+                </TableCell>
+              </TableRow>
+            )}
             {filteredProducts.map(product => {
               const productKey = String(product.id);
               const mapping = productMaps[productKey];

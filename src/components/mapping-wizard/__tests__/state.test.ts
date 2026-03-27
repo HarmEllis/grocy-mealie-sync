@@ -30,7 +30,7 @@ function createWizardData(overrides: Partial<WizardData> = {}): WizardData {
       { id: 11, name: 'Liter' },
     ],
     unmappedGrocyMinStockProducts: [
-      { id: 1, name: 'Milk', quIdPurchase: 10, minStockAmount: 1 },
+      { id: 1, name: 'Milk', quIdPurchase: 10, minStockAmount: 1, currentStock: 0 },
     ],
     existingUnitMappings: [],
     productSuggestions: {},
@@ -134,8 +134,8 @@ describe('mergeGrocyMinStockProductMaps', () => {
     const merged = mergeGrocyMinStockProductMaps(
       createWizardData({
         unmappedGrocyMinStockProducts: [
-          { id: 1, name: 'Milk', quIdPurchase: 10, minStockAmount: 1 },
-          { id: 3, name: 'Eggs', quIdPurchase: 12, minStockAmount: 6 },
+          { id: 1, name: 'Milk', quIdPurchase: 10, minStockAmount: 1, currentStock: 0 },
+          { id: 3, name: 'Eggs', quIdPurchase: 12, minStockAmount: 6, currentStock: 1 },
         ],
       }),
       {

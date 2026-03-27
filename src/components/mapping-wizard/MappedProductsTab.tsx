@@ -3,14 +3,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { MappedProductsTabData } from './types';
+import { isBelowMinimumStock } from './stock';
 
 interface MappedProductsTabProps {
   data: MappedProductsTabData;
   productSearch: string;
   setProductSearch: (value: string) => void;
+  showOnlyBelowMinimumStock: boolean;
+  setShowOnlyBelowMinimumStock: (value: boolean) => void;
   onUpdateMinStock: (grocyProductId: number, minStockAmount: number) => Promise<void>;
 }
 
@@ -26,6 +30,8 @@ export function MappedProductsTab({
   data,
   productSearch,
   setProductSearch,
+  showOnlyBelowMinimumStock,
+  setShowOnlyBelowMinimumStock,
   onUpdateMinStock,
 }: MappedProductsTabProps) {
   const [draftMinStock, setDraftMinStock] = useState<Record<number, string>>({});
@@ -39,16 +45,22 @@ export function MappedProductsTab({
     );
   }, [data]);
 
-  const filteredProducts = useMemo(() => {
-    if (!productSearch) {
-      return data.mappedProducts;
-    }
+  const belowMinimumCount = useMemo(() =>
+    data.mappedProducts.filter(product =>
+      isBelowMinimumStock(product.currentStock, product.minStockAmount),
+    ).length,
+    [data],
+  );
 
+  const filteredProducts = useMemo(() => {
     const query = productSearch.toLowerCase();
     return data.mappedProducts.filter(product =>
-      product.name.toLowerCase().includes(query) || product.unitName.toLowerCase().includes(query),
+      (!showOnlyBelowMinimumStock || isBelowMinimumStock(product.currentStock, product.minStockAmount))
+      && (!productSearch
+        || product.name.toLowerCase().includes(query)
+        || product.unitName.toLowerCase().includes(query)),
     );
-  }, [data, productSearch]);
+  }, [data, productSearch, showOnlyBelowMinimumStock]);
 
   async function saveMinStock(grocyProductId: number) {
     const rawValue = draftMinStock[grocyProductId] ?? '0';
@@ -68,12 +80,21 @@ export function MappedProductsTab({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col space-y-3">
-      <Input
-        placeholder="Filter mapped products by product or unit..."
-        value={productSearch}
-        onChange={event => setProductSearch(event.target.value)}
-        className="max-w-[320px]"
-      />
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Checkbox
+            checked={showOnlyBelowMinimumStock}
+            onCheckedChange={(checked: boolean) => setShowOnlyBelowMinimumStock(checked)}
+          />
+          <span>Only currently below minimum ({belowMinimumCount})</span>
+        </label>
+        <Input
+          placeholder="Filter mapped products by product or unit..."
+          value={productSearch}
+          onChange={event => setProductSearch(event.target.value)}
+          className="max-w-[320px]"
+        />
+      </div>
 
       <div className="min-h-0 min-w-0 flex-1 rounded-md border">
         <Table className="min-w-[760px]" containerClassName="h-full min-w-0">
@@ -86,6 +107,13 @@ export function MappedProductsTab({
             </TableRow>
           </TableHeader>
           <TableBody>
+            {filteredProducts.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={4} className="py-6 text-center text-sm text-muted-foreground">
+                  No mapped products match the current filters.
+                </TableCell>
+              </TableRow>
+            )}
             {filteredProducts.map(product => {
               const draftValue = draftMinStock[product.grocyProductId] ?? String(product.minStockAmount);
               const parsedDraft = Number(draftValue);

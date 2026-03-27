@@ -39,6 +39,7 @@ import {
   mergeUnitMaps,
   type WizardTab,
 } from './state';
+import { OPEN_MAPPING_WIZARD_EVENT } from './events';
 
 interface FetchTabDataOptions {
   preserveWizardState?: boolean;
@@ -88,6 +89,8 @@ export function MappingWizard() {
   const [grocyMinStockProductSearch, setGrocyMinStockProductSearch] = useState('');
   const [mappedProductSearch, setMappedProductSearch] = useState('');
   const [unitSearch, setUnitSearch] = useState('');
+  const [showOnlyGrocyMinStockBelowMinimum, setShowOnlyGrocyMinStockBelowMinimum] = useState(false);
+  const [showOnlyMappedProductsBelowMinimum, setShowOnlyMappedProductsBelowMinimum] = useState(false);
 
   // Confirm dialog state
   const [confirmAction, setConfirmAction] = useState<string | null>(null);
@@ -109,6 +112,21 @@ export function MappingWizard() {
   useEffect(() => {
     return () => {
       if (messageTimeoutRef.current) clearTimeout(messageTimeoutRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleOpenMappingWizard = (event: Event) => {
+      const customEvent = event as CustomEvent<{ tab?: WizardTab }>;
+      const targetTab = customEvent.detail?.tab ?? 'units';
+
+      setTab(targetTab);
+      setOpen(true);
+    };
+
+    window.addEventListener(OPEN_MAPPING_WIZARD_EVENT, handleOpenMappingWizard);
+    return () => {
+      window.removeEventListener(OPEN_MAPPING_WIZARD_EVENT, handleOpenMappingWizard);
     };
   }, []);
 
@@ -927,6 +945,8 @@ export function MappingWizard() {
             setCreateProductChecked={setCreateMealieProductChecked}
             productSearch={grocyMinStockProductSearch}
             setProductSearch={setGrocyMinStockProductSearch}
+            showOnlyBelowMinimumStock={showOnlyGrocyMinStockBelowMinimum}
+            setShowOnlyBelowMinimumStock={setShowOnlyGrocyMinStockBelowMinimum}
             mealieProductOptions={mealieProductOptions}
             grocyUnitOptions={grocyMinStockGrocyUnitOptions}
             actionRunning={actionRunning}
@@ -940,6 +960,8 @@ export function MappingWizard() {
             data={mappedProductsData!}
             productSearch={mappedProductSearch}
             setProductSearch={setMappedProductSearch}
+            showOnlyBelowMinimumStock={showOnlyMappedProductsBelowMinimum}
+            setShowOnlyBelowMinimumStock={setShowOnlyMappedProductsBelowMinimum}
             onUpdateMinStock={updateMappedProductMinStock}
           />
         );

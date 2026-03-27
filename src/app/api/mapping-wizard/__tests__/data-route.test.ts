@@ -9,6 +9,7 @@ const mockState = vi.hoisted(() => ({
   mealieUnits: [] as Array<Record<string, unknown>>,
   grocyProducts: [] as Array<Record<string, unknown>>,
   grocyUnits: [] as Array<Record<string, unknown>>,
+  currentStock: [] as Array<Record<string, unknown>>,
   logError: vi.fn(),
 }));
 
@@ -35,6 +36,7 @@ vi.mock('@/lib/grocy/types', () => ({
     if (entity === 'quantity_units') return mockState.grocyUnits;
     throw new Error(`Unexpected Grocy entity: ${entity}`);
   }),
+  getCurrentStock: vi.fn(async () => mockState.currentStock),
 }));
 
 vi.mock('@/lib/mealie', () => ({
@@ -66,6 +68,7 @@ describe('mapping wizard data route', () => {
     mockState.mealieUnits = [];
     mockState.grocyProducts = [];
     mockState.grocyUnits = [];
+    mockState.currentStock = [];
     mockState.logError.mockClear();
   });
 
@@ -93,14 +96,17 @@ describe('mapping wizard data route', () => {
     mockState.unitMappingsRows = [
       { id: 'unit-map-1', grocyUnitId: 10, grocyUnitName: 'Piece', mealieUnitName: 'Piece' },
     ];
+    mockState.currentStock = [
+      { product_id: 103, amount: 2, amount_aggregated: 2 },
+    ];
 
     const response = await GET(createRequest());
     const body = await response.json();
 
     expect(response.status).toBe(200);
     expect(body.unmappedGrocyMinStockProducts).toEqual([
-      { id: 102, name: 'Eggs', quIdPurchase: 11, minStockAmount: 12 },
-      { id: 103, name: 'Butter', quIdPurchase: 10, minStockAmount: 5 },
+      { id: 102, name: 'Eggs', quIdPurchase: 11, minStockAmount: 12, currentStock: 0 },
+      { id: 103, name: 'Butter', quIdPurchase: 10, minStockAmount: 5, currentStock: 2 },
     ]);
     expect(body.lowStockGrocyProductSuggestions).toEqual({
       '103': {
