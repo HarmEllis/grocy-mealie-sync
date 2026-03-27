@@ -114,6 +114,7 @@ describe('settingsUpdateSchema', () => {
       ensureLowStockOnMealieList: true,
       syncMealieInPossession: true,
       mealieInPossessionOnlyAboveMinStock: true,
+      allowDecimalMinStockInMappingWizard: false,
       stockOnlyMinStock: true,
     });
     expect(result.success).toBe(true);

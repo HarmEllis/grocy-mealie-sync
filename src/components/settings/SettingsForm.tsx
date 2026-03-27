@@ -37,6 +37,7 @@ interface SettingsData {
   ensureLowStockOnMealieList: boolean;
   syncMealieInPossession: boolean;
   mealieInPossessionOnlyAboveMinStock: boolean;
+  allowDecimalMinStockInMappingWizard: boolean;
   stockOnlyMinStock: boolean;
   locks: {
     defaultUnitMappingId: SettingLock;
@@ -46,6 +47,7 @@ interface SettingsData {
     ensureLowStockOnMealieList: SettingLock;
     syncMealieInPossession: SettingLock;
     mealieInPossessionOnlyAboveMinStock: SettingLock;
+    allowDecimalMinStockInMappingWizard: SettingLock;
     stockOnlyMinStock: SettingLock;
   };
   availableUnits: UnitOption[];
@@ -186,6 +188,11 @@ export function SettingsForm() {
     if (ok) setSettings(s => s ? { ...s, mealieInPossessionOnlyAboveMinStock: value } : s);
   }
 
+  async function handleAllowDecimalMinStockInMappingWizardChange(value: boolean) {
+    const ok = await saveSetting({ allowDecimalMinStockInMappingWizard: value });
+    if (ok) setSettings(s => s ? { ...s, allowDecimalMinStockInMappingWizard: value } : s);
+  }
+
   return (
     <TooltipProvider>
       <div className="space-y-5">
@@ -315,6 +322,29 @@ export function SettingsForm() {
             <span className="text-sm">Auto-create products</span>
             <LockBadge lock={settings.locks.autoCreateProducts} />
           </label>
+        </div>
+
+        <Separator />
+
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm font-medium">Mapping Wizard</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Control editing behavior in the mapped products overview.
+            </p>
+          </div>
+          <label className={`flex items-center gap-2.5 ${settings.locks.allowDecimalMinStockInMappingWizard.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
+            <Checkbox
+              checked={settings.allowDecimalMinStockInMappingWizard}
+              disabled={settings.locks.allowDecimalMinStockInMappingWizard.locked}
+              onCheckedChange={(checked: boolean) => handleAllowDecimalMinStockInMappingWizardChange(checked)}
+            />
+            <span className="text-sm">Allow decimal minimum stock</span>
+            <LockBadge lock={settings.locks.allowDecimalMinStockInMappingWizard} />
+          </label>
+          <p className="pl-6 text-xs text-muted-foreground">
+            When enabled, the mapped products tab accepts decimal values for Grocy `min_stock_amount`. When disabled, only whole numbers can be saved there.
+          </p>
         </div>
 
         <Separator />

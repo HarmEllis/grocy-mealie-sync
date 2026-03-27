@@ -9,6 +9,7 @@ const mockState = vi.hoisted(() => ({
   grocyUnits: [] as Array<Record<string, unknown>>,
   currentStock: [] as Array<Record<string, unknown>>,
   updateGrocyEntity: vi.fn(),
+  resolveAllowDecimalMinStockInMappingWizard: vi.fn(async () => true),
   logError: vi.fn(),
 }));
 
@@ -52,6 +53,10 @@ vi.mock('@/lib/logger', () => ({
   },
 }));
 
+vi.mock('@/lib/settings', () => ({
+  resolveAllowDecimalMinStockInMappingWizard: mockState.resolveAllowDecimalMinStockInMappingWizard,
+}));
+
 import { GET, PATCH } from '../products/mapped/route';
 
 describe('mapped products route', () => {
@@ -62,6 +67,8 @@ describe('mapped products route', () => {
     mockState.grocyUnits = [];
     mockState.currentStock = [];
     mockState.updateGrocyEntity.mockReset();
+    mockState.resolveAllowDecimalMinStockInMappingWizard.mockReset();
+    mockState.resolveAllowDecimalMinStockInMappingWizard.mockResolvedValue(true);
     mockState.logError.mockClear();
   });
 
@@ -120,6 +127,7 @@ describe('mapped products route', () => {
           minStockAmount: 1,
         },
       ],
+      allowDecimalMinStock: true,
     });
   });
 
@@ -144,6 +152,28 @@ describe('mapped products route', () => {
       status: 'ok',
       grocyProductId: 10,
       minStockAmount: 3,
+    });
+  });
+
+  it('rejects decimal minimum stock when decimal editing is disabled', async () => {
+    mockState.resolveAllowDecimalMinStockInMappingWizard.mockResolvedValue(false);
+
+    const request = new Request('http://localhost/api/mapping-wizard/products/mapped', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grocyProductId: 10,
+        minStockAmount: 1.5,
+      }),
+    });
+
+    const response = await PATCH(request);
+    const body = await response.json();
+
+    expect(mockState.updateGrocyEntity).not.toHaveBeenCalled();
+    expect(response.status).toBe(400);
+    expect(body).toEqual({
+      error: 'Minimum stock must be a whole number when decimal minimum stock is disabled',
     });
   });
 });

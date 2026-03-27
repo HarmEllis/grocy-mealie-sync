@@ -53,6 +53,7 @@ export interface MappedProductRow {
 
 export interface MappedProductsTabData {
   mappedProducts: MappedProductRow[];
+  allowDecimalMinStock: boolean;
 }
 
 export interface ProductMapping { mealieFoodId: string; grocyProductId: number | null; grocyUnitId: number | null }

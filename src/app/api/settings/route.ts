@@ -8,6 +8,7 @@ import {
   resolveAutoCreateUnits,
   resolveDefaultUnitMappingId,
   resolveEnsureLowStockOnMealieList,
+  resolveAllowDecimalMinStockInMappingWizard,
   resolveMealieInPossessionOnlyAboveMinStock,
   resolveShoppingListId,
   resolveSyncMealieInPossession,
@@ -37,6 +38,7 @@ export async function GET() {
   const ensureLowStockOnMealieList = await resolveEnsureLowStockOnMealieList();
   const syncMealieInPossession = await resolveSyncMealieInPossession();
   const mealieInPossessionOnlyAboveMinStock = await resolveMealieInPossessionOnlyAboveMinStock();
+  const allowDecimalMinStockInMappingWizard = await resolveAllowDecimalMinStockInMappingWizard();
   const stockOnlyMinStock = await resolveStockOnlyMinStock();
 
   let availableShoppingLists: { id: string; name: string }[] = [];
@@ -60,6 +62,7 @@ export async function GET() {
     ensureLowStockOnMealieList,
     syncMealieInPossession,
     mealieInPossessionOnlyAboveMinStock,
+    allowDecimalMinStockInMappingWizard,
     stockOnlyMinStock,
     locks,
     availableUnits: units.map(u => ({
@@ -132,6 +135,10 @@ export async function PUT(request: Request) {
 
   if (data.mealieInPossessionOnlyAboveMinStock !== undefined) {
     settings.mealieInPossessionOnlyAboveMinStock = data.mealieInPossessionOnlyAboveMinStock;
+  }
+
+  if (data.allowDecimalMinStockInMappingWizard !== undefined) {
+    settings.allowDecimalMinStockInMappingWizard = data.allowDecimalMinStockInMappingWizard;
   }
 
   if (data.stockOnlyMinStock !== undefined) {

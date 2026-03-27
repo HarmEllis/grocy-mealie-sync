@@ -90,6 +90,11 @@ export const config = {
     false,
     'MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK',
   ),
+  allowDecimalMinStockInMappingWizard: parseBooleanEnv(
+    process.env.ALLOW_DECIMAL_MIN_STOCK_IN_MAPPING_WIZARD,
+    true,
+    'ALLOW_DECIMAL_MIN_STOCK_IN_MAPPING_WIZARD',
+  ),
   stockOnlyMinStock: parseBooleanEnv(process.env.STOCK_ONLY_MIN_STOCK, false, 'STOCK_ONLY_MIN_STOCK'),
   databasePath: process.env.DATABASE_PATH || './data/sync.db',
   envOverrides: {
@@ -100,6 +105,7 @@ export const config = {
     ensureLowStockOnMealieList: hasConfiguredValue(process.env.ENSURE_LOW_STOCK_ON_MEALIE_LIST),
     syncMealieInPossession: hasConfiguredValue(process.env.SYNC_MEALIE_IN_POSSESSION),
     mealieInPossessionOnlyAboveMinStock: hasConfiguredValue(process.env.MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK),
+    allowDecimalMinStockInMappingWizard: hasConfiguredValue(process.env.ALLOW_DECIMAL_MIN_STOCK_IN_MAPPING_WIZARD),
     stockOnlyMinStock: hasConfiguredValue(process.env.STOCK_ONLY_MIN_STOCK),
   },
   envRaw: {
@@ -110,6 +116,7 @@ export const config = {
     ensureLowStockOnMealieList: process.env.ENSURE_LOW_STOCK_ON_MEALIE_LIST?.trim() || null,
     syncMealieInPossession: process.env.SYNC_MEALIE_IN_POSSESSION?.trim() || null,
     mealieInPossessionOnlyAboveMinStock: process.env.MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK?.trim() || null,
+    allowDecimalMinStockInMappingWizard: process.env.ALLOW_DECIMAL_MIN_STOCK_IN_MAPPING_WIZARD?.trim() || null,
     stockOnlyMinStock: process.env.STOCK_ONLY_MIN_STOCK?.trim() || null,
   },
 };
