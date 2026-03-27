@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockState = vi.hoisted(() => ({
+  sqliteExec: vi.fn(),
   mappingConflictsTable: {
     id: 'mapping_conflicts.id',
   },
@@ -31,6 +32,9 @@ vi.mock('../db/schema', () => ({
 }));
 
 vi.mock('../db', () => ({
+  sqlite: {
+    exec: mockState.sqliteExec,
+  },
   db: {
     select: vi.fn(() => ({
       from: vi.fn(async (table: unknown) => {
@@ -103,6 +107,7 @@ import { listOpenMappingConflicts, runMappingConflictCheck } from '../mapping-co
 
 describe('mapping conflict store', () => {
   beforeEach(() => {
+    mockState.sqliteExec.mockReset();
     mockState.mappingConflictsRows = [];
     mockState.productMappingRows = [];
     mockState.unitMappingRows = [];
