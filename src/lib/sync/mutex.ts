@@ -1,8 +1,9 @@
 import { randomUUID } from 'crypto';
 import { sqlite } from '../db';
+import { config } from '../config';
 
 const SYNC_LOCK_NAME = 'sync-operation';
-const SYNC_LOCK_TTL_MS = 5 * 60_000;
+const MIN_SYNC_LOCK_TTL_MS = 15_000;
 const syncOwnerId = randomUUID();
 
 let syncing = false;
@@ -31,6 +32,15 @@ const releaseLeaseStatement = sqlite.prepare(`
     AND owner_id = @ownerId
 `);
 
+const clearLeaseStatement = sqlite.prepare(`
+  DELETE FROM runtime_locks
+  WHERE name = @name
+`);
+
+export function computeSyncLockTtlMs(pollIntervalSeconds: number): number {
+  return Math.max(MIN_SYNC_LOCK_TTL_MS, pollIntervalSeconds * 2 * 1000);
+}
+
 export function acquireLease(name: string, ownerId: string, ttlMs: number): boolean {
   const now = Date.now();
   const expiresAt = now + ttlMs;
@@ -47,12 +57,21 @@ export function releaseLease(name: string, ownerId: string): void {
   releaseLeaseStatement.run({ name, ownerId });
 }
 
+export function clearLease(name: string): boolean {
+  const result = clearLeaseStatement.run({ name });
+  return result.changes > 0;
+}
+
 export function acquireSyncLock(): boolean {
   if (syncing) {
     return false;
   }
 
-  const acquired = acquireLease(SYNC_LOCK_NAME, syncOwnerId, SYNC_LOCK_TTL_MS);
+  const acquired = acquireLease(
+    SYNC_LOCK_NAME,
+    syncOwnerId,
+    computeSyncLockTtlMs(config.pollIntervalSeconds),
+  );
   if (!acquired) {
     return false;
   }
@@ -64,4 +83,9 @@ export function acquireSyncLock(): boolean {
 export function releaseSyncLock(): void {
   syncing = false;
   releaseLease(SYNC_LOCK_NAME, syncOwnerId);
+}
+
+export function clearSyncLock(): boolean {
+  syncing = false;
+  return clearLease(SYNC_LOCK_NAME);
 }

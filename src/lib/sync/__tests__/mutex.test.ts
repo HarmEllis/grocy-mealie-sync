@@ -3,7 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 process.env.DATABASE_PATH = './data/mutex-test.db';
 
 import { sqlite } from '../../db';
-import { acquireLease, acquireSyncLock, releaseLease, releaseSyncLock } from '../mutex';
+import {
+  acquireLease,
+  acquireSyncLock,
+  clearSyncLock,
+  computeSyncLockTtlMs,
+  releaseLease,
+  releaseSyncLock,
+} from '../mutex';
 
 describe('sync mutex', () => {
   beforeEach(() => {
@@ -72,5 +79,17 @@ describe('sync mutex', () => {
     releaseLease('test-lock', 'owner-a');
 
     expect(acquireLease('test-lock', 'owner-b', 1000)).toBe(true);
+  });
+
+  it('derives the sync lock TTL from the poll interval with a floor', () => {
+    expect(computeSyncLockTtlMs(5)).toBe(15_000);
+    expect(computeSyncLockTtlMs(60)).toBe(120_000);
+  });
+
+  it('can clear the sync lock explicitly', () => {
+    expect(acquireSyncLock()).toBe(true);
+
+    expect(clearSyncLock()).toBe(true);
+    expect(acquireSyncLock()).toBe(true);
   });
 });

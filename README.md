@@ -98,6 +98,7 @@ When auth is enabled, open `http://localhost:3000/login` and sign in with `AUTH_
 Deployment note:
 
 - Run a single scheduler instance by default. The app now uses a SQLite-backed lease lock to prevent overlapping sync runs if a second instance is started accidentally, but it is still designed as a single-instance service.
+- If a crashed instance leaves the lock behind longer than you want to wait, use the `Clear Sync Lock` button in the UI or `POST /api/sync/unlock`.
 
 **Development with a VS Code devcontainer:**
 
@@ -175,6 +176,7 @@ If polls are not updating, check the container/server logs for errors (likely AP
 | `POST` | `/api/sync/grocy-to-mealie/ensure` | Manually ensure all current below-min Grocy products exist on the Mealie list |
 | `POST` | `/api/sync/grocy-to-mealie/in-possession` | Manually fully reconcile Mealie `In possession` for all mapped products |
 | `POST` | `/api/sync/mealie-to-grocy` | Manually trigger Mealie → Grocy poll |
+| `POST` | `/api/sync/unlock` | Clear the persisted sync lock manually |
 
 Manual triggers are useful for testing. The scheduler runs these automatically.
 
