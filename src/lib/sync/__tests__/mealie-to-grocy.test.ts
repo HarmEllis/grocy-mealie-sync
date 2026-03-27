@@ -376,7 +376,7 @@ describe('pollMealieForCheckedItems', () => {
   // Edge cases
   // -------------------------------------------------------------------------
 
-  it('coerces quantity=0 to 1 (falsy fallback)', async () => {
+  it('treats quantity=0 as 1 intentionally', async () => {
     const item = mockMealieShoppingItem({ id: 'qty-zero', checked: true, foodId: 'food-1', quantity: 0 });
     const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 101 });
 
@@ -386,7 +386,8 @@ describe('pollMealieForCheckedItems', () => {
 
     await pollMealieForCheckedItems();
 
-    // `item.quantity || 1` with quantity=0 yields 1
+    // Intentional compatibility fallback: a checked item with quantity=0
+    // is treated as a purchase of one unit.
     expect(mockedAddProductStock).toHaveBeenCalledWith(101, 1);
   });
 

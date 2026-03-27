@@ -88,6 +88,9 @@ async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<num
   }
 
   const mapping = mappings[0];
+  // Mealie can send 0 or omit quantity for checked shopping items.
+  // We intentionally treat that as a purchase of 1 item to preserve the
+  // "check off means bought one" workflow in Grocy.
   const quantity = item.quantity || 1;
 
   // Check if we should only add stock for products with min_stock_amount > 0

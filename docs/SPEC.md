@@ -62,7 +62,7 @@ When an item is checked off (purchased) in Mealie's shopping list:
 | ID | Behavior | Details |
 |----|----------|---------|
 | B3.1 | Detect checked items in Mealie | Detect when a shopping list item's `checked` field changes from `false` to `true`. |
-| B3.2 | Add stock in Grocy | Look up the corresponding Grocy product via the mapping table. Call Grocy's `/api/stock/products/{id}/add` with the checked item's quantity and appropriate unit. |
+| B3.2 | Add stock in Grocy | Look up the corresponding Grocy product via the mapping table. Call Grocy's `/api/stock/products/{id}/add` with the checked item's quantity and appropriate unit. If Mealie reports quantity `0` or omits it, treat that as `1` purchased item. |
 | B3.3 | Handle unit conversion | If Mealie and Grocy use different quantity units for the same product, use the QU conversion table in Grocy or the mapping to convert correctly. |
 | B3.4 | Remove from Grocy shopping list | After adding stock, delete the corresponding item from the Grocy shopping list (Grocy shopping list items have no `done` field — they must be deleted via `DELETE /api/objects/shopping_list/{id}`). |
 

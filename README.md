@@ -207,6 +207,7 @@ Manual triggers are useful for testing. The scheduler runs these automatically.
 ### Mealie → Grocy (shopping list check-off)
 - Polls Mealie shopping list items for `checked: true` state changes
 - Checked items add stock in Grocy (`purchase` transaction)
+- When Mealie reports a checked item with quantity `0` or no quantity, the sync intentionally treats it as quantity `1`
 - The item is also removed from Grocy's shopping list
 - Un-checking an item is ignored (no stock removal)
 - Items without a linked food (ad-hoc notes) are skipped
