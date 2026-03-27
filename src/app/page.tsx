@@ -192,7 +192,7 @@ export default async function Home() {
                 ['POST', '/api/sync/grocy-to-mealie/ensure', 'Ensure below-min items exist on Mealie list'],
                 ['POST', '/api/sync/grocy-to-mealie/in-possession', 'Fully reconcile Mealie "In possession" from Grocy stock'],
                 ['POST', '/api/sync/mealie-to-grocy', 'Trigger Mealie\u2192Grocy check'],
-                ['POST', '/api/sync/unlock', 'Clear the persisted sync lock'],
+                ['POST', '/api/sync/unlock', 'Clear persisted scheduler and sync locks'],
               ].map(([method, path, desc]) => (
                 <div key={path} className="flex items-center gap-2">
                   <Badge variant="outline" className="font-mono text-[10px] w-12 justify-center">

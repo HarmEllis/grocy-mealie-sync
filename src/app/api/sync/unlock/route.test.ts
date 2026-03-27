@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockState = vi.hoisted(() => ({
+  clearSchedulerLock: vi.fn(),
   clearSyncLock: vi.fn(),
   logError: vi.fn(),
 }));
 
 vi.mock('@/lib/sync/mutex', () => ({
+  clearSchedulerLock: mockState.clearSchedulerLock,
   clearSyncLock: mockState.clearSyncLock,
 }));
 
@@ -19,33 +21,40 @@ import { POST } from './route';
 
 describe('sync unlock route', () => {
   beforeEach(() => {
+    mockState.clearSchedulerLock.mockReset();
     mockState.clearSyncLock.mockReset();
     mockState.logError.mockClear();
   });
 
-  it('returns ok when a sync lock was cleared', async () => {
-    mockState.clearSyncLock.mockReturnValue(true);
+  it('returns ok when at least one sync lock was cleared', async () => {
+    mockState.clearSyncLock.mockReturnValue(false);
+    mockState.clearSchedulerLock.mockReturnValue(true);
 
     const response = await POST();
     const body = await response.json();
 
+    expect(mockState.clearSyncLock).toHaveBeenCalledTimes(1);
+    expect(mockState.clearSchedulerLock).toHaveBeenCalledTimes(1);
     expect(response.status).toBe(200);
     expect(body).toEqual({
       status: 'ok',
-      message: 'Sync lock cleared.',
+      message: 'Sync locks cleared.',
     });
   });
 
-  it('returns skipped when there was no sync lock to clear', async () => {
+  it('returns skipped when there were no sync locks to clear', async () => {
     mockState.clearSyncLock.mockReturnValue(false);
+    mockState.clearSchedulerLock.mockReturnValue(false);
 
     const response = await POST();
     const body = await response.json();
 
+    expect(mockState.clearSyncLock).toHaveBeenCalledTimes(1);
+    expect(mockState.clearSchedulerLock).toHaveBeenCalledTimes(1);
     expect(response.status).toBe(200);
     expect(body).toEqual({
       status: 'skipped',
-      message: 'No sync lock was present.',
+      message: 'No sync locks were present.',
     });
   });
 });

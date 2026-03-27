@@ -1,3 +1,26 @@
+let shutdownHooksRegistered = false;
+
+function registerSchedulerShutdownHooks(stopScheduler: () => void) {
+  if (shutdownHooksRegistered) {
+    return;
+  }
+
+  shutdownHooksRegistered = true;
+
+  let stopped = false;
+  const shutdown = () => {
+    if (stopped) {
+      return;
+    }
+    stopped = true;
+    stopScheduler();
+  };
+
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
+  process.once('exit', shutdown);
+}
+
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     // Initialize API clients
@@ -22,7 +45,8 @@ export async function register() {
     }
 
     // Start the polling scheduler
-    const { startScheduler } = await import('./lib/sync/scheduler');
+    const { startScheduler, stopScheduler } = await import('./lib/sync/scheduler');
+    registerSchedulerShutdownHooks(stopScheduler);
     startScheduler();
   }
 }

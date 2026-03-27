@@ -3,8 +3,10 @@ import { sqlite } from '../db';
 import { config } from '../config';
 
 const SYNC_LOCK_NAME = 'sync-operation';
+const SCHEDULER_LOCK_NAME = 'scheduler-startup';
 const MIN_SYNC_LOCK_TTL_MS = 15_000;
-const syncOwnerId = randomUUID();
+const PERSISTENT_LOCK_EXPIRES_AT_MS = 253_402_300_799_000;
+const instanceOwnerId = randomUUID();
 
 let syncing = false;
 
@@ -24,6 +26,12 @@ const acquireLeaseStatement = sqlite.prepare(`
     expires_at = excluded.expires_at
   WHERE runtime_locks.expires_at <= @now
      OR runtime_locks.owner_id = @ownerId
+`);
+
+const acquirePersistentLockStatement = sqlite.prepare(`
+  INSERT INTO runtime_locks (name, owner_id, expires_at)
+  VALUES (@name, @ownerId, @expiresAt)
+  ON CONFLICT(name) DO NOTHING
 `);
 
 const releaseLeaseStatement = sqlite.prepare(`
@@ -62,6 +70,23 @@ export function clearLease(name: string): boolean {
   return result.changes > 0;
 }
 
+export function acquireSchedulerLock(): boolean {
+  const result = acquirePersistentLockStatement.run({
+    name: SCHEDULER_LOCK_NAME,
+    ownerId: instanceOwnerId,
+    expiresAt: PERSISTENT_LOCK_EXPIRES_AT_MS,
+  });
+  return result.changes > 0;
+}
+
+export function releaseSchedulerLock(): void {
+  releaseLease(SCHEDULER_LOCK_NAME, instanceOwnerId);
+}
+
+export function clearSchedulerLock(): boolean {
+  return clearLease(SCHEDULER_LOCK_NAME);
+}
+
 export function acquireSyncLock(): boolean {
   if (syncing) {
     return false;
@@ -69,7 +94,7 @@ export function acquireSyncLock(): boolean {
 
   const acquired = acquireLease(
     SYNC_LOCK_NAME,
-    syncOwnerId,
+    instanceOwnerId,
     computeSyncLockTtlMs(config.pollIntervalSeconds),
   );
   if (!acquired) {
@@ -82,7 +107,7 @@ export function acquireSyncLock(): boolean {
 
 export function releaseSyncLock(): void {
   syncing = false;
-  releaseLease(SYNC_LOCK_NAME, syncOwnerId);
+  releaseLease(SYNC_LOCK_NAME, instanceOwnerId);
 }
 
 export function clearSyncLock(): boolean {

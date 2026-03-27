@@ -3,15 +3,30 @@ import { log } from '../logger';
 import { runFullProductSync } from './product-sync';
 import { pollGrocyForMissingStock } from './grocy-to-mealie';
 import { pollMealieForCheckedItems } from './mealie-to-grocy';
-import { acquireSyncLock, releaseSyncLock } from './mutex';
+import {
+  acquireSchedulerLock,
+  acquireSyncLock,
+  releaseSchedulerLock,
+  releaseSyncLock,
+} from './mutex';
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let productSyncTimer: ReturnType<typeof setInterval> | null = null;
 let started = false;
+let schedulerLockHeld = false;
 
 export function startScheduler(): void {
   if (started) return;
   started = true;
+
+  if (!acquireSchedulerLock()) {
+    log.info(
+      '[Scheduler] Startup lock already held; remaining passive. If this is stale, clear it via the "Clear Sync Locks" UI action or POST /api/sync/unlock, then restart the app.',
+    );
+    return;
+  }
+
+  schedulerLockHeld = true;
 
   log.info('[Scheduler] Starting sync scheduler');
   log.info(`[Scheduler] Poll interval: ${config.pollIntervalSeconds}s`);
@@ -24,6 +39,9 @@ export function startScheduler(): void {
       await runFullProductSync();
     } catch (err) {
       log.error('[Scheduler] Initial product sync failed:', err);
+    }
+    if (!started || !schedulerLockHeld) {
+      return;
     }
     startTimers();
   })();
@@ -82,6 +100,10 @@ export function stopScheduler(): void {
   if (productSyncTimer) {
     clearInterval(productSyncTimer);
     productSyncTimer = null;
+  }
+  if (schedulerLockHeld) {
+    releaseSchedulerLock();
+    schedulerLockHeld = false;
   }
   log.info('[Scheduler] Stopped');
 }

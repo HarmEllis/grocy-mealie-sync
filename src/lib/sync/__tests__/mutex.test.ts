@@ -4,11 +4,14 @@ process.env.DATABASE_PATH = './data/mutex-test.db';
 
 import { sqlite } from '../../db';
 import {
+  acquireSchedulerLock,
   acquireLease,
   acquireSyncLock,
+  clearSchedulerLock,
   clearSyncLock,
   computeSyncLockTtlMs,
   releaseLease,
+  releaseSchedulerLock,
   releaseSyncLock,
 } from '../mutex';
 
@@ -31,6 +34,22 @@ describe('sync mutex', () => {
     releaseSyncLock();
     sqlite.exec('DELETE FROM runtime_locks;');
     vi.useRealTimers();
+  });
+
+  it('scheduler startup lock can only be acquired once until it is released', () => {
+    expect(acquireSchedulerLock()).toBe(true);
+    expect(acquireSchedulerLock()).toBe(false);
+
+    releaseSchedulerLock();
+
+    expect(acquireSchedulerLock()).toBe(true);
+  });
+
+  it('can clear the scheduler startup lock explicitly', () => {
+    expect(acquireSchedulerLock()).toBe(true);
+
+    expect(clearSchedulerLock()).toBe(true);
+    expect(acquireSchedulerLock()).toBe(true);
   });
 
   it('first acquire succeeds', () => {
