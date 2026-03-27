@@ -43,7 +43,12 @@ describe('grocy-to-mealie ensure route', () => {
       },
     });
 
-    const response = await POST();
+    const response = await POST(new Request('http://localhost/api/sync/grocy-to-mealie/ensure', {
+      method: 'POST',
+      headers: {
+        'x-sync-trigger': 'ui',
+      },
+    }));
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -56,6 +61,28 @@ describe('grocy-to-mealie ensure route', () => {
         unmappedProducts: 1,
       },
     });
+    expect(mockState.ensureGrocyMissingStockOnMealie).toHaveBeenCalledWith({
+      logUnmappedPresenceCheckProducts: true,
+    });
     expect(mockState.releaseSyncLock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not enable per-product presence-check mapping logs without the UI trigger header', async () => {
+    mockState.ensureGrocyMissingStockOnMealie.mockResolvedValue({
+      status: 'ok',
+      summary: {
+        processedProducts: 0,
+        ensuredProducts: 0,
+        unmappedProducts: 0,
+      },
+    });
+
+    await POST(new Request('http://localhost/api/sync/grocy-to-mealie/ensure', {
+      method: 'POST',
+    }));
+
+    expect(mockState.ensureGrocyMissingStockOnMealie).toHaveBeenCalledWith({
+      logUnmappedPresenceCheckProducts: false,
+    });
   });
 });

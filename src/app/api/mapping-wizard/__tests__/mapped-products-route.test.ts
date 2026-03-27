@@ -8,6 +8,7 @@ const mockState = vi.hoisted(() => ({
   grocyProducts: [] as Array<Record<string, unknown>>,
   grocyUnits: [] as Array<Record<string, unknown>>,
   currentStock: [] as Array<Record<string, unknown>>,
+  volatileStock: { missing_products: [] as Array<Record<string, unknown>> },
   updateGrocyEntity: vi.fn(),
   resolveMappingWizardMinStockStep: vi.fn(async () => '1'),
   logError: vi.fn(),
@@ -44,6 +45,7 @@ vi.mock('@/lib/grocy/types', () => ({
     throw new Error(`Unexpected Grocy entity: ${entity}`);
   }),
   getCurrentStock: vi.fn(async () => mockState.currentStock),
+  getVolatileStock: vi.fn(async () => mockState.volatileStock),
   updateGrocyEntity: mockState.updateGrocyEntity,
 }));
 
@@ -66,6 +68,7 @@ describe('mapped products route', () => {
     mockState.grocyProducts = [];
     mockState.grocyUnits = [];
     mockState.currentStock = [];
+    mockState.volatileStock = { missing_products: [] };
     mockState.updateGrocyEntity.mockReset();
     mockState.resolveMappingWizardMinStockStep.mockReset();
     mockState.resolveMappingWizardMinStockStep.mockResolvedValue('1');
@@ -103,6 +106,12 @@ describe('mapped products route', () => {
     mockState.currentStock = [
       { product_id: 10, amount: 1.5, amount_aggregated: 1.5 },
     ];
+    mockState.volatileStock = {
+      missing_products: [
+        { id: 10 },
+        { id: 11 },
+      ],
+    };
 
     const response = await GET();
     const body = await response.json();
@@ -117,6 +126,7 @@ describe('mapped products route', () => {
           unitName: 'kilogram',
           currentStock: 1.5,
           minStockAmount: 2,
+          isBelowMinimum: true,
         },
         {
           id: 'mapping-2',
@@ -125,10 +135,53 @@ describe('mapped products route', () => {
           unitName: 'pack',
           currentStock: 0,
           minStockAmount: 1,
+          isBelowMinimum: true,
         },
       ],
       minStockStep: '1',
     });
+  });
+
+  it('marks mapped products as below minimum based on Grocy volatile stock', async () => {
+    mockState.productMappingsRows = [
+      {
+        id: 'mapping-1',
+        mealieFoodName: 'Pandan rijst',
+        grocyProductId: 66,
+        grocyProductName: 'Pandan rijst',
+        unitMappingId: null,
+      },
+    ];
+    mockState.grocyProducts = [
+      { id: 66, name: 'Pandan rijst', qu_id_purchase: 6, min_stock_amount: 1 },
+    ];
+    mockState.grocyUnits = [
+      { id: 6, name: 'bag' },
+    ];
+    mockState.currentStock = [
+      { product_id: 66, amount: 1, amount_aggregated: 1 },
+    ];
+    mockState.volatileStock = {
+      missing_products: [
+        { id: 66 },
+      ],
+    };
+
+    const response = await GET();
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.mappedProducts).toEqual([
+      {
+        id: 'mapping-1',
+        grocyProductId: 66,
+        name: 'Pandan rijst',
+        unitName: 'bag',
+        currentStock: 1,
+        minStockAmount: 1,
+        isBelowMinimum: true,
+      },
+    ]);
   });
 
   it('updates the Grocy minimum stock amount', async () => {

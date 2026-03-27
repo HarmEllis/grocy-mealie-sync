@@ -10,6 +10,7 @@ const mockState = vi.hoisted(() => ({
   grocyProducts: [] as Array<Record<string, unknown>>,
   grocyUnits: [] as Array<Record<string, unknown>>,
   currentStock: [] as Array<Record<string, unknown>>,
+  volatileStock: { missing_products: [] as Array<Record<string, unknown>> },
   logError: vi.fn(),
 }));
 
@@ -37,6 +38,7 @@ vi.mock('@/lib/grocy/types', () => ({
     throw new Error(`Unexpected Grocy entity: ${entity}`);
   }),
   getCurrentStock: vi.fn(async () => mockState.currentStock),
+  getVolatileStock: vi.fn(async () => mockState.volatileStock),
 }));
 
 vi.mock('@/lib/mealie', () => ({
@@ -69,6 +71,7 @@ describe('mapping wizard data route', () => {
     mockState.grocyProducts = [];
     mockState.grocyUnits = [];
     mockState.currentStock = [];
+    mockState.volatileStock = { missing_products: [] };
     mockState.logError.mockClear();
   });
 
@@ -98,15 +101,26 @@ describe('mapping wizard data route', () => {
     ];
     mockState.currentStock = [
       { product_id: 103, amount: 2, amount_aggregated: 2 },
+      { product_id: 105, amount: 1, amount_aggregated: 1 },
     ];
+    mockState.volatileStock = {
+      missing_products: [
+        { id: 102 },
+        { id: 103 },
+      ],
+    };
+    mockState.grocyProducts.push(
+      { id: 105, name: 'Chocolate', qu_id_purchase: 11, min_stock_amount: 1 },
+    );
 
     const response = await GET(createRequest());
     const body = await response.json();
 
     expect(response.status).toBe(200);
     expect(body.unmappedGrocyMinStockProducts).toEqual([
-      { id: 102, name: 'Eggs', quIdPurchase: 11, minStockAmount: 12, currentStock: 0 },
-      { id: 103, name: 'Butter', quIdPurchase: 10, minStockAmount: 5, currentStock: 2 },
+      { id: 102, name: 'Eggs', quIdPurchase: 11, minStockAmount: 12, currentStock: 0, isBelowMinimum: true },
+      { id: 103, name: 'Butter', quIdPurchase: 10, minStockAmount: 5, currentStock: 2, isBelowMinimum: true },
+      { id: 105, name: 'Chocolate', quIdPurchase: 11, minStockAmount: 1, currentStock: 1, isBelowMinimum: false },
     ]);
     expect(body.lowStockGrocyProductSuggestions).toEqual({
       '103': {
@@ -115,6 +129,31 @@ describe('mapping wizard data route', () => {
         score: 100,
       },
     });
+  });
+
+  it('marks products as below minimum based on Grocy volatile stock, even when current stock equals the minimum', async () => {
+    mockState.grocyProducts = [
+      { id: 66, name: 'Pandan rijst', qu_id_purchase: 10, min_stock_amount: 1 },
+    ];
+    mockState.grocyUnits = [
+      { id: 10, name: 'Bag' },
+    ];
+    mockState.currentStock = [
+      { product_id: 66, amount: 1, amount_aggregated: 1 },
+    ];
+    mockState.volatileStock = {
+      missing_products: [
+        { id: 66 },
+      ],
+    };
+
+    const response = await GET(createRequest('http://localhost/api/mapping-wizard/data?tab=grocy-min-stock'));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.unmappedGrocyMinStockProducts).toEqual([
+      { id: 66, name: 'Pandan rijst', quIdPurchase: 10, minStockAmount: 1, currentStock: 1, isBelowMinimum: true },
+    ]);
   });
 
   it('supports tab-specific lazy loading for units', async () => {

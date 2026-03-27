@@ -50,7 +50,7 @@ export function GrocyMinStockProductsTab({
 
   const belowMinimumCount = useMemo(() =>
     data.unmappedGrocyMinStockProducts.filter(product =>
-      isBelowMinimumStock(product.currentStock, product.minStockAmount),
+      isBelowMinimumStock(product.currentStock, product.minStockAmount, product.isBelowMinimum),
     ).length,
     [data],
   );
@@ -59,7 +59,11 @@ export function GrocyMinStockProductsTab({
     const sorted = sortByName(data.unmappedGrocyMinStockProducts);
     const q = productSearch.toLowerCase();
     return sorted.filter(product => {
-      if (showOnlyBelowMinimumStock && !isBelowMinimumStock(product.currentStock, product.minStockAmount)) {
+      if (showOnlyBelowMinimumStock && !isBelowMinimumStock(
+        product.currentStock,
+        product.minStockAmount,
+        product.isBelowMinimum,
+      )) {
         return false;
       }
 

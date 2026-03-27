@@ -14,4 +14,9 @@ describe('isBelowMinimumStock', () => {
   it('returns false when no minimum stock is configured', () => {
     expect(isBelowMinimumStock(0, 0)).toBe(false);
   });
+
+  it('prefers the explicit Grocy missing-state override when available', () => {
+    expect(isBelowMinimumStock(1, 1, true)).toBe(true);
+    expect(isBelowMinimumStock(0, 5, false)).toBe(false);
+  });
 });

@@ -18,7 +18,7 @@ function formatEnsureSummaryMessage(ensuredProducts: number, unmappedProducts: n
   return `Ensured ${ensuredLabel} in Mealie. Skipped ${skippedLabel} ${skippedReason}.`;
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   if (!acquireSyncLock()) {
     return NextResponse.json(
       { status: 'busy', message: 'A sync is already in progress' },
@@ -27,7 +27,10 @@ export async function POST() {
   }
 
   try {
-    const result = await ensureGrocyMissingStockOnMealie();
+    const uiTriggered = request.headers.get('x-sync-trigger') === 'ui';
+    const result = await ensureGrocyMissingStockOnMealie({
+      logUnmappedPresenceCheckProducts: uiTriggered,
+    });
 
     if (result.status === 'error') {
       return NextResponse.json(

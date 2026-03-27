@@ -47,7 +47,7 @@ export function MappedProductsTab({
 
   const belowMinimumCount = useMemo(() =>
     data.mappedProducts.filter(product =>
-      isBelowMinimumStock(product.currentStock, product.minStockAmount),
+      isBelowMinimumStock(product.currentStock, product.minStockAmount, product.isBelowMinimum),
     ).length,
     [data],
   );
@@ -55,7 +55,11 @@ export function MappedProductsTab({
   const filteredProducts = useMemo(() => {
     const query = productSearch.toLowerCase();
     return data.mappedProducts.filter(product =>
-      (!showOnlyBelowMinimumStock || isBelowMinimumStock(product.currentStock, product.minStockAmount))
+      (!showOnlyBelowMinimumStock || isBelowMinimumStock(
+        product.currentStock,
+        product.minStockAmount,
+        product.isBelowMinimum,
+      ))
       && (!productSearch
         || product.name.toLowerCase().includes(query)
         || product.unitName.toLowerCase().includes(query)),

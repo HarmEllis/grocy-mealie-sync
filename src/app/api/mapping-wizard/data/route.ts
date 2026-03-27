@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { productMappings, unitMappings } from '@/lib/db/schema';
-import { getCurrentStock, getGrocyEntities } from '@/lib/grocy/types';
+import { getCurrentStock, getGrocyEntities, getVolatileStock } from '@/lib/grocy/types';
 import { RecipesFoodsService, RecipesUnitsService } from '@/lib/mealie';
 import { extractFoods, extractUnits } from '@/lib/mealie/types';
 import { fuzzyMatch } from '@/lib/fuzzy-match';
@@ -80,6 +80,11 @@ async function fetchGrocyCurrentStockByProductId(): Promise<Map<number, number>>
     Number(stock.product_id),
     Number(stock.amount_aggregated ?? stock.amount ?? 0),
   ]));
+}
+
+async function fetchGrocyMissingProductIds(): Promise<Set<number>> {
+  const volatileStock = await getVolatileStock();
+  return new Set((volatileStock.missing_products ?? []).map(product => Number(product.id)));
 }
 
 async function fetchExistingProductMappings(): Promise<ProductMappingRow[]> {
@@ -180,6 +185,7 @@ function buildUnmappedGrocyMinStockProducts(
   grocyProducts: GrocyProduct[],
   existingProductMappings: ProductMappingRow[],
   stockByProductId: Map<number, number>,
+  missingProductIds: Set<number>,
 ): GrocyMinStockProduct[] {
   const mappedGrocyProductIds = new Set(existingProductMappings.map(mapping => mapping.grocyProductId));
   return grocyProducts
@@ -187,6 +193,7 @@ function buildUnmappedGrocyMinStockProducts(
     .map(product => ({
       ...product,
       currentStock: stockByProductId.get(product.id) ?? 0,
+      isBelowMinimum: missingProductIds.has(product.id),
     }));
 }
 
@@ -287,12 +294,13 @@ async function loadProductsTabData(): Promise<ProductsTabData> {
 }
 
 async function loadGrocyMinStockTabData(): Promise<GrocyMinStockTabData> {
-  const [mealieFoods, grocyProducts, grocyUnits, existingProductMappings, stockByProductId] = await Promise.all([
+  const [mealieFoods, grocyProducts, grocyUnits, existingProductMappings, stockByProductId, missingProductIds] = await Promise.all([
     fetchMealieFoods(),
     fetchGrocyProducts(),
     fetchGrocyUnits(),
     fetchExistingProductMappings(),
     fetchGrocyCurrentStockByProductId(),
+    fetchGrocyMissingProductIds(),
   ]);
 
   const unmappedMealieFoods = buildUnmappedMealieFoods(mealieFoods, existingProductMappings);
@@ -300,6 +308,7 @@ async function loadGrocyMinStockTabData(): Promise<GrocyMinStockTabData> {
     grocyProducts,
     existingProductMappings,
     stockByProductId,
+    missingProductIds,
   );
 
   return {
@@ -314,7 +323,7 @@ async function loadGrocyMinStockTabData(): Promise<GrocyMinStockTabData> {
 }
 
 async function loadFullWizardData(): Promise<WizardData> {
-  const [mealieFoods, mealieUnits, grocyProducts, grocyUnits, existingProductMappings, existingUnitMappings, stockByProductId] =
+  const [mealieFoods, mealieUnits, grocyProducts, grocyUnits, existingProductMappings, existingUnitMappings, stockByProductId, missingProductIds] =
     await Promise.all([
       fetchMealieFoods(),
       fetchMealieUnits(),
@@ -323,6 +332,7 @@ async function loadFullWizardData(): Promise<WizardData> {
       fetchExistingProductMappings(),
       fetchExistingUnitMappings(),
       fetchGrocyCurrentStockByProductId(),
+      fetchGrocyMissingProductIds(),
     ]);
 
   const unmappedMealieFoods = buildUnmappedMealieFoods(mealieFoods, existingProductMappings);
@@ -331,6 +341,7 @@ async function loadFullWizardData(): Promise<WizardData> {
     grocyProducts,
     existingProductMappings,
     stockByProductId,
+    missingProductIds,
   );
 
   return {

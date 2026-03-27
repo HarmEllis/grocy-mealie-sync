@@ -10,6 +10,7 @@ export interface GrocyMinStockProduct {
   quIdPurchase: number;
   minStockAmount: number;
   currentStock: number;
+  isBelowMinimum: boolean;
 }
 export interface UnitMappingRef { id: string; grocyUnitId: number; grocyUnitName: string; mealieUnitName: string }
 export interface ProductSuggestion { grocyProductId: number; grocyProductName: string; score: number; suggestedUnitId: number | null }
@@ -57,6 +58,7 @@ export interface MappedProductRow {
   unitName: string;
   currentStock: number;
   minStockAmount: number;
+  isBelowMinimum: boolean;
 }
 
 export interface MappedProductsTabData {

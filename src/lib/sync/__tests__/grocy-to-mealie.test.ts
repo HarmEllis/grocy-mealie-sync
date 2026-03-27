@@ -498,6 +498,56 @@ describe('pollGrocyForMissingStock', () => {
       );
     });
 
+    it('suppresses unmapped warnings during automatic presence checks and logs the unmapped count in the summary line', async () => {
+      setupDbMock([], []);
+      mockedResolveEnsureLowStockOnMealieList.mockResolvedValue(true);
+      mockedGetSyncState.mockResolvedValue(
+        mockSyncState({ grocyBelowMinStock: { 999: 1 } }),
+      );
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 999, name: 'Bananen', amount_missing: 1 })],
+      });
+
+      const result = await pollGrocyForMissingStock();
+
+      expect(result).toEqual({
+        status: 'ok',
+        summary: {
+          processedProducts: 1,
+          ensuredProducts: 0,
+          unmappedProducts: 1,
+        },
+      });
+      expect(vi.mocked(log.warn)).not.toHaveBeenCalledWith(
+        '[Grocy→Mealie] No mapping found for Grocy product ID 999 ("Bananen"), skipping',
+      );
+      expect(vi.mocked(log.info)).toHaveBeenCalledWith(
+        '[Grocy→Mealie] Presence check completed for 1 still-missing product(s) (1 unmapped)',
+      );
+    });
+
+    it('logs unmapped presence-check products when explicitly enabled for UI-triggered ensure runs', async () => {
+      setupDbMock([], []);
+      mockedGetSyncState.mockResolvedValue(
+        mockSyncState({ grocyBelowMinStock: { 999: 1 } }),
+      );
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 999, name: 'Bananen', amount_missing: 1 })],
+      });
+
+      await pollGrocyForMissingStock({
+        ensureAllPresent: true,
+        logUnmappedPresenceCheckProducts: true,
+      });
+
+      expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
+        '[Grocy→Mealie] No mapping found for Grocy product ID 999 ("Bananen"), skipping',
+      );
+      expect(vi.mocked(log.info)).toHaveBeenCalledWith(
+        '[Grocy→Mealie] Presence check completed for 1 still-missing product(s) (1 unmapped)',
+      );
+    });
+
     it('updates quantity for existing unchecked item with positive delta', async () => {
       mockedGetVolatileStock.mockResolvedValue({
         missing_products: [mockMissingProduct({ id: 101, amount_missing: 3 })],

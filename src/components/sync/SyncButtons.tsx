@@ -15,13 +15,20 @@ const syncActions = [
   { label: 'Mealie \u2192 Grocy', endpoint: '/api/sync/mealie-to-grocy', icon: ArrowLeftRight },
 ] as const;
 
+const UI_SYNC_TRIGGER_HEADERS = {
+  'x-sync-trigger': 'ui',
+};
+
 export function SyncButtons() {
   const [running, setRunning] = useState<string | null>(null);
 
   async function triggerSync(endpoint: string, label: string) {
     setRunning(endpoint);
     try {
-      const res = await fetch(endpoint, { method: 'POST' });
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: UI_SYNC_TRIGGER_HEADERS,
+      });
       let body: SyncActionResponse | null = null;
       try {
         body = await res.json();

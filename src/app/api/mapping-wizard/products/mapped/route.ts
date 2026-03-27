@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { productMappings, unitMappings } from '@/lib/db/schema';
-import { getCurrentStock, getGrocyEntities, updateGrocyEntity } from '@/lib/grocy/types';
+import { getCurrentStock, getGrocyEntities, getVolatileStock, updateGrocyEntity } from '@/lib/grocy/types';
 import { log } from '@/lib/logger';
 import { resolveMappingWizardMinStockStep } from '@/lib/settings';
 import { mappedProductMinStockUpdateSchema } from '@/lib/validation';
 
 export async function GET() {
   try {
-    const [mappings, mappedUnits, grocyProducts, grocyUnits, currentStock, minStockStep] = await Promise.all([
+    const [mappings, mappedUnits, grocyProducts, grocyUnits, currentStock, volatileStock, minStockStep] = await Promise.all([
       db.select({
         id: productMappings.id,
         mealieFoodName: productMappings.mealieFoodName,
@@ -24,6 +24,7 @@ export async function GET() {
       getGrocyEntities('products'),
       getGrocyEntities('quantity_units'),
       getCurrentStock(),
+      getVolatileStock(),
       resolveMappingWizardMinStockStep(),
     ]);
 
@@ -34,6 +35,7 @@ export async function GET() {
       Number(stock.product_id),
       Number(stock.amount_aggregated ?? stock.amount ?? 0),
     ]));
+    const missingProductIds = new Set((volatileStock.missing_products ?? []).map(product => Number(product.id)));
 
     const mappedProducts = mappings
       .map(mapping => {
@@ -50,6 +52,7 @@ export async function GET() {
           unitName: unitMapping?.mealieUnitName || unitMapping?.grocyUnitName || fallbackGrocyUnitName || '-',
           currentStock: stockByProductId.get(mapping.grocyProductId) ?? 0,
           minStockAmount: Number(grocyProduct?.min_stock_amount ?? 0),
+          isBelowMinimum: missingProductIds.has(mapping.grocyProductId),
         };
       })
       .sort((left, right) => left.name.localeCompare(right.name));

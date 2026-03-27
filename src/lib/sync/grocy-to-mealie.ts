@@ -13,11 +13,13 @@ import { eq } from 'drizzle-orm';
 
 interface PollGrocyForMissingStockOptions {
   ensureAllPresent?: boolean;
+  logUnmappedPresenceCheckProducts?: boolean;
 }
 
 interface AdjustMealieShoppingItemOptions {
   createQuantityWhenMissing?: number;
   grocyProductName?: string;
+  logWhenMappingMissing?: boolean;
 }
 
 export interface GrocyMissingStockSyncSummary {
@@ -74,6 +76,7 @@ export async function pollGrocyForMissingStock(
 
   try {
     const ensureAllPresent = options.ensureAllPresent ?? await resolveEnsureLowStockOnMealieList();
+    const logUnmappedPresenceCheckProducts = options.logUnmappedPresenceCheckProducts ?? false;
     const volatile = await getVolatileStock();
     const missingProducts: GrocyMissingProduct[] = volatile.missing_products || [];
 
@@ -119,12 +122,17 @@ export async function pollGrocyForMissingStock(
     const unchangedMissing = ensureAllPresent
       ? missingProducts.filter(mp => mp.id in previousAmounts && previousAmounts[mp.id] === mp.amount_missing)
       : [];
+    let unmappedPresenceCheckProducts = 0;
     for (const mp of unchangedMissing) {
       const result = await adjustMealieShoppingItem(mp.id, 0, shoppingListId, mealieShoppingItems, {
         createQuantityWhenMissing: mp.amount_missing,
         grocyProductName: mp.name,
+        logWhenMappingMissing: logUnmappedPresenceCheckProducts,
       });
       recordMissingStockResult(summary, result);
+      if (result === 'unmapped') {
+        unmappedPresenceCheckProducts++;
+      }
     }
 
     // 3. No longer missing → subtract Grocy's contribution
@@ -159,7 +167,10 @@ export async function pollGrocyForMissingStock(
       log.info(`[Grocy→Mealie] ${adjusted}/${amountChanged.length} product(s) quantity adjusted`);
     }
     if (ensureAllPresent && unchangedMissing.length > 0) {
-      log.info(`[Grocy→Mealie] Presence check completed for ${unchangedMissing.length} still-missing product(s)`);
+      const unmappedSuffix = unmappedPresenceCheckProducts > 0
+        ? ` (${unmappedPresenceCheckProducts} unmapped)`
+        : '';
+      log.info(`[Grocy→Mealie] Presence check completed for ${unchangedMissing.length} still-missing product(s)${unmappedSuffix}`);
     }
     if (noLongerMissing.length > 0) {
       const manuallyRestocked = noLongerMissing.length - skippedSyncRestocked;
@@ -199,8 +210,13 @@ export async function pollGrocyForMissingStock(
   }
 }
 
-export async function ensureGrocyMissingStockOnMealie(): Promise<GrocyMissingStockPollResult> {
-  return pollGrocyForMissingStock({ ensureAllPresent: true });
+export async function ensureGrocyMissingStockOnMealie(
+  options: Pick<PollGrocyForMissingStockOptions, 'logUnmappedPresenceCheckProducts'> = {},
+): Promise<GrocyMissingStockPollResult> {
+  return pollGrocyForMissingStock({
+    ensureAllPresent: true,
+    logUnmappedPresenceCheckProducts: options.logUnmappedPresenceCheckProducts,
+  });
 }
 
 /**
@@ -225,7 +241,9 @@ async function adjustMealieShoppingItem(
 
   if (mappings.length === 0) {
     const productNameSuffix = options.grocyProductName ? ` ("${options.grocyProductName}")` : '';
-    log.warn(`[Grocy→Mealie] No mapping found for Grocy product ID ${grocyProductId}${productNameSuffix}, skipping`);
+    if (options.logWhenMappingMissing ?? true) {
+      log.warn(`[Grocy→Mealie] No mapping found for Grocy product ID ${grocyProductId}${productNameSuffix}, skipping`);
+    }
     return 'unmapped';
   }
 
