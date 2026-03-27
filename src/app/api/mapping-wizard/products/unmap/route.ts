@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { productMappings } from '@/lib/db/schema';
 import { log } from '@/lib/logger';
+import { resolveConflictsForMapping } from '@/lib/mapping-conflicts-store';
 import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
 
 const productUnmapRequestSchema = z.object({
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
     }
 
     await db.delete(productMappings).where(eq(productMappings.id, parsed.data.id));
+    await resolveConflictsForMapping('product', parsed.data.id);
 
     return NextResponse.json({
       status: 'ok',

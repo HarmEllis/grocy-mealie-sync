@@ -8,6 +8,7 @@ const mockState = vi.hoisted(() => ({
   deleteWhereCalls: [] as unknown[],
   acquireSyncLock: vi.fn(() => true),
   releaseSyncLock: vi.fn(),
+  resolveConflictsForMapping: vi.fn(),
   logError: vi.fn(),
 }));
 
@@ -38,6 +39,10 @@ vi.mock('@/lib/logger', () => ({
   },
 }));
 
+vi.mock('@/lib/mapping-conflicts-store', () => ({
+  resolveConflictsForMapping: mockState.resolveConflictsForMapping,
+}));
+
 vi.mock('@/lib/sync/mutex', () => ({
   acquireSyncLock: mockState.acquireSyncLock,
   releaseSyncLock: mockState.releaseSyncLock,
@@ -52,6 +57,7 @@ describe('mapping wizard product unmap route', () => {
     mockState.acquireSyncLock.mockReset();
     mockState.acquireSyncLock.mockReturnValue(true);
     mockState.releaseSyncLock.mockClear();
+    mockState.resolveConflictsForMapping.mockClear();
     mockState.logError.mockClear();
   });
 
@@ -88,6 +94,7 @@ describe('mapping wizard product unmap route', () => {
       id: 'product-map-1',
     });
     expect(mockState.deleteWhereCalls).toHaveLength(1);
+    expect(mockState.resolveConflictsForMapping).toHaveBeenCalledWith('product', 'product-map-1');
     expect(mockState.releaseSyncLock).toHaveBeenCalledTimes(1);
   });
 });

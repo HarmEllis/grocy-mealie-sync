@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { unitMappings } from '@/lib/db/schema';
 import { log } from '@/lib/logger';
+import { resolveConflictsForMapping } from '@/lib/mapping-conflicts-store';
 import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
 
 const unitUnmapRequestSchema = z.object({
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
     }
 
     await db.delete(unitMappings).where(eq(unitMappings.id, parsed.data.id));
+    await resolveConflictsForMapping('unit', parsed.data.id);
 
     return NextResponse.json({
       status: 'ok',

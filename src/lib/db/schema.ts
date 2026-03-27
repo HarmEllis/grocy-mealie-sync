@@ -39,3 +39,25 @@ export const runtimeLocks = sqliteTable('runtime_locks', {
   ownerId: text('owner_id').notNull(),
   expiresAt: integer('expires_at', { mode: 'number' }).notNull(),
 });
+
+export const mappingConflicts = sqliteTable('mapping_conflicts', {
+  id: text('id').primaryKey(),
+  conflictKey: text('conflict_key').notNull(),
+  type: text('type').notNull(),
+  status: text('status').notNull(),
+  severity: text('severity').notNull(),
+  mappingKind: text('mapping_kind').notNull(),
+  mappingId: text('mapping_id').notNull(),
+  sourceTab: text('source_tab').notNull(),
+  mealieId: text('mealie_id'),
+  mealieName: text('mealie_name'),
+  grocyId: integer('grocy_id'),
+  grocyName: text('grocy_name'),
+  summary: text('summary').notNull(),
+  occurrences: integer('occurrences').notNull(),
+  firstSeenAt: integer('first_seen_at', { mode: 'timestamp' }).notNull(),
+  lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }).notNull(),
+  resolvedAt: integer('resolved_at', { mode: 'timestamp' }),
+}, (table) => [
+  uniqueIndex('idx_mapping_conflicts_conflict_key').on(table.conflictKey),
+]);

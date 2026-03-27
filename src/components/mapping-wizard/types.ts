@@ -74,6 +74,30 @@ export interface MappedProductsTabData {
   minStockStep: MinStockStep;
 }
 
+export interface MappingConflictRow {
+  id: string;
+  conflictKey: string;
+  type: string;
+  status: string;
+  severity: string;
+  mappingKind: string;
+  mappingId: string;
+  sourceTab: 'products' | 'units';
+  mealieId: string | null;
+  mealieName: string | null;
+  grocyId: number | null;
+  grocyName: string | null;
+  summary: string;
+  occurrences: number;
+  firstSeenAt: string | Date;
+  lastSeenAt: string | Date;
+  resolvedAt: string | Date | null;
+}
+
+export interface ConflictsTabData {
+  conflicts: MappingConflictRow[];
+}
+
 export interface ProductMapping { mealieFoodId: string; grocyProductId: number | null; grocyUnitId: number | null }
 export interface GrocyMinStockProductMapping { grocyProductId: number; mealieFoodId: string | null; grocyUnitId: number | null }
 export interface UnitMapping { mealieUnitId: string; grocyUnitId: number | null }

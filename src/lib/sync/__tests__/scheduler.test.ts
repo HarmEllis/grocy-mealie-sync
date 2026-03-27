@@ -6,6 +6,7 @@ const mockState = vi.hoisted(() => ({
     productSyncIntervalHours: 6,
   },
   runFullProductSync: vi.fn(),
+  runMappingConflictCheck: vi.fn(),
   pollGrocyForMissingStock: vi.fn(),
   pollMealieForCheckedItems: vi.fn(),
   acquireSyncLock: vi.fn(() => true),
@@ -23,6 +24,10 @@ vi.mock('../../config', () => ({
 
 vi.mock('../product-sync', () => ({
   runFullProductSync: mockState.runFullProductSync,
+}));
+
+vi.mock('../../mapping-conflicts-store', () => ({
+  runMappingConflictCheck: mockState.runMappingConflictCheck,
 }));
 
 vi.mock('../grocy-to-mealie', () => ({
@@ -60,6 +65,16 @@ describe('scheduler startup lock', () => {
     vi.useFakeTimers();
     mockState.runFullProductSync.mockReset();
     mockState.runFullProductSync.mockResolvedValue(undefined);
+    mockState.runMappingConflictCheck.mockReset();
+    mockState.runMappingConflictCheck.mockResolvedValue({
+      conflicts: [],
+      summary: {
+        detected: 0,
+        opened: 0,
+        resolved: 0,
+        open: 0,
+      },
+    });
     mockState.pollGrocyForMissingStock.mockReset();
     mockState.pollGrocyForMissingStock.mockResolvedValue(undefined);
     mockState.pollMealieForCheckedItems.mockReset();
@@ -87,12 +102,14 @@ describe('scheduler startup lock', () => {
     await flushAsyncWork();
 
     expect(mockState.runFullProductSync).toHaveBeenCalledTimes(1);
+    expect(mockState.runMappingConflictCheck).toHaveBeenCalledTimes(1);
 
     vi.advanceTimersByTime(10_000);
     await flushAsyncWork();
 
     expect(mockState.pollMealieForCheckedItems).toHaveBeenCalledTimes(1);
     expect(mockState.pollGrocyForMissingStock).toHaveBeenCalledTimes(1);
+    expect(mockState.runMappingConflictCheck).toHaveBeenCalledTimes(2);
     expect(mockState.acquireSchedulerLock).toHaveBeenCalledTimes(1);
   });
 

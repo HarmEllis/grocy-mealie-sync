@@ -15,13 +15,16 @@ import {
 import { Wand2, Loader2, Link, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { ConflictsTab } from './ConflictsTab';
 import { GrocyMinStockProductsTab } from './GrocyMinStockProductsTab';
 import { MappedProductsTab } from './MappedProductsTab';
 import { UnitsTab } from './UnitsTab';
 import { ProductsTab } from './ProductsTab';
 import type {
+  ConflictsTabData,
   GrocyMinStockProductMapping,
   GrocyMinStockTabData,
+  MappingConflictRow,
   MappedProductsTabData,
   ProductMapping,
   ProductsTabData,
@@ -52,6 +55,7 @@ const TAB_ENDPOINTS: Record<WizardTab, string> = {
   products: '/api/mapping-wizard/data?tab=products',
   'grocy-min-stock': '/api/mapping-wizard/data?tab=grocy-min-stock',
   'mapped-products': '/api/mapping-wizard/products/mapped',
+  conflicts: '/api/mapping-wizard/conflicts',
 };
 
 const INITIAL_TAB_LOADING: Record<WizardTab, boolean> = {
@@ -59,6 +63,7 @@ const INITIAL_TAB_LOADING: Record<WizardTab, boolean> = {
   products: false,
   'grocy-min-stock': false,
   'mapped-products': false,
+  conflicts: false,
 };
 
 const INITIAL_TAB_ERRORS: Record<WizardTab, string | null> = {
@@ -66,6 +71,7 @@ const INITIAL_TAB_ERRORS: Record<WizardTab, string | null> = {
   products: null,
   'grocy-min-stock': null,
   'mapped-products': null,
+  conflicts: null,
 };
 
 const INITIAL_DIRTY_TABS: Record<WizardTab, boolean> = {
@@ -73,6 +79,7 @@ const INITIAL_DIRTY_TABS: Record<WizardTab, boolean> = {
   products: false,
   'grocy-min-stock': false,
   'mapped-products': false,
+  conflicts: false,
 };
 
 export function MappingWizard() {
@@ -82,6 +89,7 @@ export function MappingWizard() {
   const [productsData, setProductsData] = useState<ProductsTabData | null>(null);
   const [grocyMinStockData, setGrocyMinStockData] = useState<GrocyMinStockTabData | null>(null);
   const [mappedProductsData, setMappedProductsData] = useState<MappedProductsTabData | null>(null);
+  const [conflictsData, setConflictsData] = useState<ConflictsTabData | null>(null);
   const [tabLoading, setTabLoading] = useState(INITIAL_TAB_LOADING);
   const [tabErrors, setTabErrors] = useState(INITIAL_TAB_ERRORS);
   const [dirtyTabs, setDirtyTabs] = useState(INITIAL_DIRTY_TABS);
@@ -138,7 +146,7 @@ export function MappingWizard() {
       preserveWizardState = false,
       showLoading = true,
   }: FetchTabDataOptions = {},
-  ): Promise<UnitsTabData | ProductsTabData | GrocyMinStockTabData | MappedProductsTabData | null> => {
+  ): Promise<UnitsTabData | ProductsTabData | GrocyMinStockTabData | MappedProductsTabData | ConflictsTabData | null> => {
     if (showLoading) {
       setTabLoading(prev => ({ ...prev, [targetTab]: true }));
     }
@@ -150,7 +158,7 @@ export function MappingWizard() {
         throw new Error('Failed to fetch');
       }
 
-      let parsedData: UnitsTabData | ProductsTabData | GrocyMinStockTabData | MappedProductsTabData | null = null;
+      let parsedData: UnitsTabData | ProductsTabData | GrocyMinStockTabData | MappedProductsTabData | ConflictsTabData | null = null;
 
       switch (targetTab) {
         case 'units': {
@@ -206,6 +214,12 @@ export function MappingWizard() {
           setMappedProductsData(data);
           break;
         }
+        case 'conflicts': {
+          const data: ConflictsTabData = await res.json();
+          parsedData = data;
+          setConflictsData(data);
+          break;
+        }
       }
 
       setDirtyTabs(prev => ({ ...prev, [targetTab]: false }));
@@ -228,7 +242,9 @@ export function MappingWizard() {
         ? productsData !== null
         : targetTab === 'grocy-min-stock'
           ? grocyMinStockData !== null
-          : mappedProductsData !== null;
+          : targetTab === 'mapped-products'
+            ? mappedProductsData !== null
+            : conflictsData !== null;
 
     if (hasData && !dirtyTabs[targetTab]) {
       return;
@@ -238,7 +254,7 @@ export function MappingWizard() {
       preserveWizardState: hasData,
       showLoading: true,
     });
-  }, [dirtyTabs, fetchTabData, grocyMinStockData, mappedProductsData, productsData, unitsData]);
+  }, [conflictsData, dirtyTabs, fetchTabData, grocyMinStockData, mappedProductsData, productsData, unitsData]);
 
   useEffect(() => {
     if (!open) {
@@ -258,6 +274,9 @@ export function MappingWizard() {
       'mapped-products': activeTab === 'mapped-products'
         ? false
         : prev['mapped-products'] || mappedProductsData !== null,
+      conflicts: activeTab === 'conflicts'
+        ? false
+        : prev.conflicts || conflictsData !== null,
     }));
   }
 
@@ -865,6 +884,9 @@ export function MappingWizard() {
       }
 
       await fetchTabData('units', { preserveWizardState: true, showLoading: false });
+      if (tab === 'conflicts') {
+        await fetchTabData('conflicts', { preserveWizardState: false, showLoading: false });
+      }
       markOtherLoadedTabsDirty('units');
       toast.success(`Unmapped "${mealieUnitName}"`);
     });
@@ -878,7 +900,9 @@ export function MappingWizard() {
       ? productsData
       : tab === 'grocy-min-stock'
         ? grocyMinStockData
-        : mappedProductsData;
+        : tab === 'mapped-products'
+          ? mappedProductsData
+          : conflictsData;
   const isRunning = !!actionRunning;
 
   async function updateMappedProductMinStock(grocyProductId: number, minStockAmount: number) {
@@ -919,8 +943,26 @@ export function MappingWizard() {
       }
 
       await fetchTabData('mapped-products', { preserveWizardState: false, showLoading: false });
+      if (tab === 'conflicts') {
+        await fetchTabData('conflicts', { preserveWizardState: false, showLoading: false });
+      }
       markOtherLoadedTabsDirty('mapped-products');
       toast.success(`Unmapped "${productName}"`);
+    });
+  }
+
+  async function checkConflicts() {
+    await runAction('checkConflicts', async () => {
+      const res = await fetch('/api/mapping-wizard/conflicts', { method: 'POST' });
+      const result = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(result?.error || 'Failed to check conflicts');
+      }
+
+      setConflictsData({ conflicts: result.conflicts });
+      setDirtyTabs(prev => ({ ...prev, conflicts: false }));
+      toast.success(`Conflict check completed (${result.summary.open} open, ${result.summary.resolved} resolved)`);
     });
   }
 
@@ -1028,6 +1070,47 @@ export function MappingWizard() {
             )}
           />
         );
+      case 'conflicts':
+        return (
+          <ConflictsTab
+            data={conflictsData!}
+            actionRunning={actionRunning}
+            onCheckConflicts={checkConflicts}
+            onOpenSourceTab={sourceTab => setTab(sourceTab)}
+            onRecheckConflict={() => { void checkConflicts(); }}
+            onUnmapConflict={(conflict: MappingConflictRow) => {
+              if (conflict.mappingKind === 'unit') {
+                openConfirm(
+                  `unmapConflict_${conflict.id}`,
+                  `Unmap "${conflict.mealieName || conflict.mappingId}"?`,
+                  () => {
+                    void unmapUnit(
+                      conflict.mappingId,
+                      conflict.mealieId || conflict.mappingId,
+                      conflict.mealieName || conflict.mappingId,
+                    );
+                  },
+                  [conflict.summary],
+                  'This removes the saved unit mapping immediately.',
+                );
+                return;
+              }
+
+              openConfirm(
+                `unmapConflict_${conflict.id}`,
+                `Unmap "${conflict.mealieName || conflict.mappingId}"?`,
+                () => {
+                  void unmapMappedProduct(
+                    conflict.mappingId,
+                    conflict.mealieName || conflict.mappingId,
+                  );
+                },
+                [conflict.summary],
+                'This removes the saved product mapping immediately.',
+              );
+            }}
+          />
+        );
     }
   }
 
@@ -1063,6 +1146,9 @@ export function MappingWizard() {
                   <TabsTrigger value="mapped-products">
                     Mapped Products{mappedProductsData ? ` (${mappedProductsData.mappedProducts.length})` : ''}
                   </TabsTrigger>
+                  <TabsTrigger value="conflicts">
+                    Conflicts{conflictsData ? ` (${conflictsData.conflicts.length} open)` : ''}
+                  </TabsTrigger>
                 </TabsList>
               </div>
 
@@ -1072,7 +1158,7 @@ export function MappingWizard() {
             </Tabs>
           </div>
 
-          {currentTabData && tab !== 'mapped-products' && (
+          {currentTabData && tab !== 'mapped-products' && tab !== 'conflicts' && (
             <WizardFooter
               tab={tab}
               actionRunning={actionRunning}

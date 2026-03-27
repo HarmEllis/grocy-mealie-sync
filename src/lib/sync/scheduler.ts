@@ -1,5 +1,6 @@
 import { config } from '../config';
 import { log } from '../logger';
+import { runMappingConflictCheck } from '../mapping-conflicts-store';
 import { runFullProductSync } from './product-sync';
 import { pollGrocyForMissingStock } from './grocy-to-mealie';
 import { pollMealieForCheckedItems } from './mealie-to-grocy';
@@ -40,6 +41,11 @@ export function startScheduler(): void {
     } catch (err) {
       log.error('[Scheduler] Initial product sync failed:', err);
     }
+    try {
+      await runMappingConflictCheck();
+    } catch (err) {
+      log.error('[Scheduler] Initial conflict check failed:', err);
+    }
     if (!started || !schedulerLockHeld) {
       return;
     }
@@ -66,6 +72,11 @@ function startTimers(): void {
       await pollGrocyForMissingStock();
     } catch (err) {
       log.error('[Scheduler] Grocy poll error:', err);
+    }
+    try {
+      await runMappingConflictCheck();
+    } catch (err) {
+      log.error('[Scheduler] Conflict check error:', err);
     } finally {
       releaseSyncLock();
     }
@@ -81,6 +92,7 @@ function startTimers(): void {
     try {
       log.info('[Scheduler] Running periodic product sync');
       await runFullProductSync();
+      await runMappingConflictCheck();
     } catch (err) {
       log.error('[Scheduler] Product sync error:', err);
     } finally {

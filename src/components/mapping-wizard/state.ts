@@ -8,7 +8,7 @@ import type {
   WizardData,
 } from './types';
 
-export type WizardTab = 'units' | 'products' | 'grocy-min-stock' | 'mapped-products';
+export type WizardTab = 'units' | 'products' | 'grocy-min-stock' | 'mapped-products' | 'conflicts';
 
 export function getDefaultWizardTab(data: WizardData): WizardTab {
   if (data.unmappedMealieUnits.length === 0 && data.unmappedMealieFoods.length > 0) {
