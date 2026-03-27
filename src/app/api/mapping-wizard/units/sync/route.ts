@@ -9,6 +9,11 @@ import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { unitSyncRequestSchema } from '@/lib/validation';
 import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
+import {
+  findDuplicateGrocyUnitAssignment,
+  findUnitMappingConflict,
+  formatUnitMappingConflictMessage,
+} from '@/lib/mapping-conflicts';
 
 export async function POST(request: Request) {
   if (!acquireSyncLock()) {
@@ -38,17 +43,41 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'mappings array must not be empty' }, { status: 400 });
     }
 
-    const [mealieUnitsRes, grocyUnits] = await Promise.all([
+    const [mealieUnitsRes, grocyUnits, existingMappings] = await Promise.all([
       RecipesUnitsService.getAllApiUnitsGet(
         undefined, undefined, undefined, undefined, undefined, undefined, 1, 1000,
       ),
       getGrocyEntities('quantity_units'),
+      db.select().from(unitMappings),
     ]);
     const mealieUnits = extractUnits(mealieUnitsRes);
 
-    // Pre-fetch existing unit mappings to avoid N+1 queries
-    const existingMappings = await db.select().from(unitMappings);
-    const existingByMealieUnitId = new Map(existingMappings.map(m => [m.mealieUnitId, m]));
+    const duplicateAssignment = findDuplicateGrocyUnitAssignment(mappings);
+    if (duplicateAssignment) {
+      return NextResponse.json(
+        {
+          error: `Grocy unit #${duplicateAssignment.grocyUnitId} is selected for multiple Mealie units in the same request.`,
+          conflict: duplicateAssignment,
+        },
+        { status: 409 },
+      );
+    }
+
+    for (const entry of mappings) {
+      const conflict = findUnitMappingConflict(existingMappings, entry.mealieUnitId, entry.grocyUnitId);
+      if (conflict) {
+        return NextResponse.json(
+          {
+            error: formatUnitMappingConflictMessage(conflict, entry.grocyUnitId),
+            conflict: {
+              grocyUnitId: entry.grocyUnitId,
+              mealieUnitId: conflict.mealieUnitId,
+            },
+          },
+          { status: 409 },
+        );
+      }
+    }
 
     let synced = 0;
     let renamed = 0;

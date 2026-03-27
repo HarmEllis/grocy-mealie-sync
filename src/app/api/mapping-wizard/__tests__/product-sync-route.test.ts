@@ -151,4 +151,73 @@ describe('mapping wizard product sync route', () => {
     }));
     expect(mockState.releaseSyncLock).toHaveBeenCalledTimes(1);
   });
+
+  it('returns 409 when a Grocy product is already mapped to another Mealie food', async () => {
+    mockState.mealieFoods = [
+      { id: 'food-1', name: 'Optimel Drinkyogurt' },
+    ];
+    mockState.grocyProducts = [
+      { id: 101, name: 'Optimel' },
+    ];
+    mockState.existingProductMappings = [
+      {
+        mealieFoodId: 'food-2',
+        mealieFoodName: 'Other Food',
+        grocyProductId: 101,
+        grocyProductName: 'Optimel',
+      },
+    ];
+
+    const response = await POST(new Request('http://localhost/api/mapping-wizard/products/sync', {
+      method: 'POST',
+      body: JSON.stringify({
+        mappings: [
+          { mealieFoodId: 'food-1', grocyProductId: 101, grocyUnitId: 10 },
+        ],
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body).toEqual({
+      error: 'Grocy product "Optimel" (#101) is already mapped to Mealie food "Other Food".',
+      conflict: {
+        grocyProductId: 101,
+        mealieFoodId: 'food-2',
+      },
+    });
+    expect(mockState.insertValuesCalls).toHaveLength(0);
+    expect(mockState.releaseSyncLock).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 409 when the same Grocy product is selected for multiple Mealie foods in one request', async () => {
+    mockState.mealieFoods = [
+      { id: 'food-1', name: 'Milk' },
+      { id: 'food-2', name: 'Buttermilk' },
+    ];
+    mockState.grocyProducts = [
+      { id: 101, name: 'Milk' },
+    ];
+
+    const response = await POST(new Request('http://localhost/api/mapping-wizard/products/sync', {
+      method: 'POST',
+      body: JSON.stringify({
+        mappings: [
+          { mealieFoodId: 'food-1', grocyProductId: 101, grocyUnitId: 10 },
+          { mealieFoodId: 'food-2', grocyProductId: 101, grocyUnitId: 10 },
+        ],
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body).toEqual({
+      error: 'Grocy product #101 is selected for multiple Mealie foods in the same request.',
+      conflict: {
+        grocyProductId: 101,
+        mealieFoodIds: ['food-1', 'food-2'],
+      },
+    });
+    expect(mockState.insertValuesCalls).toHaveLength(0);
+  });
 });

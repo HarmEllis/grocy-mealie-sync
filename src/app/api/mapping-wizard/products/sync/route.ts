@@ -8,6 +8,11 @@ import { log } from '@/lib/logger';
 import { randomUUID } from 'crypto';
 import { productSyncRequestSchema } from '@/lib/validation';
 import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
+import {
+  findDuplicateGrocyProductAssignment,
+  findProductMappingConflict,
+  formatProductMappingConflictMessage,
+} from '@/lib/mapping-conflicts';
 
 export async function POST(request: Request) {
   if (!acquireSyncLock()) {
@@ -38,14 +43,42 @@ export async function POST(request: Request) {
     }
 
     // Fetch Mealie foods and Grocy products for name resolution
-    const [mealieFoodsRes, grocyProducts, allUnitMappings] = await Promise.all([
+    const [mealieFoodsRes, grocyProducts, allUnitMappings, existingMappings] = await Promise.all([
       RecipesFoodsService.getAllApiFoodsGet(
         undefined, undefined, undefined, undefined, undefined, undefined, 1, 10000,
       ),
       getGrocyEntities('products'),
       db.select().from(unitMappings),
+      db.select().from(productMappings),
     ]);
     const mealieFoods = extractFoods(mealieFoodsRes);
+
+    const duplicateAssignment = findDuplicateGrocyProductAssignment(mappings);
+    if (duplicateAssignment) {
+      return NextResponse.json(
+        {
+          error: `Grocy product #${duplicateAssignment.grocyProductId} is selected for multiple Mealie foods in the same request.`,
+          conflict: duplicateAssignment,
+        },
+        { status: 409 },
+      );
+    }
+
+    for (const entry of mappings) {
+      const conflict = findProductMappingConflict(existingMappings, entry.mealieFoodId, entry.grocyProductId);
+      if (conflict) {
+        return NextResponse.json(
+          {
+            error: formatProductMappingConflictMessage(conflict, entry.grocyProductId),
+            conflict: {
+              grocyProductId: entry.grocyProductId,
+              mealieFoodId: conflict.mealieFoodId,
+            },
+          },
+          { status: 409 },
+        );
+      }
+    }
 
     let synced = 0;
     let renamed = 0;

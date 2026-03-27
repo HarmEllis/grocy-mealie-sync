@@ -6,6 +6,12 @@ import { RecipesFoodsService, RecipesUnitsService } from '../mealie';
 import { extractFoods, extractUnits } from '../mealie/types';
 import { log } from '../logger';
 import { resolveAutoCreateProducts, resolveAutoCreateUnits, resolveDefaultUnit } from '../settings';
+import {
+  findProductMappingConflict,
+  findUnitMappingConflict,
+  formatProductMappingConflictMessage,
+  formatUnitMappingConflictMessage,
+} from '../mapping-conflicts';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
@@ -46,6 +52,8 @@ export async function syncUnits() {
   const mealieUnits = extractUnits(mealieUnitsRes);
 
   const grocyUnits: QuantityUnit[] = await getGrocyEntities('quantity_units');
+  const existingUnitMappings = await db.select().from(unitMappings);
+  const mappedMealieUnitIds = new Set(existingUnitMappings.map(mapping => mapping.mealieUnitId));
 
   let created = 0;
   let linked = 0;
@@ -53,9 +61,7 @@ export async function syncUnits() {
 
   for (const mUnit of mealieUnits) {
     if (!mUnit.id) continue;
-
-    const existing = await db.select().from(unitMappings).where(eq(unitMappings.mealieUnitId, mUnit.id)).limit(1);
-    if (existing.length > 0) continue;
+    if (mappedMealieUnitIds.has(mUnit.id)) continue;
 
     // Match by name or abbreviation
     let gUnit = grocyUnits.find(gu =>
@@ -77,10 +83,18 @@ export async function syncUnits() {
       grocyUnits.push(gUnit);
       created++;
     } else {
+      const conflict = findUnitMappingConflict(existingUnitMappings, mUnit.id, Number(gUnit.id));
+      if (conflict) {
+        log.warn(
+          `[ProductSync] Skipping Mealie unit "${mUnit.name || mUnit.id}" — ${formatUnitMappingConflictMessage(conflict)}`,
+        );
+        skipped++;
+        continue;
+      }
       linked++;
     }
 
-    await db.insert(unitMappings).values({
+    const newMapping = {
       id: randomUUID(),
       mealieUnitId: mUnit.id,
       mealieUnitName: mUnit.name || 'Unknown',
@@ -90,7 +104,10 @@ export async function syncUnits() {
       conversionFactor: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
-    });
+    };
+    await db.insert(unitMappings).values(newMapping);
+    existingUnitMappings.push(newMapping);
+    mappedMealieUnitIds.add(mUnit.id);
   }
 
   if (skipped > 0) {
@@ -109,6 +126,8 @@ export async function syncProducts() {
 
   const grocyProducts: Product[] = await getGrocyEntities('products');
   const allUnitMappings = await db.select().from(unitMappings);
+  const existingProductMappings = await db.select().from(productMappings);
+  const mappedMealieFoodIds = new Set(existingProductMappings.map(mapping => mapping.mealieFoodId));
 
   const autoCreateProducts = await resolveAutoCreateProducts();
 
@@ -118,9 +137,7 @@ export async function syncProducts() {
 
   for (const mFood of mealieFoods) {
     if (!mFood.id) continue;
-
-    const existing = await db.select().from(productMappings).where(eq(productMappings.mealieFoodId, mFood.id)).limit(1);
-    if (existing.length > 0) continue;
+    if (mappedMealieFoodIds.has(mFood.id)) continue;
 
     // B1.4: Match by name (case-insensitive)
     let gProd = grocyProducts.find(gp => gp.name?.toLowerCase() === mFood.name?.toLowerCase());
@@ -164,6 +181,14 @@ export async function syncProducts() {
         continue;
       }
     } else {
+      const conflict = findProductMappingConflict(existingProductMappings, mFood.id, Number(gProd.id));
+      if (conflict) {
+        log.warn(
+          `[ProductSync] Skipping Mealie food "${mFood.name || mFood.id}" — ${formatProductMappingConflictMessage(conflict)}`,
+        );
+        skipped++;
+        continue;
+      }
       // Linked product: read actual unit from Grocy (use in-memory lookup — task 9)
       const grocyUnitId = Number(gProd.qu_id_purchase || gProd.qu_id_stock);
       if (grocyUnitId) {
@@ -172,7 +197,7 @@ export async function syncProducts() {
       linked++;
     }
 
-    await db.insert(productMappings).values({
+    const newMapping = {
       id: randomUUID(),
       mealieFoodId: mFood.id,
       mealieFoodName: mFood.name || 'Unknown',
@@ -181,7 +206,10 @@ export async function syncProducts() {
       unitMappingId,
       createdAt: new Date(),
       updatedAt: new Date(),
-    });
+    };
+    await db.insert(productMappings).values(newMapping);
+    existingProductMappings.push(newMapping);
+    mappedMealieFoodIds.add(mFood.id);
   }
 
   // Backfill: update existing mappings that have empty unitMappingId

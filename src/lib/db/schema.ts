@@ -11,6 +11,7 @@ export const productMappings = sqliteTable('product_mappings', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, (table) => [
   uniqueIndex('idx_product_mappings_mealie_food_id').on(table.mealieFoodId),
+  uniqueIndex('idx_product_mappings_grocy_product_id').on(table.grocyProductId),
 ]);
 
 export const unitMappings = sqliteTable('unit_mappings', {
@@ -25,6 +26,7 @@ export const unitMappings = sqliteTable('unit_mappings', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 }, (table) => [
   uniqueIndex('idx_unit_mappings_mealie_unit_id').on(table.mealieUnitId),
+  uniqueIndex('idx_unit_mappings_grocy_unit_id').on(table.grocyUnitId),
 ]);
 
 export const syncState = sqliteTable('sync_state', {
