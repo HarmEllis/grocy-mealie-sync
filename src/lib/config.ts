@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import { log } from './logger';
 import { normalizeMinStockStep, type MinStockStep } from './min-stock-step';
-import { resolveTimeZone } from './date-time';
+import { resolveLocaleFromTimeZone, resolveTimeZone } from './date-time';
 dotenv.config();
 
 const GROCY_DEFAULT_URL = 'http://grocy:9283';
@@ -115,6 +115,10 @@ export function parseTimeZoneEnv(value: string | undefined, name: string): strin
   return resolved;
 }
 
+export function resolveLocaleForConfiguredTimeZone(timeZone: string | null): string | null {
+  return resolveLocaleFromTimeZone(timeZone);
+}
+
 export function parseMinStockStepEnv(
   value: string | undefined,
   defaultValue: MinStockStep,
@@ -135,6 +139,9 @@ export function parseMinStockStepEnv(
 
   return normalized;
 }
+
+const configuredTimeZone = parseTimeZoneEnv(process.env.TZ, 'TZ');
+const configuredLocale = resolveLocaleForConfiguredTimeZone(configuredTimeZone);
 
 export const config = {
   grocyUrl: validateServiceUrl(process.env.GROCY_URL, 'GROCY_URL', GROCY_DEFAULT_URL),
@@ -174,7 +181,8 @@ export const config = {
     false,
     'ALLOW_INSECURE_TLS',
   ),
-  timeZone: parseTimeZoneEnv(process.env.TZ, 'TZ'),
+  timeZone: configuredTimeZone,
+  timeZoneLocale: configuredLocale,
   notificationWebhookUrl: parseOptionalUrlEnv(process.env.NOTIFICATION_WEBHOOK_URL, 'NOTIFICATION_WEBHOOK_URL'),
   notificationWebhookMode: parseWebhookModeEnv(process.env.NOTIFICATION_WEBHOOK_MODE, 'NOTIFICATION_WEBHOOK_MODE'),
   databasePath: process.env.DATABASE_PATH || './data/sync.db',

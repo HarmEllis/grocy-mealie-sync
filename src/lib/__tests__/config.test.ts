@@ -6,6 +6,7 @@ import {
   parseOptionalUrlEnv,
   parseTimeZoneEnv,
   parseWebhookModeEnv,
+  resolveLocaleForConfiguredTimeZone,
   validateServiceUrl,
 } from '../config';
 
@@ -136,5 +137,16 @@ describe('parseTimeZoneEnv', () => {
 
   it('returns null for invalid timezones', () => {
     expect(parseTimeZoneEnv('not-a-timezone', 'TZ')).toBeNull();
+  });
+});
+
+describe('resolveLocaleForConfiguredTimeZone', () => {
+  it('derives a representative locale from a configured timezone', () => {
+    expect(resolveLocaleForConfiguredTimeZone('Europe/Amsterdam')).toBe('nl-NL');
+    expect(resolveLocaleForConfiguredTimeZone('America/New_York')).toBe('en-US');
+  });
+
+  it('returns null when no timezone is configured', () => {
+    expect(resolveLocaleForConfiguredTimeZone(null)).toBeNull();
   });
 });

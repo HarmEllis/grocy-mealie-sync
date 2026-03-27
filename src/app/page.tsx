@@ -97,14 +97,14 @@ export default async function Home() {
                     <Clock className="size-3" />
                     Last Grocy poll
                   </p>
-                  <p className="font-medium">{formatDateTime(status.lastGrocyPoll, { fallback: 'Never', timeZone: config.timeZone })}</p>
+                  <p className="font-medium">{formatDateTime(status.lastGrocyPoll, { fallback: 'Never', timeZone: config.timeZone, locale: config.timeZoneLocale })}</p>
                 </div>
                 <div className="space-y-0.5">
                   <p className="text-muted-foreground flex items-center gap-1.5">
                     <Clock className="size-3" />
                     Last Mealie poll
                   </p>
-                  <p className="font-medium">{formatDateTime(status.lastMealiePoll, { fallback: 'Never', timeZone: config.timeZone })}</p>
+                  <p className="font-medium">{formatDateTime(status.lastMealiePoll, { fallback: 'Never', timeZone: config.timeZone, locale: config.timeZoneLocale })}</p>
                 </div>
                 <div className="space-y-0.5">
                   <p className="text-muted-foreground">Grocy below min stock</p>
@@ -147,7 +147,7 @@ export default async function Home() {
             <CardDescription>Map Mealie items to Grocy products and units</CardDescription>
           </CardHeader>
           <CardContent>
-            <MappingWizard timeZone={config.timeZone} />
+            <MappingWizard timeZone={config.timeZone} timeZoneLocale={config.timeZoneLocale} />
           </CardContent>
         </Card>
 

@@ -8,6 +8,7 @@ import { formatDateTime } from '@/lib/date-time';
 interface ConflictsTabProps {
   data: ConflictsTabData;
   timeZone: string | null;
+  timeZoneLocale: string | null;
   actionRunning: string | null;
   onCheckConflicts: () => void;
   onOpenSourceTab: (tab: 'products' | 'units') => void;
@@ -19,6 +20,7 @@ interface ConflictsTabProps {
 export function ConflictsTab({
   data,
   timeZone,
+  timeZoneLocale,
   actionRunning,
   onCheckConflicts,
   onOpenSourceTab,
@@ -62,11 +64,11 @@ export function ConflictsTab({
                   <div className="space-y-1">
                     <p>{conflict.summary}</p>
                     <p className="text-xs text-muted-foreground">
-                      First seen: {formatDateTime(conflict.firstSeenAt, { timeZone })}
+                      First seen: {formatDateTime(conflict.firstSeenAt, { timeZone, locale: timeZoneLocale })}
                     </p>
                   </div>
                 </TableCell>
-                <TableCell className="text-muted-foreground">{formatDateTime(conflict.lastSeenAt, { timeZone })}</TableCell>
+                <TableCell className="text-muted-foreground">{formatDateTime(conflict.lastSeenAt, { timeZone, locale: timeZoneLocale })}</TableCell>
                 <TableCell>{conflict.occurrences}</TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-2">
