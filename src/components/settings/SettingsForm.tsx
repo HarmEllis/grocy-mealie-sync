@@ -83,14 +83,12 @@ function LockBadge({ lock }: { lock: SettingLock }) {
 
   return (
     <Tooltip>
-      <TooltipTrigger>
-        <button
-          type="button"
-          className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
-          aria-label={`Locked by ${lock.envVar}`}
-        >
-          Env
-        </button>
+      <TooltipTrigger
+        type="button"
+        className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+        aria-label={`Locked by ${lock.envVar}`}
+      >
+        Env
       </TooltipTrigger>
       <TooltipContent>
         {`This setting is controlled by ${lock.envVar}${valueSuffix}. Comment out ${lock.envVar} in your env file to edit it in the UI.`}
@@ -258,39 +256,57 @@ export function SettingsForm() {
               Control how Grocy stock is reflected in Mealie.
             </p>
           </div>
-          <label className={`flex items-center gap-2.5 ${settings.locks.syncMealieInPossession.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
+          <div className="flex items-center gap-2.5">
             <Checkbox
+              id="sync-mealie-in-possession"
               checked={settings.syncMealieInPossession}
               disabled={settings.locks.syncMealieInPossession.locked}
               onCheckedChange={(checked: boolean) => handleSyncMealieInPossessionChange(checked)}
             />
-            <span className="text-sm">Sync Mealie &quot;In possession&quot; from Grocy stock</span>
+            <label
+              htmlFor="sync-mealie-in-possession"
+              className={`text-sm ${settings.locks.syncMealieInPossession.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+            >
+              Sync Mealie &quot;In possession&quot; from Grocy stock
+            </label>
             <LockBadge lock={settings.locks.syncMealieInPossession} />
-          </label>
+          </div>
           <p className="pl-6 text-xs text-muted-foreground">
             When enabled, each Grocy poll compares mapped product stock with the last known desired possession state and only writes the differences back to Mealie.
           </p>
-          <label className={`flex items-center gap-2.5 ${settings.locks.mealieInPossessionOnlyAboveMinStock.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
+          <div className="flex items-center gap-2.5">
             <Checkbox
+              id="mealie-in-possession-only-above-min-stock"
               checked={settings.mealieInPossessionOnlyAboveMinStock}
               disabled={settings.locks.mealieInPossessionOnlyAboveMinStock.locked}
               onCheckedChange={(checked: boolean) => handleMealieInPossessionOnlyAboveMinStockChange(checked)}
             />
-            <span className="text-sm">Only set &quot;In possession&quot; above minimum stock</span>
+            <label
+              htmlFor="mealie-in-possession-only-above-min-stock"
+              className={`text-sm ${settings.locks.mealieInPossessionOnlyAboveMinStock.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+            >
+              Only set &quot;In possession&quot; above minimum stock
+            </label>
             <LockBadge lock={settings.locks.mealieInPossessionOnlyAboveMinStock} />
-          </label>
+          </div>
           <p className="pl-6 text-xs text-muted-foreground">
             When enabled, Mealie is only marked as in possession when the current Grocy stock is strictly greater than `min_stock_amount`. Otherwise, any stock above 0 counts as in possession.
           </p>
-          <label className={`flex items-center gap-2.5 ${settings.locks.ensureLowStockOnMealieList.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
+          <div className="flex items-center gap-2.5">
             <Checkbox
+              id="ensure-low-stock-on-mealie-list"
               checked={settings.ensureLowStockOnMealieList}
               disabled={settings.locks.ensureLowStockOnMealieList.locked}
               onCheckedChange={(checked: boolean) => handleEnsureLowStockOnMealieListChange(checked)}
             />
-            <span className="text-sm">Actively ensure low-stock items stay on Mealie list</span>
+            <label
+              htmlFor="ensure-low-stock-on-mealie-list"
+              className={`text-sm ${settings.locks.ensureLowStockOnMealieList.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+            >
+              Actively ensure low-stock items stay on Mealie list
+            </label>
             <LockBadge lock={settings.locks.ensureLowStockOnMealieList} />
-          </label>
+          </div>
           <p className="pl-6 text-xs text-muted-foreground">
             When enabled, each Grocy poll checks whether every mapped below-minimum product still exists as an unchecked item on the selected Mealie shopping list, and recreates it if needed.
           </p>
@@ -305,24 +321,36 @@ export function SettingsForm() {
               When enabled, new Mealie items without a match are automatically created in Grocy during sync.
             </p>
           </div>
-          <label className={`flex items-center gap-2.5 ${settings.locks.autoCreateUnits.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
+          <div className="flex items-center gap-2.5">
             <Checkbox
+              id="auto-create-units"
               checked={settings.autoCreateUnits}
               disabled={settings.locks.autoCreateUnits.locked}
               onCheckedChange={(checked: boolean) => handleAutoCreateChange('autoCreateUnits', checked)}
             />
-            <span className="text-sm">Auto-create units</span>
+            <label
+              htmlFor="auto-create-units"
+              className={`text-sm ${settings.locks.autoCreateUnits.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+            >
+              Auto-create units
+            </label>
             <LockBadge lock={settings.locks.autoCreateUnits} />
-          </label>
-          <label className={`flex items-center gap-2.5 ${settings.locks.autoCreateProducts.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
+          </div>
+          <div className="flex items-center gap-2.5">
             <Checkbox
+              id="auto-create-products"
               checked={settings.autoCreateProducts}
               disabled={settings.locks.autoCreateProducts.locked}
               onCheckedChange={(checked: boolean) => handleAutoCreateChange('autoCreateProducts', checked)}
             />
-            <span className="text-sm">Auto-create products</span>
+            <label
+              htmlFor="auto-create-products"
+              className={`text-sm ${settings.locks.autoCreateProducts.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+            >
+              Auto-create products
+            </label>
             <LockBadge lock={settings.locks.autoCreateProducts} />
-          </label>
+          </div>
         </div>
 
         <Separator />
@@ -369,15 +397,21 @@ export function SettingsForm() {
               Control how checked-off Mealie shopping list items are restocked in Grocy.
             </p>
           </div>
-          <label className={`flex items-center gap-2.5 ${settings.locks.stockOnlyMinStock.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
+          <div className="flex items-center gap-2.5">
             <Checkbox
+              id="stock-only-min-stock"
               checked={settings.stockOnlyMinStock}
               disabled={settings.locks.stockOnlyMinStock.locked}
               onCheckedChange={(checked: boolean) => handleStockOnlyMinStockChange(checked)}
             />
-            <span className="text-sm">Only restock products with min stock</span>
+            <label
+              htmlFor="stock-only-min-stock"
+              className={`text-sm ${settings.locks.stockOnlyMinStock.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+            >
+              Only restock products with min stock
+            </label>
             <LockBadge lock={settings.locks.stockOnlyMinStock} />
-          </label>
+          </div>
           <p className="pl-6 text-xs text-muted-foreground">
             When enabled, checking off a Mealie item only adds stock in Grocy when the mapped product has `min_stock_amount &gt; 0`.
           </p>
