@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ENSURE_LOW_STOCK_ENDPOINT, getPartialToastConfig } from '../toast';
+import { ENSURE_LOW_STOCK_ENDPOINT, getPartialToastConfig, hasSyncActionError } from '../toast';
 
 describe('getPartialToastConfig', () => {
   it('points ensure partial results with unmapped products to the mapping wizard', () => {
@@ -28,5 +28,12 @@ describe('getPartialToastConfig', () => {
     })).toEqual({
       description: 'Synced 1 item.',
     });
+  });
+
+  it('treats a JSON body with status=error as an error even on a 2xx response', () => {
+    expect(hasSyncActionError(true, {
+      status: 'error',
+      message: 'Backend reported an error',
+    })).toBe(true);
   });
 });

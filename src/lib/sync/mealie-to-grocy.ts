@@ -8,13 +8,38 @@ import { getSyncState, saveSyncState } from './state';
 import { fetchAllMealieShoppingItems } from './helpers';
 import { eq } from 'drizzle-orm';
 
-export async function pollMealieForCheckedItems(): Promise<void> {
+export interface MealieToGrocySyncSummary {
+  checkedItems: number;
+  restockedProducts: number;
+  failedItems: number;
+}
+
+export interface MealieToGrocyPollResult {
+  status: 'ok' | 'partial' | 'skipped' | 'error';
+  reason?: 'no-shopping-list';
+  summary: MealieToGrocySyncSummary;
+}
+
+function createEmptySummary(): MealieToGrocySyncSummary {
+  return {
+    checkedItems: 0,
+    restockedProducts: 0,
+    failedItems: 0,
+  };
+}
+
+export async function pollMealieForCheckedItems(): Promise<MealieToGrocyPollResult> {
   log.info('[Mealie→Grocy] Polling for checked items...');
 
+  const summary = createEmptySummary();
   const shoppingListId = await resolveShoppingListId();
   if (!shoppingListId) {
     log.warn('[Mealie→Grocy] No shopping list configured — skipping poll');
-    return;
+    return {
+      status: 'skipped',
+      reason: 'no-shopping-list',
+      summary,
+    };
   }
 
   try {
@@ -32,6 +57,9 @@ export async function pollMealieForCheckedItems(): Promise<void> {
     for (const item of items) {
       const checked = item.checked ?? false;
       newCheckedState[item.id] = checked;
+      if (checked) {
+        summary.checkedItems++;
+      }
 
       if (isBootstrapPoll) {
         continue;
@@ -47,9 +75,11 @@ export async function pollMealieForCheckedItems(): Promise<void> {
             // Track that this product was restocked by sync, so Grocy→Mealie
             // won't remove it from the shopping list on the next poll
             state.syncRestockedProducts[String(grocyProductId)] = new Date().toISOString();
+            summary.restockedProducts++;
           }
         } catch (err) {
           log.error(`[Mealie→Grocy] Failed to process item "${item.id}":`, err);
+          summary.failedItems++;
           // Remove from newCheckedState so ONLY this item retries next poll.
           // Other already-processed items are saved normally, preventing double-restocking.
           delete newCheckedState[item.id];
@@ -61,8 +91,17 @@ export async function pollMealieForCheckedItems(): Promise<void> {
     state.mealieCheckedItems = newCheckedState;
     state.lastMealiePoll = new Date();
     await saveSyncState(state);
+
+    return {
+      status: summary.failedItems > 0 ? 'partial' : 'ok',
+      summary,
+    };
   } catch (error) {
     log.error('[Mealie→Grocy] Error polling Mealie:', error);
+    return {
+      status: 'error',
+      summary,
+    };
   }
 }
 

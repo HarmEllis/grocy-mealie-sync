@@ -20,6 +20,10 @@ export interface PartialToastConfig {
   mappingWizardTab?: WizardTab;
 }
 
+export function hasSyncActionError(responseOk: boolean, response: SyncActionResponse | null): boolean {
+  return !responseOk || response?.status === 'error';
+}
+
 export function getPartialToastConfig(
   endpoint: string,
   response: SyncActionResponse | null,

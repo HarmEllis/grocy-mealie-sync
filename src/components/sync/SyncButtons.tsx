@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeftRight, ArrowRight, RefreshCw, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { openMappingWizard } from '@/components/mapping-wizard/events';
-import { getPartialToastConfig, type SyncActionResponse } from './toast';
+import { getPartialToastConfig, hasSyncActionError, type SyncActionResponse } from './toast';
 
 const syncActions = [
   { label: 'Sync Products & Units', endpoint: '/api/sync/products', icon: RefreshCw },
@@ -36,7 +36,7 @@ export function SyncButtons() {
         // Response body wasn't JSON.
       }
 
-      if (!res.ok) {
+      if (hasSyncActionError(res.ok, body)) {
         let errorMsg = `${res.status}`;
         if (body?.error) errorMsg = body.error;
         else if (body?.message) errorMsg = body.message;

@@ -11,8 +11,28 @@ export async function POST() {
     );
   }
   try {
-    await pollGrocyForMissingStock();
-    return NextResponse.json({ status: 'ok', message: 'Grocy→Mealie check completed' });
+    const result = await pollGrocyForMissingStock();
+
+    if (result.status === 'error') {
+      return NextResponse.json(
+        { status: 'error', message: 'An internal error occurred during Grocy-to-Mealie sync' },
+        { status: 500 },
+      );
+    }
+
+    if (result.status === 'skipped' && result.reason === 'no-shopping-list') {
+      return NextResponse.json({
+        status: 'skipped',
+        message: 'No shopping list is configured, so the low-stock shopping-list sync was skipped.',
+        summary: result.summary,
+      });
+    }
+
+    return NextResponse.json({
+      status: 'ok',
+      message: 'Grocy→Mealie check completed',
+      summary: result.summary,
+    });
   } catch (error) {
     log.error('[API] Grocy→Mealie sync failed:', error);
     return NextResponse.json(
