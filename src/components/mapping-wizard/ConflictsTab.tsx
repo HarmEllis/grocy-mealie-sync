@@ -3,9 +3,11 @@
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { ConflictsTabData, MappingConflictRow } from './types';
+import { formatDateTime } from '@/lib/date-time';
 
 interface ConflictsTabProps {
   data: ConflictsTabData;
+  timeZone: string | null;
   actionRunning: string | null;
   onCheckConflicts: () => void;
   onOpenSourceTab: (tab: 'products' | 'units') => void;
@@ -14,18 +16,9 @@ interface ConflictsTabProps {
   onRecheckConflict: (conflict: MappingConflictRow) => void;
 }
 
-function formatTimestamp(value: string | Date | null): string {
-  if (!value) return '-';
-
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return String(value);
-  }
-}
-
 export function ConflictsTab({
   data,
+  timeZone,
   actionRunning,
   onCheckConflicts,
   onOpenSourceTab,
@@ -69,11 +62,11 @@ export function ConflictsTab({
                   <div className="space-y-1">
                     <p>{conflict.summary}</p>
                     <p className="text-xs text-muted-foreground">
-                      First seen: {formatTimestamp(conflict.firstSeenAt)}
+                      First seen: {formatDateTime(conflict.firstSeenAt, { timeZone })}
                     </p>
                   </div>
                 </TableCell>
-                <TableCell className="text-muted-foreground">{formatTimestamp(conflict.lastSeenAt)}</TableCell>
+                <TableCell className="text-muted-foreground">{formatDateTime(conflict.lastSeenAt, { timeZone })}</TableCell>
                 <TableCell>{conflict.occurrences}</TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-2">

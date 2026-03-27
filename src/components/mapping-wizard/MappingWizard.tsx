@@ -86,7 +86,11 @@ const INITIAL_DIRTY_TABS: Record<WizardTab, boolean> = {
   conflicts: false,
 };
 
-export function MappingWizard() {
+interface MappingWizardProps {
+  timeZone: string | null;
+}
+
+export function MappingWizard({ timeZone }: MappingWizardProps) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<WizardTab>('units');
   const [unitsData, setUnitsData] = useState<UnitsTabData | null>(null);
@@ -1431,6 +1435,7 @@ export function MappingWizard() {
         return (
           <ConflictsTab
             data={conflictsData!}
+            timeZone={timeZone}
             actionRunning={actionRunning}
             onCheckConflicts={checkConflicts}
             onOpenSourceTab={sourceTab => setTab(sourceTab)}

@@ -13,6 +13,8 @@ import { LogoutButton } from '@/components/auth/LogoutButton';
 import { ArrowLeftRight, Settings, Wand2, Activity, Database, Clock, Terminal, AlertTriangle } from 'lucide-react';
 import { ThemeSwitcher } from '@/components/theme/ThemeSwitcher';
 import { getAuthConfig } from '@/lib/auth';
+import { config } from '@/lib/config';
+import { formatDateTime } from '@/lib/date-time';
 
 interface SyncStatus {
   lastGrocyPoll: string | Date | null;
@@ -39,16 +41,6 @@ async function getStatus(): Promise<SyncStatus | null> {
     };
   } catch {
     return null;
-  }
-}
-
-function formatTimestamp(ts: string | Date | null): string {
-  if (!ts) return 'Never';
-  try {
-    const d = ts instanceof Date ? ts : new Date(ts);
-    return d.toLocaleString();
-  } catch {
-    return String(ts);
   }
 }
 
@@ -105,14 +97,14 @@ export default async function Home() {
                     <Clock className="size-3" />
                     Last Grocy poll
                   </p>
-                  <p className="font-medium">{formatTimestamp(status.lastGrocyPoll)}</p>
+                  <p className="font-medium">{formatDateTime(status.lastGrocyPoll, { fallback: 'Never', timeZone: config.timeZone })}</p>
                 </div>
                 <div className="space-y-0.5">
                   <p className="text-muted-foreground flex items-center gap-1.5">
                     <Clock className="size-3" />
                     Last Mealie poll
                   </p>
-                  <p className="font-medium">{formatTimestamp(status.lastMealiePoll)}</p>
+                  <p className="font-medium">{formatDateTime(status.lastMealiePoll, { fallback: 'Never', timeZone: config.timeZone })}</p>
                 </div>
                 <div className="space-y-0.5">
                   <p className="text-muted-foreground">Grocy below min stock</p>
@@ -155,7 +147,7 @@ export default async function Home() {
             <CardDescription>Map Mealie items to Grocy products and units</CardDescription>
           </CardHeader>
           <CardContent>
-            <MappingWizard />
+            <MappingWizard timeZone={config.timeZone} />
           </CardContent>
         </Card>
 

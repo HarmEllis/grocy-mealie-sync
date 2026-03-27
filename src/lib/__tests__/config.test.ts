@@ -4,6 +4,7 @@ import {
   parseIntOrDefault,
   parseOptionalIntEnv,
   parseOptionalUrlEnv,
+  parseTimeZoneEnv,
   parseWebhookModeEnv,
   validateServiceUrl,
 } from '../config';
@@ -119,5 +120,21 @@ describe('parseWebhookModeEnv', () => {
 
   it('falls back to errors_only for invalid modes', () => {
     expect(parseWebhookModeEnv('sometimes', 'TEST')).toBe('errors_only');
+  });
+});
+
+describe('parseTimeZoneEnv', () => {
+  it('returns null for empty values', () => {
+    expect(parseTimeZoneEnv(undefined, 'TZ')).toBeNull();
+    expect(parseTimeZoneEnv('', 'TZ')).toBeNull();
+  });
+
+  it('accepts valid IANA timezones and canonicalizes casing', () => {
+    expect(parseTimeZoneEnv('Europe/Amsterdam', 'TZ')).toBe('Europe/Amsterdam');
+    expect(parseTimeZoneEnv('europe/amsterdam', 'TZ')).toBe('Europe/Amsterdam');
+  });
+
+  it('returns null for invalid timezones', () => {
+    expect(parseTimeZoneEnv('not-a-timezone', 'TZ')).toBeNull();
   });
 });
