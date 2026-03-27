@@ -16,6 +16,7 @@ interface MappedProductsTabProps {
   showOnlyBelowMinimumStock: boolean;
   setShowOnlyBelowMinimumStock: (value: boolean) => void;
   onUpdateMinStock: (grocyProductId: number, minStockAmount: number) => Promise<void>;
+  onUnmapProduct: (mappingId: string, productName: string) => void;
 }
 
 function formatAmount(value: number): string {
@@ -33,6 +34,7 @@ export function MappedProductsTab({
   showOnlyBelowMinimumStock,
   setShowOnlyBelowMinimumStock,
   onUpdateMinStock,
+  onUnmapProduct,
 }: MappedProductsTabProps) {
   const [draftMinStock, setDraftMinStock] = useState<Record<number, string>>({});
   const [savingGrocyProductId, setSavingGrocyProductId] = useState<number | null>(null);
@@ -108,12 +110,13 @@ export function MappedProductsTab({
               <TableHead>Unit</TableHead>
               <TableHead className="w-[140px]">Current Stock</TableHead>
               <TableHead className="w-[220px]">Min Stock</TableHead>
+              <TableHead className="w-[110px]">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredProducts.length === 0 && (
               <TableRow>
-                <TableCell colSpan={4} className="py-6 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={5} className="py-6 text-center text-sm text-muted-foreground">
                   No mapped products match the current filters.
                 </TableCell>
               </TableRow>
@@ -161,6 +164,16 @@ export function MappedProductsTab({
                         {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
                       </Button>
                     </div>
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => onUnmapProduct(product.id, product.name)}
+                    >
+                      Unmap
+                    </Button>
                   </TableCell>
                 </TableRow>
               );

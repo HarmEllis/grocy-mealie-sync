@@ -905,6 +905,25 @@ export function MappingWizard() {
     toast.success('Minimum stock updated');
   }
 
+  async function unmapMappedProduct(mappingId: string, productName: string) {
+    await runAction('unmapMappedProduct', async () => {
+      const res = await fetch('/api/mapping-wizard/products/unmap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: mappingId }),
+      });
+      const result = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(result?.error || 'Failed to unmap product');
+      }
+
+      await fetchTabData('mapped-products', { preserveWizardState: false, showLoading: false });
+      markOtherLoadedTabsDirty('mapped-products');
+      toast.success(`Unmapped "${productName}"`);
+    });
+  }
+
   function renderCurrentTab() {
     if (currentTabLoading && !currentTabData) {
       return (
@@ -1000,6 +1019,13 @@ export function MappingWizard() {
             showOnlyBelowMinimumStock={showOnlyMappedProductsBelowMinimum}
             setShowOnlyBelowMinimumStock={setShowOnlyMappedProductsBelowMinimum}
             onUpdateMinStock={updateMappedProductMinStock}
+            onUnmapProduct={(mappingId, productName) => openConfirm(
+              `unmapProduct_${mappingId}`,
+              `Unmap "${productName}"?`,
+              () => { void unmapMappedProduct(mappingId, productName); },
+              [productName],
+              'This removes the saved product mapping immediately. The product will show up in the regular mapping flows again.',
+            )}
           />
         );
     }
