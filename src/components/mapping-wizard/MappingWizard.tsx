@@ -16,12 +16,14 @@ import {
 import { Wand2, Loader2, Link, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { ConflictsTab } from './ConflictsTab';
 import { GrocyMinStockProductsTab } from './GrocyMinStockProductsTab';
 import { MappedProductsTab } from './MappedProductsTab';
 import { UnitsTab } from './UnitsTab';
 import { ProductsTab } from './ProductsTab';
 import type {
+  ConflictRemapData,
   ConflictsTabData,
   GrocyMinStockProductMapping,
   GrocyMinStockTabData,
@@ -105,6 +107,24 @@ export function MappingWizard() {
   const [showOnlyMappedProductsBelowMinimum, setShowOnlyMappedProductsBelowMinimum] = useState(false);
   const [bulkSuggestionTab, setBulkSuggestionTab] = useState<'units' | 'products' | 'grocy-min-stock' | null>(null);
   const [bulkSuggestionThreshold, setBulkSuggestionThreshold] = useState('90');
+  const [remapConflict, setRemapConflict] = useState<MappingConflictRow | null>(null);
+  const [remapData, setRemapData] = useState<ConflictRemapData | null>(null);
+  const [remapProductDraft, setRemapProductDraft] = useState<{
+    mealieFoodId: string | null;
+    grocyProductId: number | null;
+    grocyUnitId: number | null;
+  }>({
+    mealieFoodId: null,
+    grocyProductId: null,
+    grocyUnitId: null,
+  });
+  const [remapUnitDraft, setRemapUnitDraft] = useState<{
+    mealieUnitId: string | null;
+    grocyUnitId: number | null;
+  }>({
+    mealieUnitId: null,
+    grocyUnitId: null,
+  });
 
   // Confirm dialog state
   const [confirmAction, setConfirmAction] = useState<string | null>(null);
@@ -316,6 +336,30 @@ export function MappingWizard() {
       : [],
     [productsData],
   );
+  const remapMealieFoodOptions = useMemo(() =>
+    remapData?.mappingKind === 'product'
+      ? sortByName(remapData.mealieFoods).map(food => ({ value: food.id, label: food.name }))
+      : [],
+    [remapData],
+  );
+  const remapGrocyProductOptions = useMemo(() =>
+    remapData?.mappingKind === 'product'
+      ? sortByName(remapData.grocyProducts).map(product => ({ value: product.id, label: product.name }))
+      : [],
+    [remapData],
+  );
+  const remapMealieUnitOptions = useMemo(() =>
+    remapData?.mappingKind === 'unit'
+      ? sortByName(remapData.mealieUnits).map(unit => ({ value: unit.id, label: unit.name }))
+      : [],
+    [remapData],
+  );
+  const remapGrocyUnitOptions = useMemo(() =>
+    remapData
+      ? sortByName(remapData.grocyUnits).map(unit => ({ value: unit.id, label: unit.name }))
+      : [],
+    [remapData],
+  );
 
   // Unmapped IDs for "create" checkboxes
   const unmappedProductIds = useMemo(() =>
@@ -411,6 +455,112 @@ export function MappingWizard() {
     }
 
     return parsed;
+  }
+
+  function closeConflictRemapDialog() {
+    setRemapConflict(null);
+    setRemapData(null);
+    setRemapProductDraft({
+      mealieFoodId: null,
+      grocyProductId: null,
+      grocyUnitId: null,
+    });
+    setRemapUnitDraft({
+      mealieUnitId: null,
+      grocyUnitId: null,
+    });
+  }
+
+  async function openConflictRemapDialog(conflict: MappingConflictRow) {
+    await runAction('loadConflictRemap', async () => {
+      const params = new URLSearchParams({
+        mappingKind: conflict.mappingKind,
+        mappingId: conflict.mappingId,
+      });
+      const res = await fetch(`/api/mapping-wizard/conflicts/remap?${params.toString()}`);
+      const result = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(result?.error || 'Failed to load remap options');
+      }
+
+      const data = result as ConflictRemapData;
+      setRemapConflict(conflict);
+      setRemapData(data);
+
+      if (data.mappingKind === 'product') {
+        setRemapProductDraft({
+          mealieFoodId: data.mealieFoods.some(food => food.id === data.currentSelection.mealieFoodId)
+            ? data.currentSelection.mealieFoodId
+            : null,
+          grocyProductId: data.grocyProducts.some(product => product.id === data.currentSelection.grocyProductId)
+            ? data.currentSelection.grocyProductId
+            : null,
+          grocyUnitId: data.grocyUnits.some(unit => unit.id === data.currentSelection.grocyUnitId)
+            ? data.currentSelection.grocyUnitId
+            : null,
+        });
+        return;
+      }
+
+      setRemapUnitDraft({
+        mealieUnitId: data.mealieUnits.some(unit => unit.id === data.currentSelection.mealieUnitId)
+          ? data.currentSelection.mealieUnitId
+          : null,
+        grocyUnitId: data.grocyUnits.some(unit => unit.id === data.currentSelection.grocyUnitId)
+          ? data.currentSelection.grocyUnitId
+          : null,
+      });
+    });
+  }
+
+  async function submitConflictRemap() {
+    if (!remapConflict || !remapData) {
+      return;
+    }
+
+    if (remapData.mappingKind === 'product') {
+      if (!remapProductDraft.mealieFoodId || remapProductDraft.grocyProductId === null) {
+        toast.info('Select both a Mealie product and a Grocy product');
+        return;
+      }
+    } else if (!remapUnitDraft.mealieUnitId || remapUnitDraft.grocyUnitId === null) {
+      toast.info('Select both a Mealie unit and a Grocy unit');
+      return;
+    }
+
+    await runAction('remapConflict', async () => {
+      const payload = remapData.mappingKind === 'product'
+        ? {
+          mappingKind: 'product' as const,
+          mappingId: remapConflict.mappingId,
+          mealieFoodId: remapProductDraft.mealieFoodId!,
+          grocyProductId: remapProductDraft.grocyProductId!,
+          grocyUnitId: remapProductDraft.grocyUnitId,
+        }
+        : {
+          mappingKind: 'unit' as const,
+          mappingId: remapConflict.mappingId,
+          mealieUnitId: remapUnitDraft.mealieUnitId!,
+          grocyUnitId: remapUnitDraft.grocyUnitId!,
+        };
+
+      const res = await fetch('/api/mapping-wizard/conflicts/remap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const result = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(result?.error || 'Failed to remap conflict');
+      }
+
+      await fetchTabData('conflicts', { preserveWizardState: false, showLoading: false });
+      markOtherLoadedTabsDirty('conflicts');
+      closeConflictRemapDialog();
+      toast.success('Conflict remapped');
+    });
   }
 
   // --- Accept Suggestions ---
@@ -1284,6 +1434,7 @@ export function MappingWizard() {
             actionRunning={actionRunning}
             onCheckConflicts={checkConflicts}
             onOpenSourceTab={sourceTab => setTab(sourceTab)}
+            onRemapConflict={conflict => { void openConflictRemapDialog(conflict); }}
             onRecheckConflict={() => { void checkConflicts(); }}
             onUnmapConflict={(conflict: MappingConflictRow) => {
               if (conflict.mappingKind === 'unit') {
@@ -1398,6 +1549,119 @@ export function MappingWizard() {
             itemNames={confirmItemNames}
             running={isRunning}
           />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={remapConflict !== null}
+        onOpenChange={value => {
+          if (!value && actionRunning !== 'remapConflict' && actionRunning !== 'loadConflictRemap') {
+            closeConflictRemapDialog();
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Remap Conflict</DialogTitle>
+            <DialogDescription>
+              {remapConflict?.summary || 'Choose a replacement mapping for this conflict.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {remapData?.mappingKind === 'product' ? (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Mealie product</label>
+                <SearchableSelect
+                  options={remapMealieFoodOptions}
+                  value={remapProductDraft.mealieFoodId}
+                  onChange={value => setRemapProductDraft(prev => ({ ...prev, mealieFoodId: value }))}
+                  placeholder="Select Mealie product..."
+                  className="w-full"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Grocy product</label>
+                <SearchableSelect
+                  options={remapGrocyProductOptions}
+                  value={remapProductDraft.grocyProductId}
+                  onChange={value => {
+                    setRemapProductDraft(prev => {
+                      const selectedProduct = remapData.grocyProducts.find(product => product.id === value);
+                      return {
+                        ...prev,
+                        grocyProductId: value,
+                        grocyUnitId: value === null
+                          ? prev.grocyUnitId
+                          : selectedProduct?.quIdPurchase || prev.grocyUnitId || null,
+                      };
+                    });
+                  }}
+                  placeholder="Select Grocy product..."
+                  className="w-full"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Grocy unit</label>
+                <SearchableSelect
+                  options={remapGrocyUnitOptions}
+                  value={remapProductDraft.grocyUnitId}
+                  onChange={value => setRemapProductDraft(prev => ({ ...prev, grocyUnitId: value }))}
+                  placeholder="Keep unit unmapped"
+                  className="w-full"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Optional. If a matching unit mapping exists, it will be linked to this product mapping.
+                </p>
+              </div>
+            </div>
+          ) : remapData?.mappingKind === 'unit' ? (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Mealie unit</label>
+                <SearchableSelect
+                  options={remapMealieUnitOptions}
+                  value={remapUnitDraft.mealieUnitId}
+                  onChange={value => setRemapUnitDraft(prev => ({ ...prev, mealieUnitId: value }))}
+                  placeholder="Select Mealie unit..."
+                  className="w-full"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Grocy unit</label>
+                <SearchableSelect
+                  options={remapGrocyUnitOptions}
+                  value={remapUnitDraft.grocyUnitId}
+                  onChange={value => setRemapUnitDraft(prev => ({ ...prev, grocyUnitId: value }))}
+                  placeholder="Select Grocy unit..."
+                  className="w-full"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="py-2 text-sm text-muted-foreground">
+              Loading remap options...
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button
+              variant="outline"
+              onClick={closeConflictRemapDialog}
+              disabled={actionRunning === 'remapConflict' || actionRunning === 'loadConflictRemap'}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => { void submitConflictRemap(); }}
+              disabled={actionRunning === 'remapConflict' || actionRunning === 'loadConflictRemap'}
+            >
+              {actionRunning === 'remapConflict' ? 'Saving...' : 'Save Remap'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

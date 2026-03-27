@@ -104,7 +104,7 @@ export interface MappingConflictRow {
   type: string;
   status: string;
   severity: string;
-  mappingKind: string;
+  mappingKind: 'product' | 'unit';
   mappingId: string;
   sourceTab: 'products' | 'units';
   mealieId: string | null;
@@ -121,6 +121,30 @@ export interface MappingConflictRow {
 export interface ConflictsTabData {
   conflicts: MappingConflictRow[];
 }
+
+export interface ProductConflictRemapData {
+  mappingKind: 'product';
+  currentSelection: {
+    mealieFoodId: string | null;
+    grocyProductId: number | null;
+    grocyUnitId: number | null;
+  };
+  mealieFoods: MealieFood[];
+  grocyProducts: GrocyProduct[];
+  grocyUnits: GrocyUnit[];
+}
+
+export interface UnitConflictRemapData {
+  mappingKind: 'unit';
+  currentSelection: {
+    mealieUnitId: string | null;
+    grocyUnitId: number | null;
+  };
+  mealieUnits: MealieUnit[];
+  grocyUnits: GrocyUnit[];
+}
+
+export type ConflictRemapData = ProductConflictRemapData | UnitConflictRemapData;
 
 export interface ProductMapping { mealieFoodId: string; grocyProductId: number | null; grocyUnitId: number | null }
 export interface GrocyMinStockProductMapping { grocyProductId: number; mealieFoodId: string | null; grocyUnitId: number | null }

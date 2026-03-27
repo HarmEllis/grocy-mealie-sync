@@ -9,6 +9,7 @@ interface ConflictsTabProps {
   actionRunning: string | null;
   onCheckConflicts: () => void;
   onOpenSourceTab: (tab: 'products' | 'units') => void;
+  onRemapConflict: (conflict: MappingConflictRow) => void;
   onUnmapConflict: (conflict: MappingConflictRow) => void;
   onRecheckConflict: (conflict: MappingConflictRow) => void;
 }
@@ -28,6 +29,7 @@ export function ConflictsTab({
   actionRunning,
   onCheckConflicts,
   onOpenSourceTab,
+  onRemapConflict,
   onUnmapConflict,
   onRecheckConflict,
 }: ConflictsTabProps) {
@@ -42,14 +44,14 @@ export function ConflictsTab({
       </div>
 
       <div className="min-h-0 min-w-0 flex-1 rounded-md border">
-        <Table className="min-w-[1100px]" containerClassName="h-full min-w-0">
+        <Table className="min-w-[1180px]" containerClassName="h-full min-w-0">
           <TableHeader>
             <TableRow>
               <TableHead className="w-[180px]">Type</TableHead>
               <TableHead>Summary</TableHead>
               <TableHead className="w-[160px]">Last Seen</TableHead>
               <TableHead className="w-[90px]">Hits</TableHead>
-              <TableHead className="w-[240px]">Actions</TableHead>
+              <TableHead className="w-[320px]">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -77,6 +79,9 @@ export function ConflictsTab({
                   <div className="flex flex-wrap gap-2">
                     <Button size="sm" variant="outline" onClick={() => onOpenSourceTab(conflict.sourceTab)}>
                       Open Source Tab
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => onRemapConflict(conflict)} disabled={isRunning}>
+                      Remap
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => onRecheckConflict(conflict)} disabled={isRunning}>
                       Recheck
