@@ -3,6 +3,7 @@ import { syncState } from './db/schema';
 import { eq } from 'drizzle-orm';
 import { log } from './logger';
 import { config } from './config';
+import { normalizeMinStockStep, type MinStockStep } from './min-stock-step';
 
 export interface AppSettings {
   defaultUnitMappingId: string | null;
@@ -12,7 +13,7 @@ export interface AppSettings {
   ensureLowStockOnMealieList: boolean;
   syncMealieInPossession: boolean;
   mealieInPossessionOnlyAboveMinStock: boolean;
-  allowDecimalMinStockInMappingWizard: boolean;
+  mappingWizardMinStockStep: MinStockStep;
   stockOnlyMinStock: boolean;
 }
 
@@ -24,7 +25,7 @@ export interface SettingsLocks {
   ensureLowStockOnMealieList: SettingLock;
   syncMealieInPossession: SettingLock;
   mealieInPossessionOnlyAboveMinStock: SettingLock;
-  allowDecimalMinStockInMappingWizard: SettingLock;
+  mappingWizardMinStockStep: SettingLock;
   stockOnlyMinStock: SettingLock;
 }
 
@@ -44,7 +45,7 @@ const SETTING_ENV_VARS: Record<SettingKey, string> = {
   ensureLowStockOnMealieList: 'ENSURE_LOW_STOCK_ON_MEALIE_LIST',
   syncMealieInPossession: 'SYNC_MEALIE_IN_POSSESSION',
   mealieInPossessionOnlyAboveMinStock: 'MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK',
-  allowDecimalMinStockInMappingWizard: 'ALLOW_DECIMAL_MIN_STOCK_IN_MAPPING_WIZARD',
+  mappingWizardMinStockStep: 'MAPPING_WIZARD_MIN_STOCK_STEP',
   stockOnlyMinStock: 'STOCK_ONLY_MIN_STOCK',
 };
 
@@ -58,7 +59,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   ensureLowStockOnMealieList: false,
   syncMealieInPossession: false,
   mealieInPossessionOnlyAboveMinStock: false,
-  allowDecimalMinStockInMappingWizard: true,
+  mappingWizardMinStockStep: '1',
   stockOnlyMinStock: false,
 };
 
@@ -74,6 +75,14 @@ export async function getSettings(): Promise<AppSettings> {
     log.error('Failed to parse settings JSON, returning defaults:', e);
     return { ...DEFAULT_SETTINGS };
   }
+
+  const legacyAllowDecimalMinStockInMappingWizard = typeof data.allowDecimalMinStockInMappingWizard === 'boolean'
+    ? data.allowDecimalMinStockInMappingWizard
+    : undefined;
+  const storedMappingWizardMinStockStep = typeof data.mappingWizardMinStockStep === 'string'
+    ? data.mappingWizardMinStockStep
+    : null;
+
   return {
     defaultUnitMappingId: (data.defaultUnitMappingId as string) || null,
     mealieShoppingListId: (data.mealieShoppingListId as string) || null,
@@ -82,7 +91,15 @@ export async function getSettings(): Promise<AppSettings> {
     ensureLowStockOnMealieList: (data.ensureLowStockOnMealieList as boolean) ?? false,
     syncMealieInPossession: (data.syncMealieInPossession as boolean) ?? false,
     mealieInPossessionOnlyAboveMinStock: (data.mealieInPossessionOnlyAboveMinStock as boolean) ?? false,
-    allowDecimalMinStockInMappingWizard: (data.allowDecimalMinStockInMappingWizard as boolean) ?? true,
+    mappingWizardMinStockStep: normalizeMinStockStep(
+      storedMappingWizardMinStockStep
+      ?? (legacyAllowDecimalMinStockInMappingWizard === undefined
+        ? null
+        : legacyAllowDecimalMinStockInMappingWizard
+          ? '0.01'
+          : '1'),
+      '1',
+    ),
     stockOnlyMinStock: (data.stockOnlyMinStock as boolean) ?? false,
   };
 }
@@ -124,10 +141,10 @@ export function getSettingsLocks(): SettingsLocks {
       envVar: SETTING_ENV_VARS.mealieInPossessionOnlyAboveMinStock,
       envValue: config.envRaw.mealieInPossessionOnlyAboveMinStock,
     },
-    allowDecimalMinStockInMappingWizard: {
-      locked: config.envOverrides.allowDecimalMinStockInMappingWizard,
-      envVar: SETTING_ENV_VARS.allowDecimalMinStockInMappingWizard,
-      envValue: config.envRaw.allowDecimalMinStockInMappingWizard,
+    mappingWizardMinStockStep: {
+      locked: config.envOverrides.mappingWizardMinStockStep,
+      envVar: SETTING_ENV_VARS.mappingWizardMinStockStep,
+      envValue: config.envRaw.mappingWizardMinStockStep,
     },
     stockOnlyMinStock: {
       locked: config.envOverrides.stockOnlyMinStock,
@@ -249,13 +266,13 @@ export async function resolveMealieInPossessionOnlyAboveMinStock(): Promise<bool
   return settings.mealieInPossessionOnlyAboveMinStock;
 }
 
-export async function resolveAllowDecimalMinStockInMappingWizard(): Promise<boolean> {
-  if (config.envOverrides.allowDecimalMinStockInMappingWizard) {
-    return config.allowDecimalMinStockInMappingWizard;
+export async function resolveMappingWizardMinStockStep(): Promise<MinStockStep> {
+  if (config.envOverrides.mappingWizardMinStockStep) {
+    return config.mappingWizardMinStockStep;
   }
 
   const settings = await getSettings();
-  return settings.allowDecimalMinStockInMappingWizard;
+  return settings.mappingWizardMinStockStep;
 }
 
 export async function resolveStockOnlyMinStock(): Promise<boolean> {

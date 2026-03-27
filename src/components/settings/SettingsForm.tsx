@@ -9,6 +9,7 @@ import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
+import { MIN_STOCK_STEP_LABELS, MIN_STOCK_STEP_VALUES, type MinStockStep } from '@/lib/min-stock-step';
 
 interface UnitOption {
   id: string;
@@ -37,7 +38,7 @@ interface SettingsData {
   ensureLowStockOnMealieList: boolean;
   syncMealieInPossession: boolean;
   mealieInPossessionOnlyAboveMinStock: boolean;
-  allowDecimalMinStockInMappingWizard: boolean;
+  mappingWizardMinStockStep: MinStockStep;
   stockOnlyMinStock: boolean;
   locks: {
     defaultUnitMappingId: SettingLock;
@@ -47,7 +48,7 @@ interface SettingsData {
     ensureLowStockOnMealieList: SettingLock;
     syncMealieInPossession: SettingLock;
     mealieInPossessionOnlyAboveMinStock: SettingLock;
-    allowDecimalMinStockInMappingWizard: SettingLock;
+    mappingWizardMinStockStep: SettingLock;
     stockOnlyMinStock: SettingLock;
   };
   availableUnits: UnitOption[];
@@ -188,9 +189,9 @@ export function SettingsForm() {
     if (ok) setSettings(s => s ? { ...s, mealieInPossessionOnlyAboveMinStock: value } : s);
   }
 
-  async function handleAllowDecimalMinStockInMappingWizardChange(value: boolean) {
-    const ok = await saveSetting({ allowDecimalMinStockInMappingWizard: value });
-    if (ok) setSettings(s => s ? { ...s, allowDecimalMinStockInMappingWizard: value } : s);
+  async function handleMappingWizardMinStockStepChange(value: MinStockStep) {
+    const ok = await saveSetting({ mappingWizardMinStockStep: value });
+    if (ok) setSettings(s => s ? { ...s, mappingWizardMinStockStep: value } : s);
   }
 
   return (
@@ -330,20 +331,32 @@ export function SettingsForm() {
           <div>
             <p className="text-sm font-medium">Mapping Wizard</p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Control editing behavior in the mapped products overview.
+              Control the step size used by the minimum stock number input in the mapped products overview.
             </p>
           </div>
-          <label className={`flex items-center gap-2.5 ${settings.locks.allowDecimalMinStockInMappingWizard.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
-            <Checkbox
-              checked={settings.allowDecimalMinStockInMappingWizard}
-              disabled={settings.locks.allowDecimalMinStockInMappingWizard.locked}
-              onCheckedChange={(checked: boolean) => handleAllowDecimalMinStockInMappingWizardChange(checked)}
-            />
-            <span className="text-sm">Allow decimal minimum stock</span>
-            <LockBadge lock={settings.locks.allowDecimalMinStockInMappingWizard} />
-          </label>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2 shrink-0">
+              <label htmlFor="mapping-wizard-min-stock-step" className="text-sm font-medium">
+                Min stock input step
+              </label>
+              <LockBadge lock={settings.locks.mappingWizardMinStockStep} />
+            </div>
+            <select
+              id="mapping-wizard-min-stock-step"
+              value={settings.mappingWizardMinStockStep}
+              onChange={event => handleMappingWizardMinStockStepChange(event.target.value as MinStockStep)}
+              disabled={settings.locks.mappingWizardMinStockStep.locked}
+              className="h-8 w-full max-w-xs rounded-md border border-input bg-background px-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 ml-auto disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {MIN_STOCK_STEP_VALUES.map(step => (
+                <option key={step} value={step}>
+                  {MIN_STOCK_STEP_LABELS[step]}
+                </option>
+              ))}
+            </select>
+          </div>
           <p className="pl-6 text-xs text-muted-foreground">
-            When enabled, the mapped products tab accepts decimal values for Grocy `min_stock_amount`. When disabled, only whole numbers can be saved there.
+            This only changes the browser stepper increment. Manually typed values like `0.1` are still accepted even when the step is `1`.
           </p>
         </div>
 

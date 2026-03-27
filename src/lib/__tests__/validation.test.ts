@@ -114,7 +114,7 @@ describe('settingsUpdateSchema', () => {
       ensureLowStockOnMealieList: true,
       syncMealieInPossession: true,
       mealieInPossessionOnlyAboveMinStock: true,
-      allowDecimalMinStockInMappingWizard: false,
+      mappingWizardMinStockStep: '0.1',
       stockOnlyMinStock: true,
     });
     expect(result.success).toBe(true);
@@ -136,6 +136,13 @@ describe('settingsUpdateSchema', () => {
   it('rejects wrong boolean type', () => {
     const result = settingsUpdateSchema.safeParse({
       stockOnlyMinStock: 'yes',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects unsupported mapping wizard min stock step', () => {
+    const result = settingsUpdateSchema.safeParse({
+      mappingWizardMinStockStep: '0.001',
     });
     expect(result.success).toBe(false);
   });

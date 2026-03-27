@@ -198,7 +198,7 @@ The following app-level settings can be configured in the web UI at `http://loca
 - Actively ensure below-min items stay on the Mealie list: `ENSURE_LOW_STOCK_ON_MEALIE_LIST`
 - Sync Mealie `In possession` from Grocy stock: `SYNC_MEALIE_IN_POSSESSION`
 - Only mark Mealie `In possession` above minimum stock: `MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK`
-- Allow decimal min stock values in the Mapping Wizard: `ALLOW_DECIMAL_MIN_STOCK_IN_MAPPING_WIZARD`
+- Mapping Wizard min stock input step: `MAPPING_WIZARD_MIN_STOCK_STEP`
 - Only restock products with min stock: `STOCK_ONLY_MIN_STOCK`
 
 When one of these environment variables is set, it takes precedence over the stored UI value. The setting is shown as locked in the web UI, and you need to comment out or remove the env var before editing it there.

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MIN_STOCK_STEP_VALUES } from './min-stock-step';
 
 // --- Mapping Wizard: Products ---
 
@@ -62,7 +63,7 @@ export const settingsUpdateSchema = z.object({
   ensureLowStockOnMealieList: z.boolean().optional(),
   syncMealieInPossession: z.boolean().optional(),
   mealieInPossessionOnlyAboveMinStock: z.boolean().optional(),
-  allowDecimalMinStockInMappingWizard: z.boolean().optional(),
+  mappingWizardMinStockStep: z.enum(MIN_STOCK_STEP_VALUES).optional(),
   stockOnlyMinStock: z.boolean().optional(),
 });
 

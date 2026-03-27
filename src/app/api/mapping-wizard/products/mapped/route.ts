@@ -3,12 +3,12 @@ import { db } from '@/lib/db';
 import { productMappings, unitMappings } from '@/lib/db/schema';
 import { getCurrentStock, getGrocyEntities, updateGrocyEntity } from '@/lib/grocy/types';
 import { log } from '@/lib/logger';
-import { resolveAllowDecimalMinStockInMappingWizard } from '@/lib/settings';
+import { resolveMappingWizardMinStockStep } from '@/lib/settings';
 import { mappedProductMinStockUpdateSchema } from '@/lib/validation';
 
 export async function GET() {
   try {
-    const [mappings, mappedUnits, grocyProducts, grocyUnits, currentStock, allowDecimalMinStock] = await Promise.all([
+    const [mappings, mappedUnits, grocyProducts, grocyUnits, currentStock, minStockStep] = await Promise.all([
       db.select({
         id: productMappings.id,
         mealieFoodName: productMappings.mealieFoodName,
@@ -24,7 +24,7 @@ export async function GET() {
       getGrocyEntities('products'),
       getGrocyEntities('quantity_units'),
       getCurrentStock(),
-      resolveAllowDecimalMinStockInMappingWizard(),
+      resolveMappingWizardMinStockStep(),
     ]);
 
     const grocyProductById = new Map(grocyProducts.map(product => [Number(product.id), product]));
@@ -54,7 +54,7 @@ export async function GET() {
       })
       .sort((left, right) => left.name.localeCompare(right.name));
 
-    return NextResponse.json({ mappedProducts, allowDecimalMinStock });
+    return NextResponse.json({ mappedProducts, minStockStep });
   } catch (error) {
     log.error('[MappingWizard] Failed to fetch mapped products:', error);
     return NextResponse.json({ error: 'Failed to fetch mapped products' }, { status: 500 });
@@ -78,14 +78,6 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    const allowDecimalMinStock = await resolveAllowDecimalMinStockInMappingWizard();
-    if (!allowDecimalMinStock && !Number.isInteger(parsed.data.minStockAmount)) {
-      return NextResponse.json(
-        { error: 'Minimum stock must be a whole number when decimal minimum stock is disabled' },
-        { status: 400 },
-      );
-    }
-
     await updateGrocyEntity('products', parsed.data.grocyProductId, {
       min_stock_amount: parsed.data.minStockAmount,
     });

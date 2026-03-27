@@ -9,7 +9,7 @@ const mockState = vi.hoisted(() => ({
   grocyUnits: [] as Array<Record<string, unknown>>,
   currentStock: [] as Array<Record<string, unknown>>,
   updateGrocyEntity: vi.fn(),
-  resolveAllowDecimalMinStockInMappingWizard: vi.fn(async () => true),
+  resolveMappingWizardMinStockStep: vi.fn(async () => '1'),
   logError: vi.fn(),
 }));
 
@@ -54,7 +54,7 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 vi.mock('@/lib/settings', () => ({
-  resolveAllowDecimalMinStockInMappingWizard: mockState.resolveAllowDecimalMinStockInMappingWizard,
+  resolveMappingWizardMinStockStep: mockState.resolveMappingWizardMinStockStep,
 }));
 
 import { GET, PATCH } from '../products/mapped/route';
@@ -67,8 +67,8 @@ describe('mapped products route', () => {
     mockState.grocyUnits = [];
     mockState.currentStock = [];
     mockState.updateGrocyEntity.mockReset();
-    mockState.resolveAllowDecimalMinStockInMappingWizard.mockReset();
-    mockState.resolveAllowDecimalMinStockInMappingWizard.mockResolvedValue(true);
+    mockState.resolveMappingWizardMinStockStep.mockReset();
+    mockState.resolveMappingWizardMinStockStep.mockResolvedValue('1');
     mockState.logError.mockClear();
   });
 
@@ -127,7 +127,7 @@ describe('mapped products route', () => {
           minStockAmount: 1,
         },
       ],
-      allowDecimalMinStock: true,
+      minStockStep: '1',
     });
   });
 
@@ -155,9 +155,8 @@ describe('mapped products route', () => {
     });
   });
 
-  it('rejects decimal minimum stock when decimal editing is disabled', async () => {
-    mockState.resolveAllowDecimalMinStockInMappingWizard.mockResolvedValue(false);
-
+  it('accepts decimal minimum stock regardless of configured input step', async () => {
+    mockState.resolveMappingWizardMinStockStep.mockResolvedValue('1');
     const request = new Request('http://localhost/api/mapping-wizard/products/mapped', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -170,10 +169,14 @@ describe('mapped products route', () => {
     const response = await PATCH(request);
     const body = await response.json();
 
-    expect(mockState.updateGrocyEntity).not.toHaveBeenCalled();
-    expect(response.status).toBe(400);
+    expect(mockState.updateGrocyEntity).toHaveBeenCalledWith('products', 10, {
+      min_stock_amount: 1.5,
+    });
+    expect(response.status).toBe(200);
     expect(body).toEqual({
-      error: 'Minimum stock must be a whole number when decimal minimum stock is disabled',
+      status: 'ok',
+      grocyProductId: 10,
+      minStockAmount: 1.5,
     });
   });
 });

@@ -12,7 +12,6 @@ interface MappedProductsTabProps {
   productSearch: string;
   setProductSearch: (value: string) => void;
   onUpdateMinStock: (grocyProductId: number, minStockAmount: number) => Promise<void>;
-  allowDecimalMinStock: boolean;
 }
 
 function formatAmount(value: number): string {
@@ -28,7 +27,6 @@ export function MappedProductsTab({
   productSearch,
   setProductSearch,
   onUpdateMinStock,
-  allowDecimalMinStock,
 }: MappedProductsTabProps) {
   const [draftMinStock, setDraftMinStock] = useState<Record<number, string>>({});
   const [savingGrocyProductId, setSavingGrocyProductId] = useState<number | null>(null);
@@ -91,9 +89,7 @@ export function MappedProductsTab({
             {filteredProducts.map(product => {
               const draftValue = draftMinStock[product.grocyProductId] ?? String(product.minStockAmount);
               const parsedDraft = Number(draftValue);
-              const isInvalid = !Number.isFinite(parsedDraft)
-                || parsedDraft < 0
-                || (!allowDecimalMinStock && !Number.isInteger(parsedDraft));
+              const isInvalid = !Number.isFinite(parsedDraft) || parsedDraft < 0;
               const isDirty = !isInvalid && parsedDraft !== product.minStockAmount;
               const isSaving = savingGrocyProductId === product.grocyProductId;
 
@@ -107,7 +103,7 @@ export function MappedProductsTab({
                       <Input
                         type="number"
                         min="0"
-                        step={allowDecimalMinStock ? '0.01' : '1'}
+                        step={data.minStockStep}
                         value={draftValue}
                         onChange={event => {
                           const value = event.target.value;

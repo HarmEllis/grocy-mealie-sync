@@ -848,7 +848,7 @@ export function MappingWizard() {
     }
 
     setMappedProductsData(prev => prev ? ({
-      allowDecimalMinStock: prev.allowDecimalMinStock,
+      minStockStep: prev.minStockStep,
       mappedProducts: prev.mappedProducts.map(product =>
         product.grocyProductId === grocyProductId
           ? { ...product, minStockAmount }
@@ -941,7 +941,6 @@ export function MappingWizard() {
             productSearch={mappedProductSearch}
             setProductSearch={setMappedProductSearch}
             onUpdateMinStock={updateMappedProductMinStock}
-            allowDecimalMinStock={mappedProductsData!.allowDecimalMinStock}
           />
         );
     }

@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import { log } from './logger';
+import { normalizeMinStockStep, type MinStockStep } from './min-stock-step';
 dotenv.config();
 
 const GROCY_DEFAULT_URL = 'http://grocy:9283';
@@ -64,6 +65,27 @@ export function parseBooleanEnv(value: string | undefined, defaultValue: boolean
   }
 }
 
+export function parseMinStockStepEnv(
+  value: string | undefined,
+  defaultValue: MinStockStep,
+  name: string,
+): MinStockStep {
+  if (!hasConfiguredValue(value)) {
+    return defaultValue;
+  }
+
+  const trimmed = value!.trim();
+  const normalized = normalizeMinStockStep(trimmed, defaultValue);
+
+  if (normalized !== trimmed) {
+    log.warn(
+      `[Config] ${name} must be one of ${['1', '0.1', '0.01'].join(', ')} (got "${value}"). Falling back to ${defaultValue}.`,
+    );
+  }
+
+  return normalized;
+}
+
 export const config = {
   grocyUrl: validateServiceUrl(process.env.GROCY_URL, 'GROCY_URL', GROCY_DEFAULT_URL),
   grocyApiKey: process.env.GROCY_API_KEY || '',
@@ -90,10 +112,10 @@ export const config = {
     false,
     'MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK',
   ),
-  allowDecimalMinStockInMappingWizard: parseBooleanEnv(
-    process.env.ALLOW_DECIMAL_MIN_STOCK_IN_MAPPING_WIZARD,
-    true,
-    'ALLOW_DECIMAL_MIN_STOCK_IN_MAPPING_WIZARD',
+  mappingWizardMinStockStep: parseMinStockStepEnv(
+    process.env.MAPPING_WIZARD_MIN_STOCK_STEP,
+    '1',
+    'MAPPING_WIZARD_MIN_STOCK_STEP',
   ),
   stockOnlyMinStock: parseBooleanEnv(process.env.STOCK_ONLY_MIN_STOCK, false, 'STOCK_ONLY_MIN_STOCK'),
   databasePath: process.env.DATABASE_PATH || './data/sync.db',
@@ -105,7 +127,7 @@ export const config = {
     ensureLowStockOnMealieList: hasConfiguredValue(process.env.ENSURE_LOW_STOCK_ON_MEALIE_LIST),
     syncMealieInPossession: hasConfiguredValue(process.env.SYNC_MEALIE_IN_POSSESSION),
     mealieInPossessionOnlyAboveMinStock: hasConfiguredValue(process.env.MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK),
-    allowDecimalMinStockInMappingWizard: hasConfiguredValue(process.env.ALLOW_DECIMAL_MIN_STOCK_IN_MAPPING_WIZARD),
+    mappingWizardMinStockStep: hasConfiguredValue(process.env.MAPPING_WIZARD_MIN_STOCK_STEP),
     stockOnlyMinStock: hasConfiguredValue(process.env.STOCK_ONLY_MIN_STOCK),
   },
   envRaw: {
@@ -116,7 +138,7 @@ export const config = {
     ensureLowStockOnMealieList: process.env.ENSURE_LOW_STOCK_ON_MEALIE_LIST?.trim() || null,
     syncMealieInPossession: process.env.SYNC_MEALIE_IN_POSSESSION?.trim() || null,
     mealieInPossessionOnlyAboveMinStock: process.env.MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK?.trim() || null,
-    allowDecimalMinStockInMappingWizard: process.env.ALLOW_DECIMAL_MIN_STOCK_IN_MAPPING_WIZARD?.trim() || null,
+    mappingWizardMinStockStep: process.env.MAPPING_WIZARD_MIN_STOCK_STEP?.trim() || null,
     stockOnlyMinStock: process.env.STOCK_ONLY_MIN_STOCK?.trim() || null,
   },
 };

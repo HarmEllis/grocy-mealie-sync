@@ -1,3 +1,5 @@
+import type { MinStockStep } from '@/lib/min-stock-step';
+
 export interface MealieFood { id: string; name: string }
 export interface MealieUnit { id: string; name: string; abbreviation: string }
 export interface GrocyProduct { id: number; name: string; quIdPurchase: number; minStockAmount: number }
@@ -53,7 +55,7 @@ export interface MappedProductRow {
 
 export interface MappedProductsTabData {
   mappedProducts: MappedProductRow[];
-  allowDecimalMinStock: boolean;
+  minStockStep: MinStockStep;
 }
 
 export interface ProductMapping { mealieFoodId: string; grocyProductId: number | null; grocyUnitId: number | null }
