@@ -3,6 +3,37 @@ import { pollGrocyForMissingStock } from '@/lib/sync/grocy-to-mealie';
 import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
 import { log } from '@/lib/logger';
 
+function formatUnmappedProductsMessage(unmappedProducts: number): string {
+  const skippedLabel = `${unmappedProducts} low-stock product${unmappedProducts === 1 ? '' : 's'}`;
+  const skippedReason = unmappedProducts === 1
+    ? 'because it is not mapped.'
+    : 'because they are not mapped.';
+
+  return `Skipped ${skippedLabel} ${skippedReason}`;
+}
+
+function formatPartialMessage(result: Awaited<ReturnType<typeof pollGrocyForMissingStock>>): string {
+  const details: string[] = [];
+
+  if (result.reason === 'no-shopping-list') {
+    details.push('The low-stock shopping-list sync was skipped because no shopping list is configured.');
+  }
+
+  if (result.summary.unmappedProducts > 0) {
+    details.push(formatUnmappedProductsMessage(result.summary.unmappedProducts));
+  }
+
+  if (result.inPossessionStatus === 'error') {
+    details.push('The "In possession" sync failed.');
+  }
+
+  if (details.length === 0) {
+    return 'Grocy→Mealie check partially completed.';
+  }
+
+  return `Grocy→Mealie check partially completed. ${details.join(' ')}`;
+}
+
 export async function POST() {
   if (!acquireSyncLock()) {
     return NextResponse.json(
@@ -24,6 +55,14 @@ export async function POST() {
       return NextResponse.json({
         status: 'skipped',
         message: 'No shopping list is configured, so the low-stock shopping-list sync was skipped.',
+        summary: result.summary,
+      });
+    }
+
+    if (result.status === 'partial') {
+      return NextResponse.json({
+        status: 'partial',
+        message: formatPartialMessage(result),
         summary: result.summary,
       });
     }

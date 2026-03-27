@@ -6,7 +6,7 @@ import { HouseholdsShoppingListItemsService } from '../mealie';
 import type { MealieShoppingItem } from '../mealie/types';
 import { log } from '../logger';
 import { resolveEnsureLowStockOnMealieList, resolveShoppingListId } from '../settings';
-import { syncMealieInPossessionFromGrocy } from './mealie-in-possession';
+import { syncMealieInPossessionFromGrocy, type MealieInPossessionSyncResult } from './mealie-in-possession';
 import { getSyncState, saveSyncState } from './state';
 import { fetchAllMealieShoppingItems } from './helpers';
 import { eq } from 'drizzle-orm';
@@ -29,8 +29,9 @@ export interface GrocyMissingStockSyncSummary {
 }
 
 export interface GrocyMissingStockPollResult {
-  status: 'ok' | 'skipped' | 'error';
+  status: 'ok' | 'partial' | 'skipped' | 'error';
   reason?: 'no-shopping-list';
+  inPossessionStatus?: MealieInPossessionSyncResult['status'];
   summary: GrocyMissingStockSyncSummary;
 }
 
@@ -211,7 +212,7 @@ export async function pollGrocyForMissingStock(
 
     const inPossessionResult = await syncMealieInPossessionFromGrocy(state);
     if (inPossessionResult.status === 'error') {
-      log.error('[Grocy→Mealie] Skipping "In possession" state update because the sync failed');
+      log.error('[Grocy→Mealie] "In possession" sync failed after low-stock processing completed');
     }
 
     // Clear all syncRestockedProducts entries after processing.
@@ -225,16 +226,29 @@ export async function pollGrocyForMissingStock(
     state.lastGrocyPoll = new Date();
     await saveSyncState(state);
 
+    const partial = summary.unmappedProducts > 0 || inPossessionResult.status === 'error';
+
+    if (partial) {
+      return {
+        status: 'partial',
+        reason: lowStockSyncSkipped ? 'no-shopping-list' : undefined,
+        inPossessionStatus: inPossessionResult.status,
+        summary,
+      };
+    }
+
     if (lowStockSyncSkipped) {
       return {
         status: 'skipped',
         reason: 'no-shopping-list',
+        inPossessionStatus: inPossessionResult.status,
         summary,
       };
     }
 
     return {
       status: 'ok',
+      inPossessionStatus: inPossessionResult.status,
       summary,
     };
   } catch (error) {

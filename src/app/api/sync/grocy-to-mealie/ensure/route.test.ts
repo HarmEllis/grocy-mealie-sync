@@ -85,4 +85,32 @@ describe('grocy-to-mealie ensure route', () => {
       logUnmappedPresenceCheckProducts: false,
     });
   });
+
+  it('returns partial when the in-possession sync failed even without unmapped products', async () => {
+    mockState.ensureGrocyMissingStockOnMealie.mockResolvedValue({
+      status: 'partial',
+      inPossessionStatus: 'error',
+      summary: {
+        processedProducts: 2,
+        ensuredProducts: 2,
+        unmappedProducts: 0,
+      },
+    });
+
+    const response = await POST(new Request('http://localhost/api/sync/grocy-to-mealie/ensure', {
+      method: 'POST',
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      status: 'partial',
+      message: 'Ensured 2 low-stock products in Mealie. The "In possession" sync failed.',
+      summary: {
+        processedProducts: 2,
+        ensuredProducts: 2,
+        unmappedProducts: 0,
+      },
+    });
+  });
 });

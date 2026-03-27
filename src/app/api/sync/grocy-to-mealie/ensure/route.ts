@@ -18,6 +18,20 @@ function formatEnsureSummaryMessage(ensuredProducts: number, unmappedProducts: n
   return `Ensured ${ensuredLabel} in Mealie. Skipped ${skippedLabel} ${skippedReason}.`;
 }
 
+function formatEnsurePartialMessage(
+  ensuredProducts: number,
+  unmappedProducts: number,
+  inPossessionStatus: 'ok' | 'skipped' | 'error' | undefined,
+): string {
+  const details: string[] = [formatEnsureSummaryMessage(ensuredProducts, unmappedProducts)];
+
+  if (inPossessionStatus === 'error') {
+    details.push('The "In possession" sync failed.');
+  }
+
+  return details.join(' ');
+}
+
 export async function POST(request: Request) {
   if (!acquireSyncLock()) {
     return NextResponse.json(
@@ -47,13 +61,21 @@ export async function POST(request: Request) {
       });
     }
 
-    const responseStatus = result.summary.unmappedProducts > 0 ? 'partial' : 'ok';
+    const responseStatus = result.status === 'partial' || result.summary.unmappedProducts > 0
+      ? 'partial'
+      : 'ok';
     return NextResponse.json({
       status: responseStatus,
-      message: formatEnsureSummaryMessage(
+      message: responseStatus === 'partial'
+        ? formatEnsurePartialMessage(
+          result.summary.ensuredProducts,
+          result.summary.unmappedProducts,
+          result.inPossessionStatus,
+        )
+        : formatEnsureSummaryMessage(
         result.summary.ensuredProducts,
         result.summary.unmappedProducts,
-      ),
+        ),
       summary: result.summary,
     });
   } catch (error) {

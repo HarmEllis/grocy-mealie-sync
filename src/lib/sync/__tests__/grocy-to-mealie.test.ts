@@ -492,7 +492,8 @@ describe('pollGrocyForMissingStock', () => {
       const result = await pollGrocyForMissingStock({ ensureAllPresent: true });
 
       expect(result).toEqual({
-        status: 'ok',
+        status: 'partial',
+        inPossessionStatus: 'skipped',
         summary: {
           processedProducts: 2,
           ensuredProducts: 1,
@@ -518,7 +519,8 @@ describe('pollGrocyForMissingStock', () => {
       const result = await pollGrocyForMissingStock();
 
       expect(result).toEqual({
-        status: 'ok',
+        status: 'partial',
+        inPossessionStatus: 'skipped',
         summary: {
           processedProducts: 1,
           ensuredProducts: 0,
@@ -768,6 +770,7 @@ describe('pollGrocyForMissingStock', () => {
       expect(result).toEqual({
         status: 'skipped',
         reason: 'no-shopping-list',
+        inPossessionStatus: 'skipped',
         summary: {
           processedProducts: 0,
           ensuredProducts: 0,
@@ -831,6 +834,38 @@ describe('pollGrocyForMissingStock', () => {
       const savedState = mockedSaveSyncState.mock.calls[0][0];
       expect(savedState.grocyBelowMinStock).toEqual({});
       expect(mockedCreate).not.toHaveBeenCalled();
+    });
+
+    it('returns partial when the in-possession sync fails after low-stock sync succeeds', async () => {
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })],
+      });
+      mockedSyncMealieInPossessionFromGrocy.mockResolvedValue({
+        status: 'error',
+        summary: {
+          processedProducts: 1,
+          updatedProducts: 0,
+          enabledProducts: 0,
+          disabledProducts: 0,
+          unchangedProducts: 0,
+          failedProducts: 1,
+        },
+      });
+
+      const result = await pollGrocyForMissingStock();
+
+      expect(result).toEqual({
+        status: 'partial',
+        inPossessionStatus: 'error',
+        summary: {
+          processedProducts: 1,
+          ensuredProducts: 1,
+          unmappedProducts: 0,
+        },
+      });
+      expect(vi.mocked(log.error)).toHaveBeenCalledWith(
+        '[Grocy→Mealie] "In possession" sync failed after low-stock processing completed',
+      );
     });
   });
 

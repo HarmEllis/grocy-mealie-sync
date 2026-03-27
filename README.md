@@ -99,6 +99,7 @@ Deployment note:
 
 - Run a single scheduler instance by default. The app now uses a persisted SQLite startup lock so only one instance becomes the active scheduler, plus a separate SQLite lease lock to prevent overlapping sync runs inside that active instance.
 - A normal app shutdown releases the locks automatically. If a crashed instance leaves either lock behind, use the `Clear Sync Locks` button in the UI or `POST /api/sync/unlock`.
+- There is intentionally no automatic leader election or takeover. After a stale-lock cleanup, restart the app that should own the scheduler.
 
 **Development with a VS Code devcontainer:**
 

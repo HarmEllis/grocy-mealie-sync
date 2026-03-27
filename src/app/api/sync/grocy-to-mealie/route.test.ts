@@ -80,4 +80,56 @@ describe('grocy-to-mealie route', () => {
     });
     expect(mockState.releaseSyncLock).toHaveBeenCalledTimes(1);
   });
+
+  it('returns partial when low-stock products were skipped because they are not mapped', async () => {
+    mockState.pollGrocyForMissingStock.mockResolvedValue({
+      status: 'partial',
+      inPossessionStatus: 'ok',
+      summary: {
+        processedProducts: 3,
+        ensuredProducts: 2,
+        unmappedProducts: 1,
+      },
+    });
+
+    const response = await POST();
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      status: 'partial',
+      message: 'Grocy→Mealie check partially completed. Skipped 1 low-stock product because it is not mapped.',
+      summary: {
+        processedProducts: 3,
+        ensuredProducts: 2,
+        unmappedProducts: 1,
+      },
+    });
+  });
+
+  it('returns partial when the in-possession sync failed', async () => {
+    mockState.pollGrocyForMissingStock.mockResolvedValue({
+      status: 'partial',
+      inPossessionStatus: 'error',
+      summary: {
+        processedProducts: 1,
+        ensuredProducts: 1,
+        unmappedProducts: 0,
+      },
+    });
+
+    const response = await POST();
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      status: 'partial',
+      message: 'Grocy→Mealie check partially completed. The "In possession" sync failed.',
+      summary: {
+        processedProducts: 1,
+        ensuredProducts: 1,
+        unmappedProducts: 0,
+      },
+    });
+  });
 });
