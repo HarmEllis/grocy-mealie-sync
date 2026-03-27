@@ -1,4 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  AUTH_SESSION_COOKIE_NAME,
+  constantTimeEqual,
+  getAuthConfig,
+  verifySessionCookieValue,
+} from './lib/auth';
 
 // ---------------------------------------------------------------------------
 // In-memory rate limiter
@@ -59,60 +65,50 @@ function checkRateLimit(ip: string, pathname: string): { allowed: boolean; limit
 // ---------------------------------------------------------------------------
 // Cookie-based session for the web UI
 //
-// When AUTH_SECRET is set, the middleware issues an HttpOnly session cookie on
-// page loads. API requests are then authenticated via either:
+// Authentication can be toggled via AUTH_ENABLED. When enabled, API requests
+// are authenticated via either:
 //   1. Authorization: Bearer <AUTH_SECRET>  (programmatic / external callers)
-//   2. __session cookie                     (browser UI — set automatically)
-//
-// The session token is random and regenerated on each process restart.
+//   2. __session cookie                     (browser UI, created by /api/auth/login)
 // ---------------------------------------------------------------------------
-
-const SESSION_TOKEN = Array.from(
-  globalThis.crypto.getRandomValues(new Uint8Array(32)),
-).map(b => b.toString(16).padStart(2, '0')).join('');
 
 // ---------------------------------------------------------------------------
 // Auth check
 // ---------------------------------------------------------------------------
 
-function constantTimeEqual(a: string, b: string): boolean {
-  // Pad to equal length to avoid leaking length via timing.
-  const len = Math.max(a.length, b.length);
-  let mismatch = a.length !== b.length ? 1 : 0;
-  for (let i = 0; i < len; i++) {
-    mismatch |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
-  }
-  return mismatch === 0;
-}
-
-function checkAuth(request: NextRequest): boolean {
-  const authSecret = process.env.AUTH_SECRET;
-
-  // If AUTH_SECRET is not set, allow all requests (homelab single-user default)
-  if (!authSecret) return true;
-
-  // Check Authorization: Bearer <token>  (programmatic / external callers)
+async function checkAuth(request: NextRequest, authSecret: string): Promise<boolean> {
   const authHeader = request.headers.get('authorization');
   if (authHeader) {
     const parts = authHeader.split(' ');
-    if (parts.length === 2 && parts[0] === 'Bearer') {
-      return constantTimeEqual(parts[1], authSecret);
+    if (parts.length === 2 && parts[0] === 'Bearer' && constantTimeEqual(parts[1], authSecret)) {
+      return true;
     }
   }
 
-  // Check session cookie (browser UI — set by middleware on page loads)
-  const sessionCookie = request.cookies.get('__session')?.value;
-  if (sessionCookie && sessionCookie === SESSION_TOKEN) return true;
+  const sessionCookie = request.cookies.get(AUTH_SESSION_COOKIE_NAME)?.value;
+  return verifySessionCookieValue(sessionCookie, authSecret);
+}
 
-  return false;
+function createUnauthorizedResponse(): NextResponse {
+  return NextResponse.json(
+    { error: 'Unauthorized' },
+    { status: 401 },
+  );
+}
+
+function createAuthMisconfiguredResponse(): NextResponse {
+  return NextResponse.json(
+    { error: 'Authentication is enabled but AUTH_SECRET is not configured' },
+    { status: 503 },
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Middleware
 // ---------------------------------------------------------------------------
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const authConfig = getAuthConfig();
 
   // Bypass: health endpoint and static assets need no auth or rate limiting
   if (
@@ -123,29 +119,25 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Page requests: set session cookie (for UI auth) and pass through
-  if (pathname === '/') {
-    const response = NextResponse.next();
-    const authSecret = process.env.AUTH_SECRET;
-    if (authSecret) {
-      response.cookies.set('__session', SESSION_TOKEN, {
-        httpOnly: true,
-        sameSite: 'strict',
-        path: '/',
-      });
+  if (pathname === '/login') {
+    if (!authConfig.enabled) {
+      return NextResponse.redirect(new URL('/', request.url));
     }
-    return response;
+
+    if (!authConfig.configured || !authConfig.secret) {
+      return NextResponse.next();
+    }
+
+    if (await checkAuth(request, authConfig.secret)) {
+      return NextResponse.redirect(new URL('/', request.url));
+    }
+
+    return NextResponse.next();
   }
 
   // API routes: auth + rate limiting
   if (pathname.startsWith('/api/')) {
-    // Auth check
-    if (!checkAuth(request)) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 },
-      );
-    }
+    const isPublicAuthRoute = pathname === '/api/auth/login' || pathname === '/api/auth/logout';
 
     // Rate limiting
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
@@ -168,11 +160,37 @@ export function middleware(request: NextRequest) {
       );
     }
 
+    // Auth check
+    if (authConfig.enabled && !isPublicAuthRoute) {
+      if (!authConfig.configured || !authConfig.secret) {
+        return createAuthMisconfiguredResponse();
+      }
+      if (!await checkAuth(request, authConfig.secret)) {
+        return createUnauthorizedResponse();
+      }
+    }
+
     // Attach rate limit headers to successful responses
     const response = NextResponse.next();
     response.headers.set('X-RateLimit-Limit', String(limit));
     response.headers.set('X-RateLimit-Remaining', String(remaining));
     return response;
+  }
+
+  if (pathname === '/') {
+    if (!authConfig.enabled) {
+      return NextResponse.next();
+    }
+
+    if (!authConfig.configured || !authConfig.secret) {
+      return NextResponse.redirect(new URL('/login', request.url));
+    }
+
+    if (!await checkAuth(request, authConfig.secret)) {
+      return NextResponse.redirect(new URL('/login', request.url));
+    }
+
+    return NextResponse.next();
   }
 
   return NextResponse.next();
@@ -182,7 +200,8 @@ export const config = {
   matcher: [
     // Match all API routes
     '/api/:path*',
-    // Match root page (to set session cookie for UI auth)
+    // Match protected UI routes
     '/',
+    '/login',
   ],
 };

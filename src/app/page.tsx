@@ -8,8 +8,10 @@ import { Separator } from '@/components/ui/separator';
 import { SettingsForm } from '@/components/settings/SettingsForm';
 import { SyncButtons } from '@/components/sync/SyncButtons';
 import { MappingWizard } from '@/components/mapping-wizard/MappingWizard';
+import { LogoutButton } from '@/components/auth/LogoutButton';
 import { ArrowLeftRight, Settings, Wand2, Activity, Database, Clock, Terminal } from 'lucide-react';
 import { ThemeSwitcher } from '@/components/theme/ThemeSwitcher';
+import { getAuthConfig } from '@/lib/auth';
 
 interface SyncStatus {
   lastGrocyPoll: string | Date | null;
@@ -53,6 +55,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function Home() {
   const status = await getStatus();
+  const authEnabled = getAuthConfig().enabled;
 
   return (
     <div className="min-h-screen bg-background">
@@ -77,6 +80,7 @@ export default async function Home() {
               </>
             )}
             <ThemeSwitcher />
+            {authEnabled ? <LogoutButton /> : null}
           </div>
         </div>
       </header>

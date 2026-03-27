@@ -45,6 +45,13 @@ See [`.env.example`](.env.example) for the full list of variables and defaults. 
 - `MEALIE_URL`
 - `MEALIE_API_TOKEN`
 
+Optional auth settings:
+
+- `AUTH_ENABLED=true` to require login for the web UI and auth for protected API routes
+- `AUTH_SECRET=...` as the shared secret for both the login form and `Authorization: Bearer <token>`
+
+If `AUTH_ENABLED` is unset, auth turns on automatically when `AUTH_SECRET` is set. Set `AUTH_ENABLED=false` to disable auth explicitly.
+
 If you use the bundled `compose-dev.yml` for local Mealie development, also set `POSTGRES_PASSWORD`.
 
 ### 3. Run
@@ -85,6 +92,8 @@ npm run dev
 ```
 
 The app runs on `http://localhost:3000`.
+
+When auth is enabled, open `http://localhost:3000/login` and sign in with `AUTH_SECRET`.
 
 **Development with a VS Code devcontainer:**
 
@@ -164,6 +173,13 @@ If polls are not updating, check the container/server logs for errors (likely AP
 | `POST` | `/api/sync/mealie-to-grocy` | Manually trigger Mealie → Grocy poll |
 
 Manual triggers are useful for testing. The scheduler runs these automatically.
+
+## Authentication
+
+- Auth is optional and controlled by `AUTH_ENABLED` / `AUTH_SECRET`
+- When auth is enabled, the web UI uses a login form and an HttpOnly session cookie
+- Programmatic clients can keep using `Authorization: Bearer <AUTH_SECRET>`
+- `/api/health` stays public so container health checks keep working
 
 ## How the sync works
 
