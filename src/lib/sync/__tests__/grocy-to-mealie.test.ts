@@ -84,6 +84,7 @@ import { HouseholdsShoppingListItemsService } from '../../mealie';
 import { resolveEnsureLowStockOnMealieList, resolveShoppingListId } from '../../settings';
 import { getSyncState, saveSyncState } from '../state';
 import { fetchAllMealieShoppingItems } from '../helpers';
+import { syncMealieInPossessionFromGrocy } from '../mealie-in-possession';
 import { log } from '../../logger';
 
 // Type-safe mock accessors
@@ -94,6 +95,7 @@ const mockedResolveEnsureLowStockOnMealieList = vi.mocked(resolveEnsureLowStockO
 const mockedGetSyncState = vi.mocked(getSyncState);
 const mockedSaveSyncState = vi.mocked(saveSyncState);
 const mockedFetchItems = vi.mocked(fetchAllMealieShoppingItems);
+const mockedSyncMealieInPossessionFromGrocy = vi.mocked(syncMealieInPossessionFromGrocy);
 const mockedCreate = vi.mocked(HouseholdsShoppingListItemsService.createOneApiHouseholdsShoppingItemsPost);
 const mockedUpdate = vi.mocked(HouseholdsShoppingListItemsService.updateOneApiHouseholdsShoppingItemsItemIdPut);
 const mockedDelete = vi.mocked(HouseholdsShoppingListItemsService.deleteOneApiHouseholdsShoppingItemsItemIdDelete);
@@ -760,8 +762,9 @@ describe('pollGrocyForMissingStock', () => {
       const result = await pollGrocyForMissingStock();
 
       expect(mockedGetVolatileStock).not.toHaveBeenCalled();
-      expect(mockedGetSyncState).not.toHaveBeenCalled();
-      expect(mockedSaveSyncState).not.toHaveBeenCalled();
+      expect(mockedGetSyncState).toHaveBeenCalledOnce();
+      expect(mockedSyncMealieInPossessionFromGrocy).toHaveBeenCalledOnce();
+      expect(mockedSaveSyncState).toHaveBeenCalledOnce();
       expect(result).toEqual({
         status: 'skipped',
         reason: 'no-shopping-list',
@@ -774,6 +777,16 @@ describe('pollGrocyForMissingStock', () => {
       expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
         expect.stringContaining('No shopping list configured'),
       );
+    });
+
+    it('still updates sync state when no shopping list is configured', async () => {
+      mockedResolveShoppingListId.mockResolvedValue(null);
+
+      await pollGrocyForMissingStock();
+
+      const savedState = mockedSaveSyncState.mock.calls[0][0];
+      expect(savedState.grocyBelowMinStock).toEqual({});
+      expect(savedState.lastGrocyPoll).toBeInstanceOf(Date);
     });
 
     it('saves state with empty grocyBelowMinStock when no products are missing', async () => {

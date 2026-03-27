@@ -64,154 +64,149 @@ export async function pollGrocyForMissingStock(
 
   const shoppingListId = await resolveShoppingListId();
   const summary = createEmptySummary();
-
-  if (!shoppingListId) {
-    log.warn('[Grocy→Mealie] No shopping list configured — skipping poll');
-    return {
-      status: 'skipped',
-      reason: 'no-shopping-list',
-      summary,
-    };
-  }
+  const lowStockSyncSkipped = !shoppingListId;
 
   try {
-    const ensureAllPresent = options.ensureAllPresent ?? await resolveEnsureLowStockOnMealieList();
-    const logUnmappedPresenceCheckProducts = options.logUnmappedPresenceCheckProducts ?? false;
-    const volatile = await getVolatileStock();
-    const missingProducts: GrocyMissingProduct[] = volatile.missing_products || [];
-
     const state = await getSyncState();
-    const previousAmounts = state.grocyBelowMinStock; // Record<number, number>
-
     const currentAmounts: Record<number, number> = {};
-    for (const mp of missingProducts) {
-      currentAmounts[mp.id] = mp.amount_missing;
-    }
+    if (shoppingListId) {
+      const ensureAllPresent = options.ensureAllPresent ?? await resolveEnsureLowStockOnMealieList();
+      const logUnmappedPresenceCheckProducts = options.logUnmappedPresenceCheckProducts ?? false;
+      const volatile = await getVolatileStock();
+      const missingProducts: GrocyMissingProduct[] = volatile.missing_products || [];
+      const previousAmounts = state.grocyBelowMinStock; // Record<number, number>
 
-    // Fetch all Mealie shopping list items once, to be reused across all adjustments
-    const mealieShoppingItems = await fetchAllMealieShoppingItems(shoppingListId);
-    let grocyProductsById = new Map<number, Product>();
-    try {
-      const grocyProducts = await getGrocyEntities('products');
-      grocyProductsById = new Map(grocyProducts.map(product => [Number(product.id), product]));
-    } catch (error) {
-      log.warn(
-        '[Grocy→Mealie] Could not fetch Grocy products for purchase-unit resolution; falling back to stored unit mappings:',
-        error,
-      );
-    }
-
-    // 1. Newly missing → add to Mealie
-    const newlyMissing = missingProducts.filter(mp => !(mp.id in previousAmounts));
-    let newlyAdded = 0;
-    for (const mp of newlyMissing) {
-      const result = await adjustMealieShoppingItem(
-        mp.id,
-        mp.amount_missing,
-        shoppingListId,
-        mealieShoppingItems,
-        grocyProductsById,
-        {
-          grocyProductName: mp.name,
-        },
-      );
-      recordMissingStockResult(summary, result);
-      if (result === 'ensured') newlyAdded++;
-    }
-
-    // 2. Still missing, amount changed → adjust by delta
-    const amountChanged = missingProducts.filter(mp =>
-      mp.id in previousAmounts && previousAmounts[mp.id] !== mp.amount_missing
-    );
-    let adjusted = 0;
-    for (const mp of amountChanged) {
-      const delta = mp.amount_missing - previousAmounts[mp.id];
-      const result = await adjustMealieShoppingItem(
-        mp.id,
-        delta,
-        shoppingListId,
-        mealieShoppingItems,
-        grocyProductsById,
-        {
-          createQuantityWhenMissing: ensureAllPresent ? mp.amount_missing : undefined,
-          grocyProductName: mp.name,
-        },
-      );
-      recordMissingStockResult(summary, result);
-      if (result === 'ensured') adjusted++;
-    }
-
-    // 2b. Still missing, amount unchanged → optionally recreate the item if
-    // it was manually removed from Mealie while the product is still below min.
-    const unchangedMissing = ensureAllPresent
-      ? missingProducts.filter(mp => mp.id in previousAmounts && previousAmounts[mp.id] === mp.amount_missing)
-      : [];
-    let unmappedPresenceCheckProducts = 0;
-    for (const mp of unchangedMissing) {
-      const result = await adjustMealieShoppingItem(
-        mp.id,
-        0,
-        shoppingListId,
-        mealieShoppingItems,
-        grocyProductsById,
-        {
-          createQuantityWhenMissing: mp.amount_missing,
-          grocyProductName: mp.name,
-          logWhenMappingMissing: logUnmappedPresenceCheckProducts,
-        },
-      );
-      recordMissingStockResult(summary, result);
-      if (result === 'unmapped') {
-        unmappedPresenceCheckProducts++;
+      for (const mp of missingProducts) {
+        currentAmounts[mp.id] = mp.amount_missing;
       }
-    }
 
-    // 3. No longer missing → subtract Grocy's contribution
-    //    BUT skip products that were restocked by the Mealie→Grocy sync
-    //    (to prevent the feedback loop where sync-added stock triggers list removal)
-    const noLongerMissing = Object.keys(previousAmounts)
-      .map(Number)
-      .filter(id => !(id in currentAmounts));
-    let restocked = 0;
-    let skippedSyncRestocked = 0;
-    for (const grocyProductId of noLongerMissing) {
-      if (grocyProductId in state.syncRestockedProducts) {
-        const name = await resolveGrocyProductName(grocyProductId);
-        log.info(`[Grocy→Mealie] Skipping removal for "${name}" — restocked by sync, not manually`);
-        delete state.syncRestockedProducts[grocyProductId];
-        skippedSyncRestocked++;
-        continue;
+      // Fetch all Mealie shopping list items once, to be reused across all adjustments
+      const mealieShoppingItems = await fetchAllMealieShoppingItems(shoppingListId);
+      let grocyProductsById = new Map<number, Product>();
+      try {
+        const grocyProducts = await getGrocyEntities('products');
+        grocyProductsById = new Map(grocyProducts.map(product => [Number(product.id), product]));
+      } catch (error) {
+        log.warn(
+          '[Grocy→Mealie] Could not fetch Grocy products for purchase-unit resolution; falling back to stored unit mappings:',
+          error,
+        );
       }
-      const result = await adjustMealieShoppingItem(
-        grocyProductId,
-        -previousAmounts[grocyProductId],
-        shoppingListId,
-        mealieShoppingItems,
-        grocyProductsById,
+
+      // 1. Newly missing → add to Mealie
+      const newlyMissing = missingProducts.filter(mp => !(mp.id in previousAmounts));
+      let newlyAdded = 0;
+      for (const mp of newlyMissing) {
+        const result = await adjustMealieShoppingItem(
+          mp.id,
+          mp.amount_missing,
+          shoppingListId,
+          mealieShoppingItems,
+          grocyProductsById,
+          {
+            grocyProductName: mp.name,
+          },
+        );
+        recordMissingStockResult(summary, result);
+        if (result === 'ensured') newlyAdded++;
+      }
+
+      // 2. Still missing, amount changed → adjust by delta
+      const amountChanged = missingProducts.filter(mp =>
+        mp.id in previousAmounts && previousAmounts[mp.id] !== mp.amount_missing
       );
-      if (result === 'ensured') restocked++;
-    }
+      let adjusted = 0;
+      for (const mp of amountChanged) {
+        const delta = mp.amount_missing - previousAmounts[mp.id];
+        const result = await adjustMealieShoppingItem(
+          mp.id,
+          delta,
+          shoppingListId,
+          mealieShoppingItems,
+          grocyProductsById,
+          {
+            createQuantityWhenMissing: ensureAllPresent ? mp.amount_missing : undefined,
+            grocyProductName: mp.name,
+          },
+        );
+        recordMissingStockResult(summary, result);
+        if (result === 'ensured') adjusted++;
+      }
 
-    if (newlyMissing.length > 0) {
-      log.info(`[Grocy→Mealie] ${newlyAdded}/${newlyMissing.length} newly missing product(s) added to shopping list`);
-    }
-    if (amountChanged.length > 0) {
-      log.info(`[Grocy→Mealie] ${adjusted}/${amountChanged.length} product(s) quantity adjusted`);
-    }
-    if (ensureAllPresent && unchangedMissing.length > 0) {
-      const unmappedSuffix = unmappedPresenceCheckProducts > 0
-        ? ` (${unmappedPresenceCheckProducts} unmapped)`
-        : '';
-      log.info(`[Grocy→Mealie] Presence check completed for ${unchangedMissing.length} still-missing product(s)${unmappedSuffix}`);
-    }
-    if (noLongerMissing.length > 0) {
-      const manuallyRestocked = noLongerMissing.length - skippedSyncRestocked;
-      if (manuallyRestocked > 0) {
-        log.info(`[Grocy→Mealie] ${restocked}/${manuallyRestocked} manually restocked product(s) adjusted on shopping list`);
+      // 2b. Still missing, amount unchanged → optionally recreate the item if
+      // it was manually removed from Mealie while the product is still below min.
+      const unchangedMissing = ensureAllPresent
+        ? missingProducts.filter(mp => mp.id in previousAmounts && previousAmounts[mp.id] === mp.amount_missing)
+        : [];
+      let unmappedPresenceCheckProducts = 0;
+      for (const mp of unchangedMissing) {
+        const result = await adjustMealieShoppingItem(
+          mp.id,
+          0,
+          shoppingListId,
+          mealieShoppingItems,
+          grocyProductsById,
+          {
+            createQuantityWhenMissing: mp.amount_missing,
+            grocyProductName: mp.name,
+            logWhenMappingMissing: logUnmappedPresenceCheckProducts,
+          },
+        );
+        recordMissingStockResult(summary, result);
+        if (result === 'unmapped') {
+          unmappedPresenceCheckProducts++;
+        }
       }
-      if (skippedSyncRestocked > 0) {
-        log.info(`[Grocy→Mealie] ${skippedSyncRestocked} product(s) skipped (restocked by sync, not user)`);
+
+      // 3. No longer missing → subtract Grocy's contribution
+      //    BUT skip products that were restocked by the Mealie→Grocy sync
+      //    (to prevent the feedback loop where sync-added stock triggers list removal)
+      const noLongerMissing = Object.keys(previousAmounts)
+        .map(Number)
+        .filter(id => !(id in currentAmounts));
+      let restocked = 0;
+      let skippedSyncRestocked = 0;
+      for (const grocyProductId of noLongerMissing) {
+        if (grocyProductId in state.syncRestockedProducts) {
+          const name = await resolveGrocyProductName(grocyProductId);
+          log.info(`[Grocy→Mealie] Skipping removal for "${name}" — restocked by sync, not manually`);
+          delete state.syncRestockedProducts[grocyProductId];
+          skippedSyncRestocked++;
+          continue;
+        }
+        const result = await adjustMealieShoppingItem(
+          grocyProductId,
+          -previousAmounts[grocyProductId],
+          shoppingListId,
+          mealieShoppingItems,
+          grocyProductsById,
+        );
+        if (result === 'ensured') restocked++;
       }
+
+      if (newlyMissing.length > 0) {
+        log.info(`[Grocy→Mealie] ${newlyAdded}/${newlyMissing.length} newly missing product(s) added to shopping list`);
+      }
+      if (amountChanged.length > 0) {
+        log.info(`[Grocy→Mealie] ${adjusted}/${amountChanged.length} product(s) quantity adjusted`);
+      }
+      if (ensureAllPresent && unchangedMissing.length > 0) {
+        const unmappedSuffix = unmappedPresenceCheckProducts > 0
+          ? ` (${unmappedPresenceCheckProducts} unmapped)`
+          : '';
+        log.info(`[Grocy→Mealie] Presence check completed for ${unchangedMissing.length} still-missing product(s)${unmappedSuffix}`);
+      }
+      if (noLongerMissing.length > 0) {
+        const manuallyRestocked = noLongerMissing.length - skippedSyncRestocked;
+        if (manuallyRestocked > 0) {
+          log.info(`[Grocy→Mealie] ${restocked}/${manuallyRestocked} manually restocked product(s) adjusted on shopping list`);
+        }
+        if (skippedSyncRestocked > 0) {
+          log.info(`[Grocy→Mealie] ${skippedSyncRestocked} product(s) skipped (restocked by sync, not user)`);
+        }
+      }
+    } else {
+      log.warn('[Grocy→Mealie] No shopping list configured — skipping low-stock sync');
     }
 
     const inPossessionResult = await syncMealieInPossessionFromGrocy(state);
@@ -229,6 +224,15 @@ export async function pollGrocyForMissingStock(
     state.grocyBelowMinStock = currentAmounts;
     state.lastGrocyPoll = new Date();
     await saveSyncState(state);
+
+    if (lowStockSyncSkipped) {
+      return {
+        status: 'skipped',
+        reason: 'no-shopping-list',
+        summary,
+      };
+    }
+
     return {
       status: 'ok',
       summary,
