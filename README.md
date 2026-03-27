@@ -88,7 +88,7 @@ The app runs on `http://localhost:3000`.
 
 **Development with a VS Code devcontainer:**
 
-A ready-to-use devcontainer is included at [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json). It provides Node.js 24, forwards port `3000`, and includes Docker CLI access so you can use the local development services from `compose-dev.yml`.
+A ready-to-use devcontainer is included at [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json). It provides Node.js 24, forwards port `3000`, forwards the bundled Mealie and Grocy services on `9000` and `9001`, and includes Docker CLI access so you can use the local development services from `compose-dev.yml`.
 
 Typical flow:
 
@@ -99,6 +99,13 @@ Typical flow:
 5. Run `npm run dev`.
 
 If you already use external Grocy and Mealie instances, keep your existing URLs and skip `compose-dev.yml`.
+
+Note on port forwarding:
+
+- The devcontainer keeps `host.docker.internal` available inside the container for app-to-service traffic.
+- VS Code's devcontainer schema currently rejects `forwardPorts` entries like `host.docker.internal:9000` because the hostname contains dots, even though the docs describe a `host:port` format.
+- To avoid that schema error, the devcontainer also defines the alias `host-docker-internal`, and the forwarding rules use `host-docker-internal:9000` and `host-docker-internal:9001`.
+- You do not need to use that alias in `.env`; it is only there to satisfy the devcontainer port-forwarding schema.
 
 ## Docs screenshot workflow
 
