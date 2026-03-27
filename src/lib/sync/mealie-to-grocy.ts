@@ -23,10 +23,19 @@ export async function pollMealieForCheckedItems(): Promise<void> {
     const state = await getSyncState();
     const previousCheckedState = state.mealieCheckedItems;
     const newCheckedState: Record<string, boolean> = {};
+    const isBootstrapPoll = state.lastMealiePoll === null;
+
+    if (isBootstrapPoll) {
+      log.info('[Mealie→Grocy] Initial poll detected — snapshotting current checked state without restocking');
+    }
 
     for (const item of items) {
       const checked = item.checked ?? false;
       newCheckedState[item.id] = checked;
+
+      if (isBootstrapPoll) {
+        continue;
+      }
 
       // Detect newly checked items (B3.1):
       // Was unchecked (or unknown) before, now checked

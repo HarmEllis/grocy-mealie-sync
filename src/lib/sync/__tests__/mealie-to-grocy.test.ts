@@ -103,7 +103,9 @@ beforeEach(() => {
   // Defaults: a valid shopping list, empty state, empty items
   mockedResolveShoppingListId.mockResolvedValue('list-1');
   mockedResolveStockOnlyMinStock.mockResolvedValue(false);
-  mockedGetSyncState.mockResolvedValue(mockSyncState());
+  mockedGetSyncState.mockResolvedValue(
+    mockSyncState({ lastMealiePoll: new Date('2026-03-27T12:00:00.000Z') }),
+  );
   mockedSaveSyncState.mockResolvedValue(undefined);
   mockedFetchAll.mockResolvedValue([]);
   mockedGetGrocyEntities.mockResolvedValue([]);
@@ -408,20 +410,40 @@ describe('pollMealieForCheckedItems', () => {
     expect(mockedDeleteGrocyEntity).not.toHaveBeenCalledWith('shopping_list', 22);
   });
 
-  it('treats pre-checked items on first poll (not in previousCheckedState) as newly checked', async () => {
-    // previousCheckedState is empty (first poll)
+  it('does not restock pre-checked items on the first poll', async () => {
     const item = mockMealieShoppingItem({ id: 'pre-checked', checked: true, foodId: 'food-1' });
-    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 101 });
 
     mockedFetchAll.mockResolvedValue([item]);
     mockedGetSyncState.mockResolvedValue(mockSyncState({ mealieCheckedItems: {} }));
+
+    await pollMealieForCheckedItems();
+
+    expect(mockedAddProductStock).not.toHaveBeenCalled();
+    expect(mockSelect).not.toHaveBeenCalled();
+    const savedState = mockedSaveSyncState.mock.calls[0][0];
+    expect(savedState.mealieCheckedItems).toEqual({ 'pre-checked': true });
+  });
+
+  it('does not restock checked items after state loss when no previous poll timestamp exists', async () => {
+    const item = mockMealieShoppingItem({ id: 'recover-checked', checked: true, foodId: 'food-1' });
+    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 101 });
+    const recoveredState = mockSyncState({
+      lastMealiePoll: null,
+      mealieCheckedItems: {},
+      syncRestockedProducts: { '999': new Date().toISOString() },
+    });
+
+    mockedFetchAll.mockResolvedValue([item]);
+    mockedGetSyncState.mockResolvedValue(recoveredState);
     mockLimit.mockResolvedValue([mapping]);
     mockedGetGrocyEntities.mockResolvedValue([]);
 
     await pollMealieForCheckedItems();
 
-    // wasChecked is undefined, and checked is true => newly checked
-    expect(mockedAddProductStock).toHaveBeenCalledWith(101, 1);
+    expect(mockedAddProductStock).not.toHaveBeenCalled();
+    const savedState = mockedSaveSyncState.mock.calls[0][0];
+    expect(savedState.mealieCheckedItems).toEqual({ 'recover-checked': true });
+    expect(savedState.syncRestockedProducts).toEqual({ '999': expect.any(String) });
   });
 
   it('on partial failure, only the failed item is removed from newCheckedState', async () => {
