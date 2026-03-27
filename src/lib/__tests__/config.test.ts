@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { parseBooleanEnv, parseIntOrDefault, parseOptionalIntEnv, validateServiceUrl } from '../config';
+import {
+  parseBooleanEnv,
+  parseIntOrDefault,
+  parseOptionalIntEnv,
+  parseOptionalUrlEnv,
+  parseWebhookModeEnv,
+  validateServiceUrl,
+} from '../config';
 
 describe('parseIntOrDefault', () => {
   it('returns number for valid input', () => {
@@ -80,5 +87,37 @@ describe('parseBooleanEnv', () => {
   it('falls back to the default for invalid values', () => {
     expect(parseBooleanEnv('yes', false, 'TEST')).toBe(false);
     expect(parseBooleanEnv('nope', true, 'TEST')).toBe(true);
+  });
+});
+
+describe('parseOptionalUrlEnv', () => {
+  it('returns null for empty values', () => {
+    expect(parseOptionalUrlEnv(undefined, 'TEST')).toBeNull();
+    expect(parseOptionalUrlEnv('', 'TEST')).toBeNull();
+  });
+
+  it('accepts valid http and https URLs', () => {
+    expect(parseOptionalUrlEnv('http://example.test/ping', 'TEST')).toBe('http://example.test/ping');
+    expect(parseOptionalUrlEnv('https://example.test/hook', 'TEST')).toBe('https://example.test/hook');
+  });
+
+  it('rejects invalid URLs', () => {
+    expect(parseOptionalUrlEnv('ftp://example.test', 'TEST')).toBeNull();
+    expect(parseOptionalUrlEnv('not-a-url', 'TEST')).toBeNull();
+  });
+});
+
+describe('parseWebhookModeEnv', () => {
+  it('defaults to errors_only', () => {
+    expect(parseWebhookModeEnv(undefined, 'TEST')).toBe('errors_only');
+  });
+
+  it('accepts supported modes', () => {
+    expect(parseWebhookModeEnv('always', 'TEST')).toBe('always');
+    expect(parseWebhookModeEnv('errors_only', 'TEST')).toBe('errors_only');
+  });
+
+  it('falls back to errors_only for invalid modes', () => {
+    expect(parseWebhookModeEnv('sometimes', 'TEST')).toBe('errors_only');
   });
 });

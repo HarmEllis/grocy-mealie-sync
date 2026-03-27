@@ -7,6 +7,7 @@ const mockState = vi.hoisted(() => ({
   },
   runFullProductSync: vi.fn(),
   runMappingConflictCheck: vi.fn(),
+  sendSchedulerNotifications: vi.fn(),
   pollGrocyForMissingStock: vi.fn(),
   pollMealieForCheckedItems: vi.fn(),
   acquireSyncLock: vi.fn(() => true),
@@ -28,6 +29,22 @@ vi.mock('../product-sync', () => ({
 
 vi.mock('../../mapping-conflicts-store', () => ({
   runMappingConflictCheck: mockState.runMappingConflictCheck,
+}));
+
+vi.mock('../../scheduler-notifications', () => ({
+  sendSchedulerNotifications: mockState.sendSchedulerNotifications,
+  summarizeSchedulerCycle: vi.fn(({ cycleType, startedAt, finishedAt, steps }) => ({
+    cycleType,
+    status: steps.every((step: { status: string }) => step.status === 'success')
+      ? 'success'
+      : steps.every((step: { status: string }) => step.status === 'failure')
+        ? 'failure'
+        : 'partial',
+    startedAt: startedAt.toISOString(),
+    finishedAt: finishedAt.toISOString(),
+    durationMs: finishedAt.getTime() - startedAt.getTime(),
+    steps,
+  })),
 }));
 
 vi.mock('../grocy-to-mealie', () => ({
@@ -58,6 +75,8 @@ import { startScheduler, stopScheduler } from '../scheduler';
 async function flushAsyncWork() {
   await Promise.resolve();
   await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 describe('scheduler startup lock', () => {
@@ -79,6 +98,8 @@ describe('scheduler startup lock', () => {
     mockState.pollGrocyForMissingStock.mockResolvedValue(undefined);
     mockState.pollMealieForCheckedItems.mockReset();
     mockState.pollMealieForCheckedItems.mockResolvedValue(undefined);
+    mockState.sendSchedulerNotifications.mockReset();
+    mockState.sendSchedulerNotifications.mockResolvedValue(undefined);
     mockState.acquireSyncLock.mockReset();
     mockState.acquireSyncLock.mockReturnValue(true);
     mockState.releaseSyncLock.mockReset();
@@ -103,13 +124,15 @@ describe('scheduler startup lock', () => {
 
     expect(mockState.runFullProductSync).toHaveBeenCalledTimes(1);
     expect(mockState.runMappingConflictCheck).toHaveBeenCalledTimes(1);
+    expect(mockState.sendSchedulerNotifications).toHaveBeenCalledTimes(1);
 
-    vi.advanceTimersByTime(10_000);
+    await vi.advanceTimersByTimeAsync(10_000);
     await flushAsyncWork();
 
     expect(mockState.pollMealieForCheckedItems).toHaveBeenCalledTimes(1);
     expect(mockState.pollGrocyForMissingStock).toHaveBeenCalledTimes(1);
     expect(mockState.runMappingConflictCheck).toHaveBeenCalledTimes(2);
+    expect(mockState.sendSchedulerNotifications).toHaveBeenCalledTimes(2);
     expect(mockState.acquireSchedulerLock).toHaveBeenCalledTimes(1);
   });
 

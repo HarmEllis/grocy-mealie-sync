@@ -47,6 +47,20 @@ export function parseOptionalIntEnv(value: string | undefined, name: string): nu
   return parsed;
 }
 
+export function parseOptionalUrlEnv(value: string | undefined, name: string): string | null {
+  if (!hasConfiguredValue(value)) {
+    return null;
+  }
+
+  const trimmed = value!.trim();
+  if (!/^https?:\/\//i.test(trimmed)) {
+    log.warn(`[Config] ${name} must start with http:// or https:// (got "${value}"). Ignoring the env var.`);
+    return null;
+  }
+
+  return trimmed;
+}
+
 export function parseBooleanEnv(value: string | undefined, defaultValue: boolean, name: string): boolean {
   if (!hasConfiguredValue(value)) {
     return defaultValue;
@@ -62,6 +76,25 @@ export function parseBooleanEnv(value: string | undefined, defaultValue: boolean
     default:
       log.warn(`[Config] ${name} must be true/false/1/0 (got "${value}"). Falling back to ${defaultValue}.`);
       return defaultValue;
+  }
+}
+
+export function parseWebhookModeEnv(
+  value: string | undefined,
+  name: string,
+): 'always' | 'errors_only' {
+  if (!hasConfiguredValue(value)) {
+    return 'errors_only';
+  }
+
+  switch (value!.trim().toLowerCase()) {
+    case 'always':
+      return 'always';
+    case 'errors_only':
+      return 'errors_only';
+    default:
+      log.warn(`[Config] ${name} must be "always" or "errors_only" (got "${value}"). Falling back to errors_only.`);
+      return 'errors_only';
   }
 }
 
@@ -118,6 +151,9 @@ export const config = {
     'MAPPING_WIZARD_MIN_STOCK_STEP',
   ),
   stockOnlyMinStock: parseBooleanEnv(process.env.STOCK_ONLY_MIN_STOCK, false, 'STOCK_ONLY_MIN_STOCK'),
+  healthchecksPingUrl: parseOptionalUrlEnv(process.env.HEALTHCHECKS_PING_URL, 'HEALTHCHECKS_PING_URL'),
+  notificationWebhookUrl: parseOptionalUrlEnv(process.env.NOTIFICATION_WEBHOOK_URL, 'NOTIFICATION_WEBHOOK_URL'),
+  notificationWebhookMode: parseWebhookModeEnv(process.env.NOTIFICATION_WEBHOOK_MODE, 'NOTIFICATION_WEBHOOK_MODE'),
   databasePath: process.env.DATABASE_PATH || './data/sync.db',
   envOverrides: {
     mealieShoppingListId: hasConfiguredValue(process.env.MEALIE_SHOPPING_LIST_ID),
