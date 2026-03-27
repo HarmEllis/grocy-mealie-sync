@@ -7,9 +7,10 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { SettingsForm } from '@/components/settings/SettingsForm';
 import { SyncButtons } from '@/components/sync/SyncButtons';
+import { SyncRecoveryControls } from '@/components/sync/SyncRecoveryControls';
 import { MappingWizard } from '@/components/mapping-wizard/MappingWizard';
 import { LogoutButton } from '@/components/auth/LogoutButton';
-import { ArrowLeftRight, Settings, Wand2, Activity, Database, Clock, Terminal } from 'lucide-react';
+import { ArrowLeftRight, Settings, Wand2, Activity, Database, Clock, Terminal, AlertTriangle } from 'lucide-react';
 import { ThemeSwitcher } from '@/components/theme/ThemeSwitcher';
 import { getAuthConfig } from '@/lib/auth';
 
@@ -169,6 +170,20 @@ export default async function Home() {
           </CardHeader>
           <CardContent>
             <SyncButtons />
+          </CardContent>
+        </Card>
+
+        {/* Recovery Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <AlertTriangle className="size-4" />
+              Lock Recovery
+            </CardTitle>
+            <CardDescription>Clear stale scheduler locks after a crash</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SyncRecoveryControls />
           </CardContent>
         </Card>
 

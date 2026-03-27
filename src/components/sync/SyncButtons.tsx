@@ -13,7 +13,6 @@ const syncActions = [
   { label: 'Ensure Low-Stock in Mealie', endpoint: '/api/sync/grocy-to-mealie/ensure', icon: RefreshCw },
   { label: 'Reconcile In Possession', endpoint: '/api/sync/grocy-to-mealie/in-possession', icon: RefreshCw },
   { label: 'Mealie \u2192 Grocy', endpoint: '/api/sync/mealie-to-grocy', icon: ArrowLeftRight },
-  { label: 'Clear Sync Locks', endpoint: '/api/sync/unlock', icon: RefreshCw },
 ] as const;
 
 const UI_SYNC_TRIGGER_HEADERS = {
