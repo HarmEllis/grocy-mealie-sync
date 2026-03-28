@@ -64,7 +64,11 @@ function parseBooleanEnv(value, defaultValue) {
 
 function getEnvOrDefault(name, fallback) {
   const value = process.env[name];
-  return value && value.trim() !== '' ? value.trim() : fallback;
+  return normalizeBaseUrl(value && value.trim() !== '' ? value.trim() : fallback);
+}
+
+function normalizeBaseUrl(value) {
+  return value.replace(/\/+$/, '');
 }
 
 function buildServiceUrl(baseUrl, pathname, searchParams = {}) {
@@ -160,7 +164,7 @@ function buildBaseUrlCandidates(configuredBaseUrl) {
   for (const hostname of LOCALHOST_FALLBACK_HOSTS) {
     const fallbackUrl = new URL(parsed.toString());
     fallbackUrl.hostname = hostname;
-    candidates.push(fallbackUrl.toString());
+    candidates.push(normalizeBaseUrl(fallbackUrl.toString()));
   }
 
   return candidates;
