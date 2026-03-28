@@ -22,7 +22,7 @@ services:
 
   mealie:
     # SECURITY: Pin to a specific version for reproducible builds. Update deliberately.
-    image: ghcr.io/mealie-recipes/mealie:v2.8.0
+    image: ghcr.io/mealie-recipes/mealie:v3.14.0
     container_name: mealie
     ports:
       - 9000:9000
