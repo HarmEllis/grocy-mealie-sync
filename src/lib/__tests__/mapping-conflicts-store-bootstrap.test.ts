@@ -49,11 +49,11 @@ describe('mapping conflict store bootstrap', () => {
     mockState.selectFrom.mockClear();
   });
 
-  it('ensures the conflict table exists before listing conflicts', async () => {
+  it('does not bootstrap storage on read', async () => {
     const { listOpenMappingConflicts } = await import('../mapping-conflicts-store');
 
     await listOpenMappingConflicts();
 
-    expect(mockState.dbRun).toHaveBeenCalled();
+    expect(mockState.dbRun).not.toHaveBeenCalled();
   });
 });

@@ -1,8 +1,11 @@
+import path from 'path';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 process.env.DATABASE_PATH = './data/mutex-test.db';
 
-import { sqlite } from '../../db';
+import { db } from '../../db';
+import { runtimeLocks } from '../../db/schema';
 import {
   acquireSchedulerLock,
   acquireLease,
@@ -17,22 +20,19 @@ import {
 
 describe('sync mutex', () => {
   beforeEach(() => {
+    migrate(db, { migrationsFolder: path.resolve('drizzle') });
+  });
+
+  beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-27T12:00:00.000Z'));
-    sqlite.exec(`
-      CREATE TABLE IF NOT EXISTS runtime_locks (
-        name text PRIMARY KEY NOT NULL,
-        owner_id text NOT NULL,
-        expires_at integer NOT NULL
-      );
-      DELETE FROM runtime_locks;
-    `);
+    db.delete(runtimeLocks).run();
     releaseSyncLock();
   });
 
   afterEach(() => {
     releaseSyncLock();
-    sqlite.exec('DELETE FROM runtime_locks;');
+    db.delete(runtimeLocks).run();
     vi.useRealTimers();
   });
 

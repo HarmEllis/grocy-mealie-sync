@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db } from '../db';
 import { config } from '../config';
 import { runtimeLocks } from '../db/schema';
@@ -11,14 +11,6 @@ const PERSISTENT_LOCK_EXPIRES_AT_MS = 253_402_300_799_000;
 const instanceOwnerId = randomUUID();
 
 let syncing = false;
-
-db.run(sql`
-  CREATE TABLE IF NOT EXISTS runtime_locks (
-    name text PRIMARY KEY NOT NULL,
-    owner_id text NOT NULL,
-    expires_at integer NOT NULL
-  )
-`);
 
 export function computeSyncLockTtlMs(pollIntervalSeconds: number): number {
   return Math.max(MIN_SYNC_LOCK_TTL_MS, pollIntervalSeconds * 2 * 1000);

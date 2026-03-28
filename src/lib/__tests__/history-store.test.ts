@@ -1,5 +1,7 @@
+import path from 'path';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 type HistoryConfig = {
@@ -9,10 +11,12 @@ type HistoryConfig = {
 
 async function loadHistoryStore(sqlite: Database.Database, config: HistoryConfig) {
   vi.resetModules();
+  const testDb = drizzle(sqlite);
+
+  migrate(testDb, { migrationsFolder: path.resolve('drizzle') });
 
   vi.doMock('../db', () => ({
-    db: drizzle(sqlite),
-    sqlite,
+    db: testDb,
   }));
 
   vi.doMock('../config', () => ({
@@ -198,7 +202,7 @@ describe('history store', () => {
     }
   });
 
-  it('bootstraps the history tables on first read', async () => {
+  it('reads from migrated history tables without bootstrapping storage on read', async () => {
     const sqlite = new Database(':memory:');
 
     try {
@@ -208,12 +212,6 @@ describe('history store', () => {
       });
 
       await expect(historyStore.listHistoryRuns()).resolves.toEqual([]);
-
-      const tables = sqlite.prepare(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('history_runs', 'history_events') ORDER BY name",
-      ).all() as Array<{ name: string }>;
-
-      expect(tables.map(table => table.name)).toEqual(['history_events', 'history_runs']);
     } finally {
       sqlite.close();
     }

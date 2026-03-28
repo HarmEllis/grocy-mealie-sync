@@ -9,11 +9,19 @@ function readSource(relativePath: string): string {
 }
 
 describe('db access boundaries', () => {
+  it('does not expose the raw sqlite handle from the app db module', () => {
+    const source = readSource('lib/db/index.ts');
+
+    expect(source).not.toMatch(/export\s+const\s+sqlite\s*=/);
+  });
+
   it('keeps history storage on the Drizzle side of the db layer', () => {
     const source = readSource('lib/history-store.ts');
 
     expect(source).not.toMatch(/import\s*\{\s*sqlite\s*\}\s*from\s*['"]\.\/db['"]/);
     expect(source).not.toContain('sqlite.');
+    expect(source).not.toContain('db.run(sql`');
+    expect(source).not.toMatch(/\bsql`/);
   });
 
   it('keeps mapping conflict storage on the Drizzle side of the db layer', () => {
@@ -21,6 +29,8 @@ describe('db access boundaries', () => {
 
     expect(source).not.toMatch(/import\s*\{\s*sqlite\s*\}\s*from\s*['"]\.\/db['"]/);
     expect(source).not.toContain('sqlite.');
+    expect(source).not.toContain('db.run(sql`');
+    expect(source).not.toMatch(/\bsql`/);
   });
 
   it('keeps sync mutex storage on the Drizzle side of the db layer', () => {
@@ -28,5 +38,7 @@ describe('db access boundaries', () => {
 
     expect(source).not.toMatch(/import\s*\{\s*sqlite\s*\}\s*from\s*['"]\.\.\/db['"]/);
     expect(source).not.toContain('sqlite.');
+    expect(source).not.toContain('db.run(sql`');
+    expect(source).not.toMatch(/\bsql`/);
   });
 });

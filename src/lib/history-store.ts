@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { and, asc, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, like, lt, or, type SQL } from 'drizzle-orm';
 import { config } from './config';
 import { db } from './db';
 import { historyEvents, historyRuns } from './db/schema';
@@ -87,49 +87,13 @@ export interface HistoryRunListFilters {
   trigger?: HistoryRunTrigger | null;
 }
 
-let historyStorageReady = false;
-
-function ensureHistoryStorage(): void {
-  if (historyStorageReady) {
-    return;
-  }
-
-  db.run(sql`
-    CREATE TABLE IF NOT EXISTS history_runs (
-      id text PRIMARY KEY NOT NULL,
-      trigger text NOT NULL,
-      action text NOT NULL,
-      status text NOT NULL,
-      message text,
-      summary_json text,
-      started_at integer NOT NULL,
-      finished_at integer NOT NULL
-    )
-  `);
-  db.run(sql`
-    CREATE INDEX IF NOT EXISTS idx_history_runs_started_at
-      ON history_runs (started_at DESC)
-  `);
-  db.run(sql`
-    CREATE TABLE IF NOT EXISTS history_events (
-      id text PRIMARY KEY NOT NULL,
-      run_id text NOT NULL,
-      level text NOT NULL,
-      category text NOT NULL,
-      entity_kind text,
-      entity_ref text,
-      message text NOT NULL,
-      details_json text,
-      created_at integer NOT NULL
-    )
-  `);
-  db.run(sql`
-    CREATE INDEX IF NOT EXISTS idx_history_events_run_id
-      ON history_events (run_id, created_at)
-  `);
-
-  historyStorageReady = true;
-}
+const stepMarkerSuffixes = [
+  ' step success.',
+  ' step partial.',
+  ' step skipped.',
+  ' step failed.',
+  ' step failure.',
+] as const;
 
 function parseJsonValue(value: string | null): unknown {
   if (!value) {
@@ -208,6 +172,68 @@ function getRetentionCutoff(now: Date): number | null {
   return now.getTime() - (config.historyRetentionDays * 24 * 60 * 60 * 1000);
 }
 
+function buildRunSearchClause(searchPattern: string): SQL<unknown> {
+  return or(
+    like(historyRuns.id, searchPattern),
+    like(historyRuns.action, searchPattern),
+    like(historyRuns.trigger, searchPattern),
+    like(historyRuns.message, searchPattern),
+  )!;
+}
+
+async function findMatchingHistoryRunIds(searchPattern: string): Promise<string[]> {
+  const directMatches = db.select({ id: historyRuns.id })
+    .from(historyRuns)
+    .where(buildRunSearchClause(searchPattern))
+    .all();
+  const eventMatches = db.select({ runId: historyEvents.runId })
+    .from(historyEvents)
+    .where(like(historyEvents.message, searchPattern))
+    .groupBy(historyEvents.runId)
+    .all();
+
+  return Array.from(new Set([
+    ...directMatches.map(({ id }) => id),
+    ...eventMatches.map(({ runId }) => runId),
+  ]));
+}
+
+async function getEventCounts(runIds: string[]): Promise<Map<string, number>> {
+  if (runIds.length === 0) {
+    return new Map();
+  }
+
+  const rows = db.select({
+    runId: historyEvents.runId,
+    eventCount: count(historyEvents.id),
+  })
+    .from(historyEvents)
+    .where(inArray(historyEvents.runId, runIds))
+    .groupBy(historyEvents.runId)
+    .all();
+
+  return new Map(rows.map(row => [row.runId, Number(row.eventCount)]));
+}
+
+function isStepMarkerEvent(message: string): boolean {
+  const normalizedMessage = message.toLowerCase();
+  return stepMarkerSuffixes.some(suffix => normalizedMessage.endsWith(suffix));
+}
+
+function compareHistoryEvents(left: HistoryEventRecord, right: HistoryEventRecord): number {
+  const createdAtDelta = left.createdAt.getTime() - right.createdAt.getTime();
+  if (createdAtDelta !== 0) {
+    return createdAtDelta;
+  }
+
+  const stepMarkerDelta = Number(isStepMarkerEvent(left.message)) - Number(isStepMarkerEvent(right.message));
+  if (stepMarkerDelta !== 0) {
+    return stepMarkerDelta;
+  }
+
+  return left.id.localeCompare(right.id);
+}
+
 export function getHistoryFeatureState(): { enabled: boolean; retentionDays: number | null } {
   return {
     enabled: config.historyEnabled,
@@ -216,8 +242,6 @@ export function getHistoryFeatureState(): { enabled: boolean; retentionDays: num
 }
 
 export async function initializeHistoryStorage(): Promise<void> {
-  ensureHistoryStorage();
-
   if (!config.historyEnabled) {
     await clearHistory();
     return;
@@ -227,8 +251,6 @@ export async function initializeHistoryStorage(): Promise<void> {
 }
 
 export async function clearHistory(): Promise<void> {
-  ensureHistoryStorage();
-
   db.transaction((tx) => {
     tx.delete(historyEvents).run();
     tx.delete(historyRuns).run();
@@ -236,8 +258,6 @@ export async function clearHistory(): Promise<void> {
 }
 
 export async function purgeExpiredHistory(now: Date = new Date()): Promise<number> {
-  ensureHistoryStorage();
-
   const cutoff = getRetentionCutoff(now);
   if (cutoff === null) {
     return 0;
@@ -261,8 +281,6 @@ export async function purgeExpiredHistory(now: Date = new Date()): Promise<numbe
 }
 
 export async function recordHistoryRun(input: RecordHistoryRunInput): Promise<string | null> {
-  ensureHistoryStorage();
-
   if (!config.historyEnabled) {
     return null;
   }
@@ -304,31 +322,20 @@ export async function recordHistoryRun(input: RecordHistoryRunInput): Promise<st
 }
 
 export async function listHistoryRuns(limit = 100, filters: HistoryRunListFilters = {}): Promise<HistoryRunRecord[]> {
-  ensureHistoryStorage();
-
   if (!config.historyEnabled) {
     return [];
   }
 
-  const whereClauses: Array<ReturnType<typeof sql> | undefined> = [];
-  const search = filters.search?.trim().toLowerCase() ?? '';
+  const whereClauses: SQL<unknown>[] = [];
+  const search = filters.search?.trim() ?? '';
 
   if (search) {
-    const searchPattern = `%${search}%`;
-    whereClauses.push(sql`
-      (
-        lower(${historyRuns.id}) LIKE ${searchPattern}
-        OR lower(${historyRuns.action}) LIKE ${searchPattern}
-        OR lower(${historyRuns.trigger}) LIKE ${searchPattern}
-        OR lower(COALESCE(${historyRuns.message}, '')) LIKE ${searchPattern}
-        OR EXISTS (
-          SELECT 1
-          FROM history_events events
-          WHERE events.run_id = history_runs.id
-            AND lower(events.message) LIKE ${searchPattern}
-        )
-      )
-    `);
+    const matchingRunIds = await findMatchingHistoryRunIds(`%${search}%`);
+    if (matchingRunIds.length === 0) {
+      return [];
+    }
+
+    whereClauses.push(inArray(historyRuns.id, matchingRunIds));
   }
 
   if (filters.action) {
@@ -339,7 +346,6 @@ export async function listHistoryRuns(limit = 100, filters: HistoryRunListFilter
     whereClauses.push(eq(historyRuns.trigger, filters.trigger));
   }
 
-  const filteredWhereClauses = whereClauses.filter(Boolean);
   const rows = db.select({
     id: historyRuns.id,
     trigger: historyRuns.trigger,
@@ -349,24 +355,21 @@ export async function listHistoryRuns(limit = 100, filters: HistoryRunListFilter
     summaryJson: historyRuns.summaryJson,
     startedAt: historyRuns.startedAt,
     finishedAt: historyRuns.finishedAt,
-    eventCount: sql<number>`(
-      SELECT COUNT(*)
-      FROM history_events events
-      WHERE events.run_id = history_runs.id
-    )`.mapWith(Number),
   })
     .from(historyRuns)
-    .where(filteredWhereClauses.length > 0 ? and(...filteredWhereClauses) : undefined)
+    .where(whereClauses.length > 0 ? and(...whereClauses) : undefined)
     .orderBy(desc(historyRuns.startedAt), desc(historyRuns.id))
     .limit(limit)
     .all();
 
-  return rows.map(mapRunRow);
+  const eventCounts = await getEventCounts(rows.map(row => row.id));
+  return rows.map(row => mapRunRow({
+    ...row,
+    eventCount: eventCounts.get(row.id) ?? 0,
+  }));
 }
 
 export async function getHistoryRunDetails(runId: string): Promise<HistoryRunDetails | null> {
-  ensureHistoryStorage();
-
   if (!config.historyEnabled) {
     return null;
   }
@@ -380,11 +383,6 @@ export async function getHistoryRunDetails(runId: string): Promise<HistoryRunDet
     summaryJson: historyRuns.summaryJson,
     startedAt: historyRuns.startedAt,
     finishedAt: historyRuns.finishedAt,
-    eventCount: sql<number>`(
-      SELECT COUNT(*)
-      FROM history_events events
-      WHERE events.run_id = history_runs.id
-    )`.mapWith(Number),
   })
     .from(historyRuns)
     .where(eq(historyRuns.id, runId))
@@ -393,18 +391,6 @@ export async function getHistoryRunDetails(runId: string): Promise<HistoryRunDet
   if (!runRow) {
     return null;
   }
-
-  const eventOrderingRank = sql<number>`
-    CASE
-      WHEN ${historyEvents.message} LIKE '% step success.'
-        OR ${historyEvents.message} LIKE '% step partial.'
-        OR ${historyEvents.message} LIKE '% step skipped.'
-        OR ${historyEvents.message} LIKE '% step failed.'
-        OR ${historyEvents.message} LIKE '% step failure.'
-      THEN 1
-      ELSE 0
-    END
-  `;
 
   const eventRows = db.select({
     id: historyEvents.id,
@@ -419,15 +405,17 @@ export async function getHistoryRunDetails(runId: string): Promise<HistoryRunDet
   })
     .from(historyEvents)
     .where(eq(historyEvents.runId, runId))
-    .orderBy(
-      asc(historyEvents.createdAt),
-      asc(eventOrderingRank),
-      sql`rowid ASC`,
-    )
+    .orderBy(asc(historyEvents.createdAt), asc(historyEvents.id))
     .all();
+  const events = eventRows
+    .map(mapEventRow)
+    .sort(compareHistoryEvents);
 
   return {
-    run: mapRunRow(runRow),
-    events: eventRows.map(mapEventRow),
+    run: mapRunRow({
+      ...runRow,
+      eventCount: events.length,
+    }),
+    events,
   };
 }
