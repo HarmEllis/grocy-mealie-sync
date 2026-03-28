@@ -148,9 +148,12 @@ npm run docs:screenshot
 ```
 
 This writes `docs/images/app-dashboard.png`.
+The command now fails fast if Grocy or Mealie cannot be reached with the current env configuration, so start those services first.
 
 How the screenshot script works:
 
+- Probes Grocy and Mealie with the configured credentials before building, and exits with a clear error if either service is unavailable.
+- If `GROCY_URL` or `MEALIE_URL` uses `host.docker.internal` or `host-docker-internal`, the script also tries the same port on `localhost` and `127.0.0.1`, then reuses the working URL for the build and preview server.
 - Builds the app, then starts a production preview server on a free local port.
 - Captures the real app at `/` with a narrower fixed viewport.
 - Opens Chromium in headless mode with a fixed viewport.
