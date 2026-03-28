@@ -122,6 +122,22 @@ Note on port forwarding:
 - To avoid that schema error, the devcontainer also defines the alias `host-docker-internal`, and the forwarding rules use `host-docker-internal:9000` and `host-docker-internal:9001`.
 - You do not need to use that alias in `.env`; it is only there to satisfy the devcontainer port-forwarding schema.
 
+## Updating `compose-dev.yml` and OpenAPI artifacts
+
+When you want to refresh the bundled Grocy and Mealie versions and then pull the latest OpenAPI specs plus regenerated clients, run:
+
+```bash
+npm run dev:update-upstreams
+```
+
+This does three things in order:
+
+- updates the pinned Grocy and Mealie image tags in `compose-dev.yml` to the latest GitHub releases
+- starts or refreshes the local compose services with those images
+- downloads the latest OpenAPI specs into `docs/` and regenerates the clients in `src/lib/grocy/client` and `src/lib/mealie/client`
+
+You can also run the steps separately with `npm run compose-dev:update` and `npm run openapi:refresh`.
+
 ## Docs screenshot workflow
 
 Generate a screenshot locally with:

@@ -22,12 +22,12 @@ export type { CurrentVolatilStockResponse } from './models/CurrentVolatilStockRe
 export type { DbChangedTimeResponse } from './models/DbChangedTimeResponse';
 export type { Error400 } from './models/Error400';
 export type { Error500 } from './models/Error500';
-export type { ExposedEntity } from './models/ExposedEntity';
-export type { ExposedEntity_IncludingUserEntities } from './models/ExposedEntity_IncludingUserEntities';
-export type { ExposedEntity_IncludingUserEntities_NotIncludingNotEditable } from './models/ExposedEntity_IncludingUserEntities_NotIncludingNotEditable';
-export type { ExposedEntity_NotIncludingNotDeletable } from './models/ExposedEntity_NotIncludingNotDeletable';
-export type { ExposedEntity_NotIncludingNotEditable } from './models/ExposedEntity_NotIncludingNotEditable';
-export type { ExposedEntity_NotIncludingNotListable } from './models/ExposedEntity_NotIncludingNotListable';
+export { ExposedEntity } from './models/ExposedEntity';
+export { ExposedEntity_IncludingUserEntities } from './models/ExposedEntity_IncludingUserEntities';
+export { ExposedEntity_IncludingUserEntities_NotIncludingNotEditable } from './models/ExposedEntity_IncludingUserEntities_NotIncludingNotEditable';
+export { ExposedEntity_NotIncludingNotDeletable } from './models/ExposedEntity_NotIncludingNotDeletable';
+export { ExposedEntity_NotIncludingNotEditable } from './models/ExposedEntity_NotIncludingNotEditable';
+export { ExposedEntity_NotIncludingNotListable } from './models/ExposedEntity_NotIncludingNotListable';
 export type { ExposedEntityEditRequiresAdmin } from './models/ExposedEntityEditRequiresAdmin';
 export { ExposedEntityNoDelete } from './models/ExposedEntityNoDelete';
 export { ExposedEntityNoEdit } from './models/ExposedEntityNoEdit';

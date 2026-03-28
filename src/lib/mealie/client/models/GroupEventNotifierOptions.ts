@@ -17,6 +17,8 @@ export type GroupEventNotifierOptions = {
     dataExport?: boolean;
     dataImport?: boolean;
     mealplanEntryCreated?: boolean;
+    mealplanEntryUpdated?: boolean;
+    mealplanEntryDeleted?: boolean;
     shoppingListCreated?: boolean;
     shoppingListUpdated?: boolean;
     shoppingListDeleted?: boolean;

@@ -54,16 +54,42 @@ export class RecipeCrudService {
      * Takes in raw HTML or a https://schema.org/Recipe object as a JSON string and parses it like a URL
      * @param requestBody
      * @param acceptLanguage
-     * @returns any Successful Response
+     * @returns string Successful Response
      * @throws ApiError
      */
     public static createRecipeFromHtmlOrJsonApiRecipesCreateHtmlOrJsonPost(
         requestBody: ScrapeRecipeData,
         acceptLanguage?: (string | null),
-    ): CancelablePromise<any> {
+    ): CancelablePromise<string> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/recipes/create/html-or-json',
+            headers: {
+                'accept-language': acceptLanguage,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Create Recipe From Html Or Json Stream
+     * Takes in raw HTML or a https://schema.org/Recipe object as a JSON string and parses it like a URL,
+     * streaming progress via SSE
+     * @param requestBody
+     * @param acceptLanguage
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static createRecipeFromHtmlOrJsonStreamApiRecipesCreateHtmlOrJsonStreamPost(
+        requestBody: ScrapeRecipeData,
+        acceptLanguage?: (string | null),
+    ): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/recipes/create/html-or-json/stream',
             headers: {
                 'accept-language': acceptLanguage,
             },
@@ -89,6 +115,32 @@ export class RecipeCrudService {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/recipes/create/url',
+            headers: {
+                'accept-language': acceptLanguage,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Parse Recipe Url Stream
+     * Takes in a URL and attempts to scrape data and load it into the database,
+     * streaming progress via SSE
+     * @param requestBody
+     * @param acceptLanguage
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static parseRecipeUrlStreamApiRecipesCreateUrlStreamPost(
+        requestBody: ScrapeRecipe,
+        acceptLanguage?: (string | null),
+    ): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/recipes/create/url/stream',
             headers: {
                 'accept-language': acceptLanguage,
             },

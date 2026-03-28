@@ -15,6 +15,7 @@ export type AppInfo = {
     oidcProviderName: string;
     enableOpenai: boolean;
     enableOpenaiImageServices: boolean;
+    enableOpenaiTranscriptionServices: boolean;
     tokenTime: number;
 };
 

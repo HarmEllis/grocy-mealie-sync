@@ -14,5 +14,7 @@ export type CreateIngredientUnit = {
     pluralAbbreviation?: (string | null);
     useAbbreviation?: boolean;
     aliases?: Array<CreateIngredientUnitAlias>;
+    standardQuantity?: (number | null);
+    standardUnit?: (string | null);
 };
 

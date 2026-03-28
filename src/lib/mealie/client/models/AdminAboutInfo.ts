@@ -15,6 +15,7 @@ export type AdminAboutInfo = {
     oidcProviderName: string;
     enableOpenai: boolean;
     enableOpenaiImageServices: boolean;
+    enableOpenaiTranscriptionServices: boolean;
     tokenTime: number;
     versionLatest: string;
     apiPort: number;
