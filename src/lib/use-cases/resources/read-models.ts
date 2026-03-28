@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { productMappings, unitMappings } from '@/lib/db/schema';
 import { getCurrentStock, getGrocyEntities, getVolatileStock, type CurrentStockResponse, type GrocyMissingProduct, type Product, type QuantityUnit } from '@/lib/grocy/types';
+import { listOpenMappingConflicts as listOpenMappingConflictsFromStore, type MappingConflictRecord } from '@/lib/mapping-conflicts-store';
 import { RecipesFoodsService, RecipesUnitsService } from '@/lib/mealie';
 import { extractFoods, extractUnits, type MealieFood, type MealieUnit } from '@/lib/mealie/types';
 import { getSyncState, type SyncStateData } from '@/lib/sync/state';
@@ -80,6 +81,11 @@ export interface UnmappedUnitsResource {
   mealieUnits: UnmappedMealieUnitResource[];
 }
 
+export interface OpenMappingConflictsResource {
+  count: number;
+  conflicts: MappingConflictRecord[];
+}
+
 interface NormalizedMealieFood {
   id: string;
   name: string;
@@ -95,6 +101,7 @@ export interface ResourceReadModelDeps {
   getSyncState(): Promise<SyncStateData>;
   listProductMappings(): Promise<ProductMappingRecord[]>;
   listUnitMappings(): Promise<UnitMappingRecord[]>;
+  listOpenMappingConflicts(): Promise<MappingConflictRecord[]>;
   listGrocyProducts(): Promise<Product[]>;
   listGrocyUnits(): Promise<QuantityUnit[]>;
   listMealieFoods(): Promise<NormalizedMealieFood[]>;
@@ -126,6 +133,7 @@ const defaultDeps: ResourceReadModelDeps = {
   getSyncState,
   listProductMappings: async () => db.select().from(productMappings),
   listUnitMappings: async () => db.select().from(unitMappings),
+  listOpenMappingConflicts: listOpenMappingConflictsFromStore,
   listGrocyProducts: async () => getGrocyEntities('products'),
   listGrocyUnits: async () => getGrocyEntities('quantity_units'),
   listMealieFoods: async () => normalizeMealieFoods(
@@ -288,5 +296,16 @@ export async function listUnmappedUnitsResource(
     },
     grocyUnits: unmappedGrocyUnits,
     mealieUnits: unmappedMealieUnits,
+  };
+}
+
+export async function listOpenMappingConflictsResource(
+  deps: Pick<ResourceReadModelDeps, 'listOpenMappingConflicts'> = defaultDeps,
+): Promise<OpenMappingConflictsResource> {
+  const conflicts = await deps.listOpenMappingConflicts();
+
+  return {
+    count: conflicts.length,
+    conflicts,
   };
 }

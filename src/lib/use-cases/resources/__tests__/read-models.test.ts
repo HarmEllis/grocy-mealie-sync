@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getStatusResource,
+  listOpenMappingConflictsResource,
   listUnmappedProductsResource,
   listUnmappedUnitsResource,
   type ResourceReadModelDeps,
@@ -39,6 +40,27 @@ function createDeps(overrides: Partial<ResourceReadModelDeps> = {}): ResourceRea
         conversionFactor: 1,
         createdAt: new Date('2026-03-28T10:00:00.000Z'),
         updatedAt: new Date('2026-03-28T10:05:00.000Z'),
+      },
+    ],
+    listOpenMappingConflicts: async () => [
+      {
+        id: 'conflict-1',
+        conflictKey: 'product:food-1:grocy-101',
+        type: 'missing-unit-mapping',
+        status: 'open',
+        severity: 'warning',
+        mappingKind: 'product',
+        mappingId: 'map-1',
+        sourceTab: 'products',
+        mealieId: 'food-1',
+        mealieName: 'Whole Milk',
+        grocyId: 101,
+        grocyName: 'Milk',
+        summary: 'Product mapping references a missing unit mapping.',
+        occurrences: 2,
+        firstSeenAt: new Date('2026-03-28T09:00:00.000Z'),
+        lastSeenAt: new Date('2026-03-28T10:00:00.000Z'),
+        resolvedAt: null,
       },
     ],
     listGrocyProducts: async () => [
@@ -143,6 +165,35 @@ describe('resource read models', () => {
           id: 'unit-2',
           name: 'Packet',
           abbreviation: 'pkt',
+        },
+      ],
+    });
+  });
+
+  it('returns the current open mapping conflicts with a count', async () => {
+    const result = await listOpenMappingConflictsResource(createDeps());
+
+    expect(result).toEqual({
+      count: 1,
+      conflicts: [
+        {
+          id: 'conflict-1',
+          conflictKey: 'product:food-1:grocy-101',
+          type: 'missing-unit-mapping',
+          status: 'open',
+          severity: 'warning',
+          mappingKind: 'product',
+          mappingId: 'map-1',
+          sourceTab: 'products',
+          mealieId: 'food-1',
+          mealieName: 'Whole Milk',
+          grocyId: 101,
+          grocyName: 'Milk',
+          summary: 'Product mapping references a missing unit mapping.',
+          occurrences: 2,
+          firstSeenAt: new Date('2026-03-28T09:00:00.000Z'),
+          lastSeenAt: new Date('2026-03-28T10:00:00.000Z'),
+          resolvedAt: null,
         },
       ],
     });

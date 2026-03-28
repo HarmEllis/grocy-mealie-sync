@@ -68,4 +68,15 @@ export function registerCoreResources(server: McpServer, services: ResourceMcpSe
     },
     async uri => createJsonResourceContents(uri.toString(), await services.listUnmappedUnitsResource()),
   );
+
+  server.registerResource(
+    'open-mapping-conflicts',
+    'gms://conflicts/open',
+    {
+      title: 'Open Mapping Conflicts',
+      description: 'Current open mapping conflicts',
+      mimeType: 'application/json',
+    },
+    async uri => createJsonResourceContents(uri.toString(), await services.listOpenMappingConflictsResource()),
+  );
 }

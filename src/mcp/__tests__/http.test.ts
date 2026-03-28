@@ -8,11 +8,18 @@ import type {
 } from '@/lib/use-cases/products/catalog';
 import type {
   McpStatusResource,
+  OpenMappingConflictsResource,
   ProductMappingsResource,
   UnitMappingsResource,
   UnmappedProductsResource,
   UnmappedUnitsResource,
 } from '@/lib/use-cases/resources/read-models';
+import type {
+  AddShoppingListItemResult,
+  CheckShoppingListProductResult,
+  RemoveShoppingListItemResult,
+  ShoppingListItemsResource,
+} from '@/lib/use-cases/shopping/list';
 import { createMcpHttpHandler } from '../http';
 
 describe('MCP streamable HTTP handler', () => {
@@ -158,6 +165,118 @@ describe('MCP streamable HTTP handler', () => {
     ],
   }));
 
+  const listOpenMappingConflictsResource = vi.fn(async (): Promise<OpenMappingConflictsResource> => ({
+    count: 1,
+    conflicts: [
+      {
+        id: 'conflict-1',
+        conflictKey: 'product:food-1:grocy-101',
+        type: 'missing-unit-mapping',
+        status: 'open',
+        severity: 'warning',
+        mappingKind: 'product',
+        mappingId: 'map-1',
+        sourceTab: 'products',
+        mealieId: 'food-1',
+        mealieName: 'Whole Milk',
+        grocyId: 101,
+        grocyName: 'Milk',
+        summary: 'Product mapping references a missing unit mapping.',
+        occurrences: 2,
+        firstSeenAt: new Date('2026-03-28T09:00:00.000Z'),
+        lastSeenAt: new Date('2026-03-28T10:00:00.000Z'),
+        resolvedAt: null,
+      },
+    ],
+  }));
+
+  const getShoppingListItemsResource = vi.fn(async (): Promise<ShoppingListItemsResource> => ({
+    shoppingListId: 'list-1',
+    configured: true,
+    counts: {
+      total: 2,
+      unchecked: 1,
+      checked: 1,
+    },
+    items: [
+      {
+        id: 'item-1',
+        shoppingListId: 'list-1',
+        foodId: 'food-1',
+        foodName: 'Milk',
+        unitId: 'unit-1',
+        unitName: 'Liter',
+        quantity: 2,
+        checked: false,
+        note: null,
+        display: 'Milk',
+        createdAt: '2026-03-29T09:00:00.000Z',
+        updatedAt: '2026-03-29T09:05:00.000Z',
+      },
+      {
+        id: 'item-2',
+        shoppingListId: 'list-1',
+        foodId: 'food-2',
+        foodName: 'Bread',
+        unitId: null,
+        unitName: null,
+        quantity: 1,
+        checked: true,
+        note: null,
+        display: 'Bread',
+        createdAt: '2026-03-29T08:00:00.000Z',
+        updatedAt: '2026-03-29T08:30:00.000Z',
+      },
+    ],
+  }));
+
+  const checkShoppingListProduct = vi.fn(async (): Promise<CheckShoppingListProductResult> => ({
+    shoppingListId: 'list-1',
+    alreadyOnList: true,
+    matchCount: 1,
+    matches: [
+      {
+        id: 'item-1',
+        shoppingListId: 'list-1',
+        foodId: 'food-1',
+        foodName: 'Milk',
+        unitId: 'unit-1',
+        unitName: 'Liter',
+        quantity: 2,
+        checked: false,
+        note: null,
+        display: 'Milk',
+        createdAt: '2026-03-29T09:00:00.000Z',
+        updatedAt: '2026-03-29T09:05:00.000Z',
+        score: 100,
+      },
+    ],
+  }));
+
+  const addShoppingListItem = vi.fn(async (): Promise<AddShoppingListItemResult> => ({
+    action: 'created',
+    merged: false,
+    item: {
+      id: 'item-3',
+      shoppingListId: 'list-1',
+      foodId: 'food-3',
+      foodName: 'Eggs',
+      unitId: null,
+      unitName: null,
+      quantity: 2,
+      checked: false,
+      note: null,
+      display: 'Eggs',
+      createdAt: '2026-03-29T10:00:00.000Z',
+      updatedAt: '2026-03-29T10:00:00.000Z',
+    },
+  }));
+
+  const removeShoppingListItem = vi.fn(async (): Promise<RemoveShoppingListItemResult> => ({
+    removed: true,
+    itemId: 'item-1',
+  }));
+
   afterEach(() => {
     vi.clearAllMocks();
   });
@@ -175,6 +294,14 @@ describe('MCP streamable HTTP handler', () => {
         listUnitMappingsResource,
         listUnmappedProductsResource,
         listUnmappedUnitsResource,
+        listOpenMappingConflictsResource,
+        getShoppingListItemsResource,
+      },
+      shopping: {
+        getShoppingListItemsResource,
+        checkShoppingListProduct,
+        addShoppingListItem,
+        removeShoppingListItem,
       },
     });
 
@@ -205,6 +332,10 @@ describe('MCP streamable HTTP handler', () => {
         'products.search',
         'products.get_overview',
         'products.check_duplicates',
+        'shopping.list_items',
+        'shopping.check_product',
+        'shopping.add_item',
+        'shopping.remove_item',
       ]));
       expect(resources.resources.map(resource => resource.uri)).toEqual(expect.arrayContaining([
         'gms://status',
@@ -212,6 +343,8 @@ describe('MCP streamable HTTP handler', () => {
         'gms://mappings/units',
         'gms://products/unmapped',
         'gms://units/unmapped',
+        'gms://conflicts/open',
+        'gms://shopping/items',
       ]));
       expect(templates.resourceTemplates.map(template => template.uriTemplate)).toEqual(expect.arrayContaining([
         'gms://products/{productRef}',
@@ -220,6 +353,21 @@ describe('MCP streamable HTTP handler', () => {
       const searchResult = await client.callTool({
         name: 'products.search',
         arguments: { query: 'milk' },
+      });
+
+      const shoppingCheckResult = await client.callTool({
+        name: 'shopping.check_product',
+        arguments: { foodId: 'food-1' },
+      });
+
+      const shoppingAddResult = await client.callTool({
+        name: 'shopping.add_item',
+        arguments: { foodId: 'food-3', quantity: 2 },
+      });
+
+      const shoppingRemoveResult = await client.callTool({
+        name: 'shopping.remove_item',
+        arguments: { itemId: 'item-1' },
       });
 
       expect(searchProducts).toHaveBeenCalledWith({ query: 'milk', maxResults: 10 });
@@ -242,6 +390,79 @@ describe('MCP streamable HTTP handler', () => {
               grocyProductName: 'Milk',
             },
           ],
+        },
+      });
+      expect(checkShoppingListProduct).toHaveBeenCalledWith({
+        foodId: 'food-1',
+        query: undefined,
+        includeChecked: false,
+        maxResults: 10,
+      });
+      expect(shoppingCheckResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Found 1 matching shopping list item.',
+        data: {
+          shoppingListId: 'list-1',
+          alreadyOnList: true,
+          matchCount: 1,
+          matches: [
+            {
+              id: 'item-1',
+              shoppingListId: 'list-1',
+              foodId: 'food-1',
+              foodName: 'Milk',
+              unitId: 'unit-1',
+              unitName: 'Liter',
+              quantity: 2,
+              checked: false,
+              note: null,
+              display: 'Milk',
+              createdAt: '2026-03-29T09:00:00.000Z',
+              updatedAt: '2026-03-29T09:05:00.000Z',
+              score: 100,
+            },
+          ],
+        },
+      });
+      expect(addShoppingListItem).toHaveBeenCalledWith({
+        foodId: 'food-3',
+        quantity: 2,
+        unitId: undefined,
+        note: undefined,
+        mergeIfExists: true,
+      });
+      expect(shoppingAddResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Added a new shopping list item.',
+        data: {
+          action: 'created',
+          merged: false,
+          item: {
+            id: 'item-3',
+            shoppingListId: 'list-1',
+            foodId: 'food-3',
+            foodName: 'Eggs',
+            unitId: null,
+            unitName: null,
+            quantity: 2,
+            checked: false,
+            note: null,
+            display: 'Eggs',
+            createdAt: '2026-03-29T10:00:00.000Z',
+            updatedAt: '2026-03-29T10:00:00.000Z',
+          },
+        },
+      });
+      expect(removeShoppingListItem).toHaveBeenCalledWith({ itemId: 'item-1' });
+      expect(shoppingRemoveResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Removed the shopping list item.',
+        data: {
+          removed: true,
+          itemId: 'item-1',
         },
       });
 
@@ -384,6 +605,79 @@ describe('MCP streamable HTTP handler', () => {
             id: 'unit-2',
             name: 'Packet',
             abbreviation: 'pkt',
+          },
+        ],
+      });
+
+      const conflictsResource = await client.readResource({ uri: 'gms://conflicts/open' });
+      const conflictsContent = conflictsResource.contents[0];
+      expect(conflictsContent).toBeDefined();
+      expect(listOpenMappingConflictsResource).toHaveBeenCalledTimes(1);
+      expect(conflictsContent && 'text' in conflictsContent ? JSON.parse(conflictsContent.text) : null).toEqual({
+        count: 1,
+        conflicts: [
+          {
+            id: 'conflict-1',
+            conflictKey: 'product:food-1:grocy-101',
+            type: 'missing-unit-mapping',
+            status: 'open',
+            severity: 'warning',
+            mappingKind: 'product',
+            mappingId: 'map-1',
+            sourceTab: 'products',
+            mealieId: 'food-1',
+            mealieName: 'Whole Milk',
+            grocyId: 101,
+            grocyName: 'Milk',
+            summary: 'Product mapping references a missing unit mapping.',
+            occurrences: 2,
+            firstSeenAt: '2026-03-28T09:00:00.000Z',
+            lastSeenAt: '2026-03-28T10:00:00.000Z',
+            resolvedAt: null,
+          },
+        ],
+      });
+
+      const shoppingItemsResource = await client.readResource({ uri: 'gms://shopping/items' });
+      const shoppingItemsContent = shoppingItemsResource.contents[0];
+      expect(shoppingItemsContent).toBeDefined();
+      expect(getShoppingListItemsResource).toHaveBeenCalledTimes(1);
+      expect(shoppingItemsContent && 'text' in shoppingItemsContent ? JSON.parse(shoppingItemsContent.text) : null).toEqual({
+        shoppingListId: 'list-1',
+        configured: true,
+        counts: {
+          total: 2,
+          unchecked: 1,
+          checked: 1,
+        },
+        items: [
+          {
+            id: 'item-1',
+            shoppingListId: 'list-1',
+            foodId: 'food-1',
+            foodName: 'Milk',
+            unitId: 'unit-1',
+            unitName: 'Liter',
+            quantity: 2,
+            checked: false,
+            note: null,
+            display: 'Milk',
+            createdAt: '2026-03-29T09:00:00.000Z',
+            updatedAt: '2026-03-29T09:05:00.000Z',
+          },
+          {
+            id: 'item-2',
+            shoppingListId: 'list-1',
+            foodId: 'food-2',
+            foodName: 'Bread',
+            unitId: null,
+            unitName: null,
+            quantity: 1,
+            checked: true,
+            note: null,
+            display: 'Bread',
+            createdAt: '2026-03-29T08:00:00.000Z',
+            updatedAt: '2026-03-29T08:30:00.000Z',
           },
         ],
       });
