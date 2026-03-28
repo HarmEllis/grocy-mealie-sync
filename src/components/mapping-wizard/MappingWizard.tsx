@@ -1487,7 +1487,7 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
       </Button>
 
       <Dialog open={open} onOpenChange={value => { if (!value && !isRunning) setOpen(false); }}>
-        <DialogContent className="flex h-[85vh] max-h-[85vh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden sm:max-w-6xl">
+        <DialogContent className="flex h-[85vh] max-h-[85vh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden sm:max-w-7xl">
           <DialogHeader>
             <DialogTitle>Mapping Wizard</DialogTitle>
             <DialogDescription>

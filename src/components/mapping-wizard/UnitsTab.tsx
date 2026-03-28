@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -116,22 +117,23 @@ export function UnitsTab({
       {/* Actions bar */}
       <div className="flex flex-wrap items-center gap-2">
         {Object.keys(data.unitSuggestions).length > 0 && (
-          <Button variant="secondary" size="sm" onClick={onAcceptAllSuggestions} disabled={isRunning}>
+          <Button variant="secondary" onClick={onAcceptAllSuggestions} disabled={isRunning}>
             Fill Suggestions... ({Object.keys(data.unitSuggestions).length})
           </Button>
         )}
-        <Button variant="outline" size="sm" onClick={onNormalizeUnits} disabled={isRunning}>
+        <Button variant="outline" onClick={onNormalizeUnits} disabled={isRunning}>
           Normalize (lowercase)
         </Button>
-        <select
+        <NativeSelect
           value={unitFilter}
           onChange={event => setUnitFilter(event.target.value as UnitFilter)}
-          className="h-8 rounded-md border border-input bg-background px-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+          containerClassName="w-auto"
+          className="w-[120px]"
         >
           <option value="unmapped">Unmapped</option>
           <option value="mapped">Mapped</option>
           <option value="all">All</option>
-        </select>
+        </NativeSelect>
         <Input
           placeholder="Filter Mealie units..."
           value={unitSearch}
@@ -227,7 +229,6 @@ export function UnitsTab({
                       <Button
                         type="button"
                         variant="destructive"
-                        size="sm"
                         disabled={isRunning}
                         onClick={() => onUnmapUnit(persistedMapping.id, unit.id, unit.name)}
                       >

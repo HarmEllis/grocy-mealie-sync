@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { NativeSelect } from '@/components/ui/native-select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
@@ -205,18 +206,18 @@ export function SettingsForm() {
           {settings.availableShoppingLists.length === 0 ? (
             <p className="text-sm text-muted-foreground">Could not load shopping lists from Mealie.</p>
           ) : (
-            <select
+            <NativeSelect
               id="shopping-list"
               value={settings.mealieShoppingListId || ''}
               onChange={e => handleShoppingListChange(e.target.value)}
               disabled={settings.locks.mealieShoppingListId.locked}
-              className="h-8 w-full max-w-xs rounded-md border border-input bg-background px-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 ml-auto disabled:cursor-not-allowed disabled:opacity-60"
+              containerClassName="ml-auto w-full max-w-xs"
             >
               <option value="">-- Not set --</option>
               {[...settings.availableShoppingLists].sort((a, b) => a.name.localeCompare(b.name)).map(l => (
                 <option key={l.id} value={l.id}>{l.name}</option>
               ))}
-            </select>
+            </NativeSelect>
           )}
         </div>
 
@@ -230,12 +231,12 @@ export function SettingsForm() {
           {settings.availableUnits.length === 0 ? (
             <p className="text-sm text-muted-foreground">No units synced yet. Run a product sync first.</p>
           ) : (
-            <select
+            <NativeSelect
               id="default-unit"
               value={settings.defaultUnitMappingId || ''}
               onChange={e => handleUnitChange(e.target.value)}
               disabled={settings.locks.defaultUnitMappingId.locked}
-              className="h-8 w-full max-w-xs rounded-md border border-input bg-background px-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 ml-auto disabled:cursor-not-allowed disabled:opacity-60"
+              containerClassName="ml-auto w-full max-w-xs"
             >
               <option value="">-- Not set --</option>
               {[...settings.availableUnits].sort((a, b) => a.name.localeCompare(b.name)).map(u => (
@@ -243,7 +244,7 @@ export function SettingsForm() {
                   {u.name}{u.abbreviation ? ` (${u.abbreviation})` : ''}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           )}
         </div>
 
@@ -369,19 +370,19 @@ export function SettingsForm() {
               </label>
               <LockBadge lock={settings.locks.mappingWizardMinStockStep} />
             </div>
-            <select
+            <NativeSelect
               id="mapping-wizard-min-stock-step"
               value={settings.mappingWizardMinStockStep}
               onChange={event => handleMappingWizardMinStockStepChange(event.target.value as MinStockStep)}
               disabled={settings.locks.mappingWizardMinStockStep.locked}
-              className="h-8 w-full max-w-xs rounded-md border border-input bg-background px-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 ml-auto disabled:cursor-not-allowed disabled:opacity-60"
+              containerClassName="ml-auto w-full max-w-xs"
             >
               {MIN_STOCK_STEP_VALUES.map(step => (
                 <option key={step} value={step}>
                   {MIN_STOCK_STEP_LABELS[step]}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
           <p className="pl-6 text-xs text-muted-foreground">
             This only changes the browser stepper increment. Manually typed values like `0.1` are still accepted even when the step is `1`.

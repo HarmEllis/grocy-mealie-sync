@@ -154,7 +154,6 @@ export function MappedProductsTab({
                       />
                       <Button
                         type="button"
-                        size="sm"
                         variant="secondary"
                         onClick={() => void saveMinStock(product.grocyProductId)}
                         disabled={isSaving || !isDirty}
@@ -168,7 +167,6 @@ export function MappedProductsTab({
                   <TableCell>
                     <Button
                       type="button"
-                      size="sm"
                       variant="destructive"
                       onClick={() => onUnmapProduct(product.id, product.name)}
                     >

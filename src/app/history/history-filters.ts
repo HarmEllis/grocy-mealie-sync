@@ -1,4 +1,6 @@
+import { formatHistoryActionLabel } from '@/lib/history-events';
 import {
+  historyRunActions,
   isHistoryRunAction,
   isHistoryRunTrigger,
   type HistoryRunAction,
@@ -18,6 +20,11 @@ export interface HistoryFilterFormValues {
   search: string;
   action: string | null;
   trigger: string | null;
+}
+
+export interface HistoryActionFilterOption {
+  value: HistoryRunAction;
+  label: string;
 }
 
 function getSingleSearchParam(value: string | string[] | undefined): string | undefined {
@@ -69,4 +76,13 @@ export function buildHistoryFilterSearchParams(
   }
 
   return nextSearchParams.toString();
+}
+
+export function getHistoryActionFilterOptions(): HistoryActionFilterOption[] {
+  return historyRunActions
+    .map(action => ({
+      value: action,
+      label: formatHistoryActionLabel(action),
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label));
 }

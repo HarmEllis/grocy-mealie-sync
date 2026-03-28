@@ -2,10 +2,10 @@
 
 import { useEffect, useState, useTransition } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { Input } from '@/components/ui/input';
-import { formatHistoryActionLabel } from '@/lib/history-events';
-import { historyRunActions, type HistoryRunAction, type HistoryRunTrigger } from '@/lib/history-types';
-import { buildHistoryFilterSearchParams } from './history-filters';
+import { type HistoryRunAction, type HistoryRunTrigger } from '@/lib/history-types';
+import { buildHistoryFilterSearchParams, getHistoryActionFilterOptions } from './history-filters';
 
 interface HistoryFiltersBarProps {
   search: string;
@@ -13,36 +13,42 @@ interface HistoryFiltersBarProps {
   trigger: HistoryRunTrigger | null;
 }
 
+const historyActionOptions = getHistoryActionFilterOptions();
+const historyTriggerOptions: Array<{ value: HistoryRunTrigger; label: string }> = [
+  { value: 'manual', label: 'Manual' },
+  { value: 'scheduler', label: 'Scheduler' },
+];
+
 export function HistoryFiltersBar({ search, action, trigger }: HistoryFiltersBarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
   const [searchValue, setSearchValue] = useState(search);
-  const [actionValue, setActionValue] = useState(action ?? '');
-  const [triggerValue, setTriggerValue] = useState(trigger ?? '');
+  const [actionValue, setActionValue] = useState<HistoryRunAction | null>(action);
+  const [triggerValue, setTriggerValue] = useState<HistoryRunTrigger | null>(trigger);
 
   useEffect(() => {
     setSearchValue(search);
   }, [search]);
 
   useEffect(() => {
-    setActionValue(action ?? '');
+    setActionValue(action);
   }, [action]);
 
   useEffect(() => {
-    setTriggerValue(trigger ?? '');
+    setTriggerValue(trigger);
   }, [trigger]);
 
   function replaceFilters(nextValues: {
     search: string;
-    action: string;
-    trigger: string;
+    action: HistoryRunAction | null;
+    trigger: HistoryRunTrigger | null;
   }) {
     const nextQuery = buildHistoryFilterSearchParams(new URLSearchParams(searchParams.toString()), {
       search: nextValues.search,
-      action: nextValues.action || null,
-      trigger: nextValues.trigger || null,
+      action: nextValues.action,
+      trigger: nextValues.trigger,
     });
 
     startTransition(() => {
@@ -68,10 +74,10 @@ export function HistoryFiltersBar({ search, action, trigger }: HistoryFiltersBar
 
   return (
     <div className="mb-4 flex flex-wrap items-center gap-2">
-      <select
+      <SearchableSelect
+        options={historyActionOptions}
         value={actionValue}
-        onChange={(event) => {
-          const nextAction = event.target.value;
+        onChange={(nextAction) => {
           setActionValue(nextAction);
           replaceFilters({
             search: searchValue,
@@ -79,21 +85,16 @@ export function HistoryFiltersBar({ search, action, trigger }: HistoryFiltersBar
             trigger: triggerValue,
           });
         }}
-        aria-label="Filter by action"
-        className="h-8 rounded-md border border-input bg-background px-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
-      >
-        <option value="">All actions</option>
-        {historyRunActions.map(historyAction => (
-          <option key={historyAction} value={historyAction}>
-            {formatHistoryActionLabel(historyAction)}
-          </option>
-        ))}
-      </select>
+        ariaLabel="Filter by action"
+        placeholder="All actions"
+        searchPlaceholder="Search actions..."
+        className="w-[220px]"
+      />
 
-      <select
+      <SearchableSelect
+        options={historyTriggerOptions}
         value={triggerValue}
-        onChange={(event) => {
-          const nextTrigger = event.target.value;
+        onChange={(nextTrigger) => {
           setTriggerValue(nextTrigger);
           replaceFilters({
             search: searchValue,
@@ -101,13 +102,11 @@ export function HistoryFiltersBar({ search, action, trigger }: HistoryFiltersBar
             trigger: nextTrigger,
           });
         }}
-        aria-label="Filter by trigger"
-        className="h-8 rounded-md border border-input bg-background px-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
-      >
-        <option value="">All triggers</option>
-        <option value="manual">Manual</option>
-        <option value="scheduler">Scheduler</option>
-      </select>
+        ariaLabel="Filter by trigger"
+        placeholder="All triggers"
+        searchPlaceholder="Search triggers..."
+        className="w-[120px]"
+      />
 
       <Input
         placeholder="Filter history..."

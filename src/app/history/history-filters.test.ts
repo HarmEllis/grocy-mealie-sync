@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildHistoryFilterSearchParams, resolveHistoryFilters } from './history-filters';
+import { historyRunActions } from '@/lib/history-types';
+import {
+  buildHistoryFilterSearchParams,
+  getHistoryActionFilterOptions,
+  resolveHistoryFilters,
+} from './history-filters';
 
 describe('history filters', () => {
   it('normalizes valid search, action, and trigger filters', () => {
@@ -46,5 +51,13 @@ describe('history filters', () => {
       action: '',
       trigger: '',
     })).toBe('page=2');
+  });
+
+  it('returns action filter options sorted alphabetically by label', () => {
+    const options = getHistoryActionFilterOptions();
+    const labels = options.map(option => option.label);
+
+    expect(labels).toEqual([...labels].sort((left, right) => left.localeCompare(right)));
+    expect(options.map(option => option.value).sort()).toEqual([...historyRunActions].sort());
   });
 });

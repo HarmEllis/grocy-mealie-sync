@@ -15,7 +15,10 @@ interface SearchableSelectProps<T extends string | number> {
   value: T | null;
   onChange: (value: T | null) => void;
   placeholder?: string;
+  searchPlaceholder?: string;
+  ariaLabel?: string;
   className?: string;
+  controlClassName?: string;
   clearable?: boolean;
 }
 
@@ -33,7 +36,10 @@ export function SearchableSelect<T extends string | number>({
   value,
   onChange,
   placeholder = 'Search...',
+  searchPlaceholder,
+  ariaLabel,
   className,
+  controlClassName,
   clearable = true,
 }: SearchableSelectProps<T>) {
   const [open, setOpen] = useState(false);
@@ -228,13 +234,15 @@ export function SearchableSelect<T extends string | number>({
         aria-haspopup="listbox"
         aria-owns={listboxId}
         aria-activedescendant={activeDescendant}
+        aria-label={ariaLabel}
         tabIndex={open ? -1 : 0}
         onClick={openDropdown}
         onKeyDown={handleKeyDown}
         className={cn(
-          'flex min-w-0 w-full items-center gap-1 rounded-md border px-2 py-1.5 text-sm cursor-pointer min-h-[30px]',
+          'flex h-8 min-w-0 w-full items-center gap-1.5 rounded-lg border px-2.5 py-1 text-sm cursor-pointer',
           'border-input bg-background hover:bg-muted/50 transition-colors',
           value !== null && 'bg-success/10 border-success/30',
+          controlClassName,
         )}
       >
         {open ? (
@@ -243,10 +251,11 @@ export function SearchableSelect<T extends string | number>({
             value={search}
             onChange={e => setSearch(e.target.value)}
             onKeyDown={handleKeyDown}
+            aria-label={ariaLabel}
             aria-autocomplete="list"
             aria-controls={listboxId}
             aria-activedescendant={activeDescendant}
-            placeholder={value !== null ? selectedLabel : placeholder}
+            placeholder={value !== null ? selectedLabel : (searchPlaceholder ?? placeholder)}
             className="border-none outline-none text-sm w-full bg-transparent placeholder:text-muted-foreground"
           />
         ) : (

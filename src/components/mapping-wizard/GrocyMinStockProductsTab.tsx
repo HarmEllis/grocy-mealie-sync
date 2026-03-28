@@ -115,7 +115,7 @@ export function GrocyMinStockProductsTab({
     <div className="flex min-h-0 min-w-0 flex-1 flex-col space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         {Object.keys(data.lowStockGrocyProductSuggestions).length > 0 && (
-          <Button variant="secondary" size="sm" onClick={onAcceptAllSuggestions} disabled={isRunning}>
+          <Button variant="secondary" onClick={onAcceptAllSuggestions} disabled={isRunning}>
             Fill Suggestions... ({Object.keys(data.lowStockGrocyProductSuggestions).length})
           </Button>
         )}

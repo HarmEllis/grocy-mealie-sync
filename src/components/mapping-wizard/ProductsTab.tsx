@@ -110,11 +110,11 @@ export function ProductsTab({
       {/* Actions bar */}
       <div className="flex flex-wrap items-center gap-2">
         {Object.keys(data.productSuggestions).length > 0 && (
-          <Button variant="secondary" size="sm" onClick={onAcceptAllSuggestions} disabled={isRunning}>
+          <Button variant="secondary" onClick={onAcceptAllSuggestions} disabled={isRunning}>
             Fill Suggestions... ({Object.keys(data.productSuggestions).length})
           </Button>
         )}
-        <Button variant="outline" size="sm" onClick={onNormalizeProducts} disabled={isRunning}>
+        <Button variant="outline" onClick={onNormalizeProducts} disabled={isRunning}>
           Normalize (Capitalize)
         </Button>
         <Input

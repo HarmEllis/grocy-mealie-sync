@@ -38,14 +38,12 @@ export function SuggestionScoreIndicator({
       {ambiguous && runnerUp ? (
         <TooltipProvider>
           <Tooltip>
-            <TooltipTrigger>
-              <button
-                type="button"
-                className="inline-flex size-5 items-center justify-center rounded-sm text-warning-foreground outline-none transition-colors hover:bg-warning/10 focus-visible:ring-2 focus-visible:ring-ring/50"
-                aria-label="Show alternative match"
-              >
-                <AlertTriangle className="size-3.5" />
-              </button>
+            <TooltipTrigger
+              type="button"
+              className="inline-flex size-5 items-center justify-center rounded-sm text-warning-foreground outline-none transition-colors hover:bg-warning/10 focus-visible:ring-2 focus-visible:ring-ring/50"
+              aria-label="Show alternative match"
+            >
+              <AlertTriangle className="size-3.5" />
             </TooltipTrigger>
             <TooltipContent className="max-w-sm items-start">
               <span>
