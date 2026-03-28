@@ -126,6 +126,41 @@ export default async function Home() {
           </CardContent>
         </Card>
 
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <HistoryIcon className="size-4" />
+              History
+            </CardTitle>
+            <CardDescription>
+              {config.historyEnabled
+                ? `Audit log for scheduler and manual actions. Retention: ${config.historyRetentionDays} day${config.historyRetentionDays === 1 ? '' : 's'}.`
+                : 'Disabled via HISTORY_RETENTION_DAYS=-1.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              {config.historyEnabled
+                ? 'Open recent sync runs, conflict checks, and lock recovery events.'
+                : 'The History page is unavailable while history storage is disabled.'}
+            </p>
+            {config.historyEnabled ? (
+              <Link href="/history" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                <HistoryIcon className="size-4" />
+                Open History
+              </Link>
+            ) : (
+              <span
+                aria-disabled="true"
+                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'cursor-not-allowed opacity-50')}
+              >
+                <HistoryIcon className="size-4" />
+                History Disabled
+              </span>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Settings Card */}
         <Card>
           <CardHeader>
@@ -179,41 +214,6 @@ export default async function Home() {
           </CardHeader>
           <CardContent>
             <SyncRecoveryControls />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <HistoryIcon className="size-4" />
-              History
-            </CardTitle>
-            <CardDescription>
-              {config.historyEnabled
-                ? `Audit log for scheduler and manual actions. Retention: ${config.historyRetentionDays} day${config.historyRetentionDays === 1 ? '' : 's'}.`
-                : 'Disabled via HISTORY_RETENTION_DAYS=-1.'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">
-              {config.historyEnabled
-                ? 'Open recent sync runs, conflict checks, and lock recovery events.'
-                : 'The History page is unavailable while history storage is disabled.'}
-            </p>
-            {config.historyEnabled ? (
-              <Link href="/history" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-                <HistoryIcon className="size-4" />
-                Open History
-              </Link>
-            ) : (
-              <span
-                aria-disabled="true"
-                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'cursor-not-allowed opacity-50')}
-              >
-                <HistoryIcon className="size-4" />
-                History Disabled
-              </span>
-            )}
           </CardContent>
         </Card>
 
