@@ -6,7 +6,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { buttonVariants } from '@/components/ui/button-styles';
 import { config } from '@/lib/config';
 import { formatDateTime } from '@/lib/date-time';
-import { formatHistoryActionLabel, formatHistoryTriggerLabel } from '@/lib/history-events';
+import {
+  formatHistoryActionLabel,
+  formatSchedulerStepNameLabel,
+  formatHistoryTriggerLabel,
+  getVisibleHistoryEvents,
+  normalizeHistoryEventMessage,
+} from '@/lib/history-events';
 import { getHistoryFeatureState, getHistoryRunDetails } from '@/lib/history-store';
 import { HistoryDisabledState, HistoryStatusBadge, JsonBlock } from '@/components/history/HistoryShared';
 
@@ -14,6 +20,12 @@ interface HistoryDetailPageProps {
   params: Promise<{
     runId: string;
   }>;
+}
+
+interface SchedulerStepSummary {
+  name: 'product_sync' | 'mealie_to_grocy' | 'grocy_to_mealie' | 'conflict_check';
+  status: 'success' | 'partial' | 'failure' | 'skipped';
+  error?: string;
 }
 
 function formatDurationMs(durationMs: number): string {
@@ -49,6 +61,9 @@ export default async function HistoryDetailPage({ params }: HistoryDetailPagePro
   }
 
   const durationMs = details.run.finishedAt.getTime() - details.run.startedAt.getTime();
+  const visibleEvents = getVisibleHistoryEvents(details.events);
+  const hiddenEventCount = details.events.length - visibleEvents.length;
+  const schedulerSteps = getSchedulerSteps(details.run.summary);
 
   return (
     <div className="min-h-screen bg-background">
@@ -97,23 +112,62 @@ export default async function HistoryDetailPage({ params }: HistoryDetailPagePro
           </CardContent>
         </Card>
 
+        {schedulerSteps.length > 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Scheduler Steps</CardTitle>
+              <CardDescription>Per-step result for this scheduler cycle.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Step</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Error</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {schedulerSteps.map(step => (
+                    <TableRow key={step.name}>
+                      <TableCell>{formatSchedulerStepNameLabel(step.name)}</TableCell>
+                      <TableCell><HistoryStatusBadge status={step.status} /></TableCell>
+                      <TableCell className="max-w-md whitespace-normal text-sm text-muted-foreground">
+                        {step.error ?? 'No error'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        ) : null}
+
         <Card>
           <CardHeader>
             <CardTitle>Summary Data</CardTitle>
             <CardDescription>Stored run payload for auditing and debugging.</CardDescription>
           </CardHeader>
           <CardContent>
-            <JsonBlock value={details.run.summary} />
+            <details className="rounded-md border bg-muted/30 p-2">
+              <summary className="cursor-pointer text-xs font-medium">View summary payload</summary>
+              <div className="mt-2">
+                <JsonBlock value={details.run.summary} />
+              </div>
+            </details>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
             <CardTitle>Events</CardTitle>
-            <CardDescription>{details.events.length} event{details.events.length === 1 ? '' : 's'} recorded for this run.</CardDescription>
+            <CardDescription>
+              {visibleEvents.length} event{visibleEvents.length === 1 ? '' : 's'} shown for this run
+              {hiddenEventCount > 0 ? ` (${hiddenEventCount} generic step entr${hiddenEventCount === 1 ? 'y' : 'ies'} hidden).` : '.'}
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            {details.events.length === 0 ? (
+            {visibleEvents.length === 0 ? (
               <p className="text-sm text-muted-foreground">No detail events were recorded for this run.</p>
             ) : (
               <Table>
@@ -127,12 +181,12 @@ export default async function HistoryDetailPage({ params }: HistoryDetailPagePro
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {details.events.map(event => (
+                  {visibleEvents.map(event => (
                     <TableRow key={event.id}>
                       <TableCell>{formatDateTime(event.createdAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}</TableCell>
                       <TableCell className="uppercase text-xs text-muted-foreground">{event.level}</TableCell>
                       <TableCell>{event.category}</TableCell>
-                      <TableCell className="max-w-md whitespace-normal">{event.message}</TableCell>
+                      <TableCell className="max-w-md whitespace-normal">{normalizeHistoryEventMessage(event.message)}</TableCell>
                       <TableCell className="max-w-md whitespace-normal">
                         {event.details === null ? (
                           <span className="text-xs text-muted-foreground">No details</span>
@@ -155,4 +209,38 @@ export default async function HistoryDetailPage({ params }: HistoryDetailPagePro
       </div>
     </div>
   );
+}
+
+function getSchedulerSteps(summary: unknown): SchedulerStepSummary[] {
+  if (!summary || typeof summary !== 'object' || !('steps' in summary)) {
+    return [];
+  }
+
+  const rawSteps = (summary as { steps?: unknown }).steps;
+  if (!Array.isArray(rawSteps)) {
+    return [];
+  }
+
+  return rawSteps.flatMap((step): SchedulerStepSummary[] => {
+    if (!step || typeof step !== 'object') {
+      return [];
+    }
+
+    const name = (step as { name?: unknown }).name;
+    const status = (step as { status?: unknown }).status;
+    const error = (step as { error?: unknown }).error;
+
+    if (
+      (name !== 'product_sync' && name !== 'mealie_to_grocy' && name !== 'grocy_to_mealie' && name !== 'conflict_check')
+      || (status !== 'success' && status !== 'partial' && status !== 'failure' && status !== 'skipped')
+    ) {
+      return [];
+    }
+
+    return [{
+      name,
+      status,
+      error: typeof error === 'string' ? error : undefined,
+    }];
+  });
 }

@@ -390,7 +390,18 @@ export async function getHistoryRunDetails(runId: string): Promise<HistoryRunDet
     SELECT *
     FROM history_events
     WHERE run_id = ?
-    ORDER BY created_at ASC, id ASC
+    ORDER BY
+      created_at ASC,
+      CASE
+        WHEN message LIKE '% step success.'
+          OR message LIKE '% step partial.'
+          OR message LIKE '% step skipped.'
+          OR message LIKE '% step failed.'
+          OR message LIKE '% step failure.'
+        THEN 1
+        ELSE 0
+      END ASC,
+      _rowid_ ASC
   `).all(runId) as Array<{
     id: string;
     run_id: string;

@@ -76,6 +76,37 @@ function getSchedulerStepLabel(name: SchedulerStepName): string {
   }
 }
 
+function formatSchedulerCycleHistoryMessage(
+  cycleType: SchedulerCycleType,
+  status: string,
+  stepResults: SchedulerStepResult[],
+): string {
+  const failedSteps = stepResults
+    .filter(step => step.status === 'failure')
+    .map(step => getSchedulerStepLabel(step.name));
+  const partialSteps = stepResults
+    .filter(step => step.status === 'partial')
+    .map(step => getSchedulerStepLabel(step.name));
+  const skippedSteps = stepResults
+    .filter(step => step.status === 'skipped')
+    .map(step => getSchedulerStepLabel(step.name));
+  const messageParts: string[] = [`Scheduler ${cycleType} cycle ${status}.`];
+
+  if (failedSteps.length > 0) {
+    messageParts.push(`Failed: ${failedSteps.join(', ')}.`);
+  }
+
+  if (partialSteps.length > 0) {
+    messageParts.push(`Partial: ${partialSteps.join(', ')}.`);
+  }
+
+  if (skippedSteps.length > 0) {
+    messageParts.push(`Skipped: ${skippedSteps.join(', ')}.`);
+  }
+
+  return messageParts.join(' ');
+}
+
 async function runSchedulerCycle(
   cycleType: SchedulerCycleType,
   steps: SchedulerStepDefinition[],
@@ -139,7 +170,7 @@ async function runSchedulerCycle(
       trigger: 'scheduler',
       action: 'scheduler_cycle',
       status: cycleSummary.status,
-      message: `Scheduler ${cycleType} cycle ${cycleSummary.status}.`,
+      message: formatSchedulerCycleHistoryMessage(cycleType, cycleSummary.status, stepResults),
       startedAt,
       finishedAt,
       summary: {

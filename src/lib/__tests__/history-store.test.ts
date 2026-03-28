@@ -94,7 +94,7 @@ describe('history store', () => {
             id: runId,
             action: 'product_sync',
           }),
-          events: [
+          events: expect.arrayContaining([
             expect.objectContaining({
               category: 'sync',
               entityKind: 'unit',
@@ -107,7 +107,7 @@ describe('history store', () => {
               message: 'Products synced.',
               details: { created: 4, linked: 5, skipped: 6, backfilled: 7 },
             }),
-          ],
+          ]),
         }),
       );
     } finally {
@@ -212,6 +212,50 @@ describe('history store', () => {
       ).all() as Array<{ name: string }>;
 
       expect(tables.map(table => table.name)).toEqual(['history_events', 'history_runs']);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it('shows scheduler step marker events after detailed step events with the same timestamp', async () => {
+    const sqlite = new Database(':memory:');
+
+    try {
+      const historyStore = await loadHistoryStore(sqlite, {
+        historyEnabled: true,
+        historyRetentionDays: 7,
+      });
+
+      await historyStore.initializeHistoryStorage();
+
+      const runId = await historyStore.recordHistoryRun({
+        trigger: 'scheduler',
+        action: 'scheduler_cycle',
+        status: 'success',
+        startedAt: new Date('2026-03-28T08:00:00.000Z'),
+        finishedAt: new Date('2026-03-28T08:00:30.000Z'),
+        events: [
+          {
+            level: 'info',
+            category: 'sync',
+            entityRef: 'grocy_to_mealie',
+            message: 'Grocy to Mealie step success.',
+          },
+          {
+            level: 'info',
+            category: 'sync',
+            entityKind: 'shopping_item',
+            entityRef: 'grocy_to_mealie',
+            message: 'Grocy to Mealie: Grocy to Mealie sync completed.',
+          },
+        ],
+      });
+
+      const details = await historyStore.getHistoryRunDetails(runId!);
+      expect(details?.events.map(event => event.message)).toEqual([
+        'Grocy to Mealie: Grocy to Mealie sync completed.',
+        'Grocy to Mealie step success.',
+      ]);
     } finally {
       sqlite.close();
     }

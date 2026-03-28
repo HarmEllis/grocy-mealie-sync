@@ -1,5 +1,6 @@
 import type { MappingConflictCheckResult, MappingConflictRecord } from './mapping-conflicts-store';
-import type { HistoryEventInput, HistoryRunAction, HistoryRunStatus } from './history-store';
+import type { HistoryEventInput, HistoryEventRecord, HistoryRunAction, HistoryRunStatus } from './history-store';
+import type { SchedulerStepName } from './scheduler-notifications';
 import type { GrocyMissingStockPollResult } from './sync/grocy-to-mealie';
 import type { MealieInPossessionSyncResult } from './sync/mealie-in-possession';
 import type { MealieToGrocyPollResult } from './sync/mealie-to-grocy';
@@ -11,6 +12,8 @@ export interface HistoryOutcome {
   summary: unknown;
   events: HistoryEventInput[];
 }
+
+const STEP_MARKER_MESSAGE_PATTERN = /^(.+) step (success|partial|skipped|failed|failure)\.$/;
 
 function toHistoryStatus(status: 'ok' | 'partial' | 'skipped' | 'error'): HistoryRunStatus {
   switch (status) {
@@ -27,6 +30,47 @@ function toHistoryStatus(status: 'ok' | 'partial' | 'skipped' | 'error'): Histor
 
 function toConflictEventLevel(conflict: Pick<MappingConflictRecord, 'severity'>): 'warning' | 'error' {
   return conflict.severity === 'error' ? 'error' : 'warning';
+}
+
+function formatMappingKindLabel(mappingKind: MappingConflictRecord['mappingKind']): string {
+  return mappingKind === 'unit' ? 'unit mapping' : 'product mapping';
+}
+
+function countConflictsByMappingKind(conflicts: Array<Pick<MappingConflictRecord, 'mappingKind'>>): {
+  product: number;
+  unit: number;
+} {
+  return conflicts.reduce(
+    (counts, conflict) => {
+      if (conflict.mappingKind === 'unit') {
+        counts.unit++;
+      } else {
+        counts.product++;
+      }
+
+      return counts;
+    },
+    { product: 0, unit: 0 },
+  );
+}
+
+function formatConflictKindBreakdown(conflicts: Array<Pick<MappingConflictRecord, 'mappingKind'>>): string {
+  const counts = countConflictsByMappingKind(conflicts);
+  const parts: string[] = [];
+
+  if (counts.product > 0) {
+    parts.push(`${counts.product} product`);
+  }
+
+  if (counts.unit > 0) {
+    parts.push(`${counts.unit} unit`);
+  }
+
+  if (parts.length === 0) {
+    return 'none';
+  }
+
+  return parts.join(', ');
 }
 
 export function formatHistoryActionLabel(action: HistoryRunAction): string {
@@ -52,6 +96,19 @@ export function formatHistoryActionLabel(action: HistoryRunAction): string {
 
 export function formatHistoryTriggerLabel(trigger: 'scheduler' | 'manual'): string {
   return trigger === 'scheduler' ? 'Scheduler' : 'Manual';
+}
+
+export function formatSchedulerStepNameLabel(stepName: SchedulerStepName): string {
+  switch (stepName) {
+    case 'product_sync':
+      return 'Product sync';
+    case 'mealie_to_grocy':
+      return 'Mealie to Grocy';
+    case 'grocy_to_mealie':
+      return 'Grocy to Mealie';
+    case 'conflict_check':
+      return 'Conflict check';
+  }
 }
 
 export function formatHistoryStatusLabel(status: HistoryRunStatus): string {
@@ -116,13 +173,21 @@ export function buildGrocyToMealieHistoryOutcome(
 
   const events: HistoryEventInput[] = [
     {
-      level: result.summary.unmappedProducts > 0 ? 'warning' : 'info',
+      level: result.status === 'error'
+        ? 'error'
+        : result.status === 'partial' || result.status === 'skipped' || result.summary.unmappedProducts > 0
+          ? 'warning'
+          : 'info',
       category: 'sync',
       entityKind: 'shopping_item',
       entityRef: action,
-      message: action === 'ensure_low_stock'
-        ? 'Ensure low-stock sync completed.'
-        : 'Grocy to Mealie sync completed.',
+      message: result.status === 'error'
+        ? 'Sync failed.'
+        : result.status === 'skipped'
+          ? 'Sync skipped.'
+          : result.status === 'partial'
+            ? 'Sync partially completed.'
+            : 'Sync completed.',
       details: {
         reason: result.reason ?? null,
         summary: result.summary,
@@ -140,7 +205,7 @@ export function buildGrocyToMealieHistoryOutcome(
       category: 'sync',
       entityKind: 'product',
       entityRef: 'in-possession',
-      message: `In possession sync ${result.inPossessionStatus}.`,
+      message: `In possession sync ${result.inPossessionStatus === 'ok' ? 'succeeded' : result.inPossessionStatus}.`,
       details: result.inPossessionSummary ?? null,
     });
   }
@@ -168,11 +233,21 @@ export function buildMealieToGrocyHistoryOutcome(result: MealieToGrocyPollResult
     },
     events: [
       {
-        level: result.summary.failedItems > 0 ? 'warning' : 'info',
+        level: result.status === 'error'
+          ? 'error'
+          : result.status === 'partial' || result.status === 'skipped' || result.summary.failedItems > 0
+            ? 'warning'
+            : 'info',
         category: 'sync',
         entityKind: 'shopping_item',
         entityRef: 'mealie-to-grocy',
-        message: 'Mealie to Grocy sync completed.',
+        message: result.status === 'error'
+          ? 'Sync failed.'
+          : result.status === 'skipped'
+            ? 'Sync skipped.'
+            : result.status === 'partial'
+              ? 'Sync partially completed.'
+              : 'Sync completed.',
         details: {
           reason: result.reason ?? null,
           summary: result.summary,
@@ -192,11 +267,19 @@ export function buildInPossessionHistoryOutcome(result: MealieInPossessionSyncRe
     },
     events: [
       {
-        level: result.summary.failedProducts > 0 ? 'warning' : 'info',
+        level: result.status === 'error'
+          ? 'error'
+          : result.status === 'skipped' || result.summary.failedProducts > 0
+            ? 'warning'
+            : 'info',
         category: 'sync',
         entityKind: 'product',
         entityRef: 'in-possession',
-        message: 'In possession reconcile completed.',
+        message: result.status === 'error'
+          ? 'In possession reconcile failed.'
+          : result.status === 'skipped'
+            ? 'In possession reconcile skipped.'
+            : 'In possession reconcile completed.',
         details: {
           reason: result.reason ?? null,
           summary: result.summary,
@@ -216,8 +299,8 @@ function buildConflictDetailEvent(
     entityKind: 'conflict',
     entityRef: conflict.id,
     message: kind === 'opened'
-      ? `Opened conflict: ${conflict.summary}`
-      : `Resolved conflict: ${conflict.summary}`,
+      ? `Opened ${formatMappingKindLabel(conflict.mappingKind)} conflict: ${conflict.summary}`
+      : `Resolved ${formatMappingKindLabel(conflict.mappingKind)} conflict: ${conflict.summary}`,
     details: {
       type: conflict.type,
       severity: conflict.severity,
@@ -232,9 +315,13 @@ function buildConflictDetailEvent(
 }
 
 export function buildConflictCheckHistoryOutcome(result: MappingConflictCheckResult): HistoryOutcome {
+  const detectedBreakdown = formatConflictKindBreakdown(result.conflicts);
+  const openedBreakdown = formatConflictKindBreakdown(result.openedConflicts);
+  const resolvedBreakdown = formatConflictKindBreakdown(result.resolvedConflicts);
+
   return {
     status: 'success',
-    message: `Detected ${result.summary.detected} conflict(s); opened ${result.summary.opened}; resolved ${result.summary.resolved}; ${result.summary.open} still open.`,
+    message: `Detected ${result.summary.detected} conflict(s) (${detectedBreakdown}); opened ${result.summary.opened} (${openedBreakdown}); resolved ${result.summary.resolved} (${resolvedBreakdown}); ${result.summary.open} still open.`,
     summary: result.summary,
     events: [
       {
@@ -242,8 +329,15 @@ export function buildConflictCheckHistoryOutcome(result: MappingConflictCheckRes
         category: 'conflict',
         entityKind: 'conflict',
         entityRef: 'conflict-check',
-        message: 'Conflict check completed.',
-        details: result.summary,
+        message: `Completed. Open conflicts: ${detectedBreakdown}.`,
+        details: {
+          ...result.summary,
+          byMappingKind: {
+            open: countConflictsByMappingKind(result.conflicts),
+            opened: countConflictsByMappingKind(result.openedConflicts),
+            resolved: countConflictsByMappingKind(result.resolvedConflicts),
+          },
+        },
       },
       ...result.openedConflicts.map(conflict => buildConflictDetailEvent(conflict, 'opened')),
       ...result.resolvedConflicts.map(conflict => buildConflictDetailEvent(conflict, 'resolved')),
@@ -290,4 +384,46 @@ export function prefixHistoryEvents(prefix: string, events: HistoryEventInput[])
     ...event,
     message: `${prefix}: ${event.message}`,
   }));
+}
+
+export function getVisibleHistoryEvents<T extends Pick<HistoryEventRecord, 'message'>>(events: T[]): T[] {
+  const detailedPrefixes = new Set(
+    events
+      .map(event => {
+        const separatorIndex = event.message.indexOf(':');
+        if (separatorIndex <= 0) {
+          return null;
+        }
+
+        return event.message.slice(0, separatorIndex);
+      })
+      .filter((value): value is string => Boolean(value)),
+  );
+
+  return events.filter(event => {
+    const stepMarkerMatch = STEP_MARKER_MESSAGE_PATTERN.exec(event.message);
+    if (!stepMarkerMatch) {
+      return true;
+    }
+
+    return !detailedPrefixes.has(stepMarkerMatch[1]);
+  });
+}
+
+export function normalizeHistoryEventMessage(message: string): string {
+  const separator = ': ';
+  const separatorIndex = message.indexOf(separator);
+  if (separatorIndex <= 0) {
+    return message;
+  }
+
+  const prefix = message.slice(0, separatorIndex);
+  const suffix = message.slice(separatorIndex + separator.length);
+
+  if (!suffix.startsWith(`${prefix} `)) {
+    return message;
+  }
+
+  const normalizedSuffix = suffix.slice(prefix.length + 1);
+  return `${prefix}: ${normalizedSuffix.charAt(0).toUpperCase()}${normalizedSuffix.slice(1)}`;
 }
