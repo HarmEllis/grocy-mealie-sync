@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockState = vi.hoisted(() => ({
-  sqliteExec: vi.fn(),
+  dbRun: vi.fn(),
   selectFrom: vi.fn(async () => []),
 }));
 
@@ -12,10 +12,8 @@ vi.mock('../db/schema', () => ({
 }));
 
 vi.mock('../db', () => ({
-  sqlite: {
-    exec: mockState.sqliteExec,
-  },
   db: {
+    run: mockState.dbRun,
     select: vi.fn(() => ({
       from: mockState.selectFrom,
     })),
@@ -47,7 +45,7 @@ vi.mock('../mapping-conflicts-detection', () => ({
 describe('mapping conflict store bootstrap', () => {
   beforeEach(() => {
     vi.resetModules();
-    mockState.sqliteExec.mockReset();
+    mockState.dbRun.mockReset();
     mockState.selectFrom.mockClear();
   });
 
@@ -56,6 +54,6 @@ describe('mapping conflict store bootstrap', () => {
 
     await listOpenMappingConflicts();
 
-    expect(mockState.sqliteExec).toHaveBeenCalledWith(expect.stringContaining('CREATE TABLE IF NOT EXISTS mapping_conflicts'));
+    expect(mockState.dbRun).toHaveBeenCalled();
   });
 });

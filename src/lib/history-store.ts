@@ -1,6 +1,8 @@
 import { randomUUID } from 'crypto';
+import { and, asc, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import { config } from './config';
-import { sqlite } from './db';
+import { db } from './db';
+import { historyEvents, historyRuns } from './db/schema';
 import {
   historyRunActions,
   historyRunTriggers,
@@ -92,7 +94,7 @@ function ensureHistoryStorage(): void {
     return;
   }
 
-  sqlite.exec(`
+  db.run(sql`
     CREATE TABLE IF NOT EXISTS history_runs (
       id text PRIMARY KEY NOT NULL,
       trigger text NOT NULL,
@@ -102,11 +104,13 @@ function ensureHistoryStorage(): void {
       summary_json text,
       started_at integer NOT NULL,
       finished_at integer NOT NULL
-    );
-
+    )
+  `);
+  db.run(sql`
     CREATE INDEX IF NOT EXISTS idx_history_runs_started_at
-      ON history_runs (started_at DESC);
-
+      ON history_runs (started_at DESC)
+  `);
+  db.run(sql`
     CREATE TABLE IF NOT EXISTS history_events (
       id text PRIMARY KEY NOT NULL,
       run_id text NOT NULL,
@@ -117,10 +121,11 @@ function ensureHistoryStorage(): void {
       message text NOT NULL,
       details_json text,
       created_at integer NOT NULL
-    );
-
+    )
+  `);
+  db.run(sql`
     CREATE INDEX IF NOT EXISTS idx_history_events_run_id
-      ON history_events (run_id, created_at);
+      ON history_events (run_id, created_at)
   `);
 
   historyStorageReady = true;
@@ -148,49 +153,50 @@ function serializeJsonValue(value: unknown): string | null {
 
 function mapRunRow(row: {
   id: string;
-  trigger: HistoryRunTrigger;
-  action: HistoryRunAction;
-  status: HistoryRunStatus;
+  trigger: string;
+  action: string;
+  status: string;
   message: string | null;
-  summary_json: string | null;
-  started_at: number;
-  finished_at: number;
+  summaryJson: string | null;
+  startedAt: Date;
+  finishedAt: Date;
   event_count?: number;
+  eventCount?: number;
 }): HistoryRunRecord {
   return {
     id: row.id,
-    trigger: row.trigger,
-    action: row.action,
-    status: row.status,
+    trigger: row.trigger as HistoryRunTrigger,
+    action: row.action as HistoryRunAction,
+    status: row.status as HistoryRunStatus,
     message: row.message,
-    summary: parseJsonValue(row.summary_json),
-    startedAt: new Date(row.started_at),
-    finishedAt: new Date(row.finished_at),
-    eventCount: Number(row.event_count ?? 0),
+    summary: parseJsonValue(row.summaryJson),
+    startedAt: row.startedAt,
+    finishedAt: row.finishedAt,
+    eventCount: Number(row.eventCount ?? row.event_count ?? 0),
   };
 }
 
 function mapEventRow(row: {
   id: string;
-  run_id: string;
-  level: HistoryEventLevel;
-  category: HistoryEventCategory;
-  entity_kind: HistoryEventEntityKind;
-  entity_ref: string | null;
+  runId: string;
+  level: string;
+  category: string;
+  entityKind: string | null;
+  entityRef: string | null;
   message: string;
-  details_json: string | null;
-  created_at: number;
+  detailsJson: string | null;
+  createdAt: Date;
 }): HistoryEventRecord {
   return {
     id: row.id,
-    runId: row.run_id,
-    level: row.level,
-    category: row.category,
-    entityKind: row.entity_kind,
-    entityRef: row.entity_ref,
+    runId: row.runId,
+    level: row.level as HistoryEventLevel,
+    category: row.category as HistoryEventCategory,
+    entityKind: row.entityKind as HistoryEventEntityKind,
+    entityRef: row.entityRef,
     message: row.message,
-    details: parseJsonValue(row.details_json),
-    createdAt: new Date(row.created_at),
+    details: parseJsonValue(row.detailsJson),
+    createdAt: row.createdAt,
   };
 }
 
@@ -223,12 +229,10 @@ export async function initializeHistoryStorage(): Promise<void> {
 export async function clearHistory(): Promise<void> {
   ensureHistoryStorage();
 
-  const clearHistoryTransaction = sqlite.transaction(() => {
-    sqlite.prepare('DELETE FROM history_events').run();
-    sqlite.prepare('DELETE FROM history_runs').run();
+  db.transaction((tx) => {
+    tx.delete(historyEvents).run();
+    tx.delete(historyRuns).run();
   });
-
-  clearHistoryTransaction();
 }
 
 export async function purgeExpiredHistory(now: Date = new Date()): Promise<number> {
@@ -239,25 +243,20 @@ export async function purgeExpiredHistory(now: Date = new Date()): Promise<numbe
     return 0;
   }
 
-  const staleRunIds = sqlite.prepare(
-    'SELECT id FROM history_runs WHERE finished_at < ?',
-  ).all(cutoff) as Array<{ id: string }>;
+  const staleRunIds = db.select({ id: historyRuns.id })
+    .from(historyRuns)
+    .where(lt(historyRuns.finishedAt, new Date(cutoff)))
+    .all();
 
   if (staleRunIds.length === 0) {
     return 0;
   }
 
-  const purgeTransaction = sqlite.transaction((runIds: string[]) => {
-    const deleteEventsStatement = sqlite.prepare('DELETE FROM history_events WHERE run_id = ?');
-    const deleteRunsStatement = sqlite.prepare('DELETE FROM history_runs WHERE id = ?');
-
-    for (const runId of runIds) {
-      deleteEventsStatement.run(runId);
-      deleteRunsStatement.run(runId);
-    }
+  const runIds = staleRunIds.map(({ id }) => id);
+  db.transaction((tx) => {
+    tx.delete(historyEvents).where(inArray(historyEvents.runId, runIds)).run();
+    tx.delete(historyRuns).where(inArray(historyRuns.id, runIds)).run();
   });
-
-  purgeTransaction(staleRunIds.map(({ id }) => id));
   return staleRunIds.length;
 }
 
@@ -273,59 +272,32 @@ export async function recordHistoryRun(input: RecordHistoryRunInput): Promise<st
   const now = input.now ?? input.finishedAt;
   const events = input.events ?? [];
 
-  const insertRunTransaction = sqlite.transaction(() => {
-    sqlite.prepare(`
-      INSERT INTO history_runs (
-        id,
-        trigger,
-        action,
-        status,
-        message,
-        summary_json,
-        started_at,
-        finished_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      runId,
-      input.trigger,
-      input.action,
-      input.status,
-      input.message ?? null,
+  db.transaction((tx) => {
+    tx.insert(historyRuns).values({
+      id: runId,
+      trigger: input.trigger,
+      action: input.action,
+      status: input.status,
+      message: input.message ?? null,
       summaryJson,
-      input.startedAt.getTime(),
-      input.finishedAt.getTime(),
-    );
+      startedAt: input.startedAt,
+      finishedAt: input.finishedAt,
+    }).run();
 
-    const insertEventStatement = sqlite.prepare(`
-      INSERT INTO history_events (
-        id,
-        run_id,
-        level,
-        category,
-        entity_kind,
-        entity_ref,
-        message,
-        details_json,
-        created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    for (const event of events) {
-      insertEventStatement.run(
-        randomUUID(),
+    if (events.length > 0) {
+      tx.insert(historyEvents).values(events.map((event) => ({
+        id: randomUUID(),
         runId,
-        event.level,
-        event.category,
-        event.entityKind ?? null,
-        event.entityRef ?? null,
-        event.message,
-        serializeJsonValue(event.details),
-        input.finishedAt.getTime(),
-      );
+        level: event.level,
+        category: event.category,
+        entityKind: event.entityKind ?? null,
+        entityRef: event.entityRef ?? null,
+        message: event.message,
+        detailsJson: serializeJsonValue(event.details),
+        createdAt: input.finishedAt,
+      }))).run();
     }
   });
-
-  insertRunTransaction();
   await purgeExpiredHistory(now);
 
   return runId;
@@ -338,66 +310,56 @@ export async function listHistoryRuns(limit = 100, filters: HistoryRunListFilter
     return [];
   }
 
-  const whereClauses: string[] = [];
-  const params: unknown[] = [];
+  const whereClauses: Array<ReturnType<typeof sql> | undefined> = [];
   const search = filters.search?.trim().toLowerCase() ?? '';
 
   if (search) {
     const searchPattern = `%${search}%`;
-    whereClauses.push(`
+    whereClauses.push(sql`
       (
-        lower(runs.id) LIKE ?
-        OR lower(runs.action) LIKE ?
-        OR lower(runs.trigger) LIKE ?
-        OR lower(COALESCE(runs.message, '')) LIKE ?
+        lower(${historyRuns.id}) LIKE ${searchPattern}
+        OR lower(${historyRuns.action}) LIKE ${searchPattern}
+        OR lower(${historyRuns.trigger}) LIKE ${searchPattern}
+        OR lower(COALESCE(${historyRuns.message}, '')) LIKE ${searchPattern}
         OR EXISTS (
           SELECT 1
           FROM history_events events
-          WHERE events.run_id = runs.id
-            AND lower(events.message) LIKE ?
+          WHERE events.run_id = history_runs.id
+            AND lower(events.message) LIKE ${searchPattern}
         )
       )
     `);
-    params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
   }
 
   if (filters.action) {
-    whereClauses.push('runs.action = ?');
-    params.push(filters.action);
+    whereClauses.push(eq(historyRuns.action, filters.action));
   }
 
   if (filters.trigger) {
-    whereClauses.push('runs.trigger = ?');
-    params.push(filters.trigger);
+    whereClauses.push(eq(historyRuns.trigger, filters.trigger));
   }
 
-  const whereSql = whereClauses.length > 0
-    ? `WHERE ${whereClauses.join(' AND ')}`
-    : '';
-
-  const rows = sqlite.prepare(`
-    SELECT
-      runs.*,
-      (
-        SELECT COUNT(*)
-        FROM history_events events
-        WHERE events.run_id = runs.id
-      ) AS event_count
-    FROM history_runs runs
-    ${whereSql}
-    ORDER BY runs.started_at DESC, runs.id DESC
-    LIMIT ?
-  `).all(...params, limit) as Array<{
-    id: string;
-    trigger: HistoryRunTrigger;
-    action: HistoryRunAction;
-    status: HistoryRunStatus;
-    message: string | null;
-    summary_json: string | null;
-    started_at: number;
-    finished_at: number;
-    event_count: number;
-  }>;
+  const filteredWhereClauses = whereClauses.filter(Boolean);
+  const rows = db.select({
+    id: historyRuns.id,
+    trigger: historyRuns.trigger,
+    action: historyRuns.action,
+    status: historyRuns.status,
+    message: historyRuns.message,
+    summaryJson: historyRuns.summaryJson,
+    startedAt: historyRuns.startedAt,
+    finishedAt: historyRuns.finishedAt,
+    eventCount: sql<number>`(
+      SELECT COUNT(*)
+      FROM history_events events
+      WHERE events.run_id = history_runs.id
+    )`.mapWith(Number),
+  })
+    .from(historyRuns)
+    .where(filteredWhereClauses.length > 0 ? and(...filteredWhereClauses) : undefined)
+    .orderBy(desc(historyRuns.startedAt), desc(historyRuns.id))
+    .limit(limit)
+    .all();
 
   return rows.map(mapRunRow);
 }
@@ -409,59 +371,60 @@ export async function getHistoryRunDetails(runId: string): Promise<HistoryRunDet
     return null;
   }
 
-  const runRow = sqlite.prepare(`
-    SELECT
-      runs.*,
-      (
-        SELECT COUNT(*)
-        FROM history_events events
-        WHERE events.run_id = runs.id
-      ) AS event_count
-    FROM history_runs runs
-    WHERE runs.id = ?
-  `).get(runId) as {
-    id: string;
-    trigger: HistoryRunTrigger;
-    action: HistoryRunAction;
-    status: HistoryRunStatus;
-    message: string | null;
-    summary_json: string | null;
-    started_at: number;
-    finished_at: number;
-    event_count: number;
-  } | undefined;
+  const runRow = db.select({
+    id: historyRuns.id,
+    trigger: historyRuns.trigger,
+    action: historyRuns.action,
+    status: historyRuns.status,
+    message: historyRuns.message,
+    summaryJson: historyRuns.summaryJson,
+    startedAt: historyRuns.startedAt,
+    finishedAt: historyRuns.finishedAt,
+    eventCount: sql<number>`(
+      SELECT COUNT(*)
+      FROM history_events events
+      WHERE events.run_id = history_runs.id
+    )`.mapWith(Number),
+  })
+    .from(historyRuns)
+    .where(eq(historyRuns.id, runId))
+    .get();
 
   if (!runRow) {
     return null;
   }
 
-  const eventRows = sqlite.prepare(`
-    SELECT *
-    FROM history_events
-    WHERE run_id = ?
-    ORDER BY
-      created_at ASC,
-      CASE
-        WHEN message LIKE '% step success.'
-          OR message LIKE '% step partial.'
-          OR message LIKE '% step skipped.'
-          OR message LIKE '% step failed.'
-          OR message LIKE '% step failure.'
-        THEN 1
-        ELSE 0
-      END ASC,
-      _rowid_ ASC
-  `).all(runId) as Array<{
-    id: string;
-    run_id: string;
-    level: HistoryEventLevel;
-    category: HistoryEventCategory;
-    entity_kind: HistoryEventEntityKind;
-    entity_ref: string | null;
-    message: string;
-    details_json: string | null;
-    created_at: number;
-  }>;
+  const eventOrderingRank = sql<number>`
+    CASE
+      WHEN ${historyEvents.message} LIKE '% step success.'
+        OR ${historyEvents.message} LIKE '% step partial.'
+        OR ${historyEvents.message} LIKE '% step skipped.'
+        OR ${historyEvents.message} LIKE '% step failed.'
+        OR ${historyEvents.message} LIKE '% step failure.'
+      THEN 1
+      ELSE 0
+    END
+  `;
+
+  const eventRows = db.select({
+    id: historyEvents.id,
+    runId: historyEvents.runId,
+    level: historyEvents.level,
+    category: historyEvents.category,
+    entityKind: historyEvents.entityKind,
+    entityRef: historyEvents.entityRef,
+    message: historyEvents.message,
+    detailsJson: historyEvents.detailsJson,
+    createdAt: historyEvents.createdAt,
+  })
+    .from(historyEvents)
+    .where(eq(historyEvents.runId, runId))
+    .orderBy(
+      asc(historyEvents.createdAt),
+      asc(eventOrderingRank),
+      sql`rowid ASC`,
+    )
+    .all();
 
   return {
     run: mapRunRow(runRow),

@@ -1,6 +1,8 @@
 import { randomUUID } from 'crypto';
-import { sqlite } from '../db';
+import { and, eq, sql } from 'drizzle-orm';
+import { db } from '../db';
 import { config } from '../config';
+import { runtimeLocks } from '../db/schema';
 
 const SYNC_LOCK_NAME = 'sync-operation';
 const SCHEDULER_LOCK_NAME = 'scheduler-startup';
@@ -10,39 +12,12 @@ const instanceOwnerId = randomUUID();
 
 let syncing = false;
 
-sqlite.exec(`
+db.run(sql`
   CREATE TABLE IF NOT EXISTS runtime_locks (
     name text PRIMARY KEY NOT NULL,
     owner_id text NOT NULL,
     expires_at integer NOT NULL
   )
-`);
-
-const acquireLeaseStatement = sqlite.prepare(`
-  INSERT INTO runtime_locks (name, owner_id, expires_at)
-  VALUES (@name, @ownerId, @expiresAt)
-  ON CONFLICT(name) DO UPDATE SET
-    owner_id = excluded.owner_id,
-    expires_at = excluded.expires_at
-  WHERE runtime_locks.expires_at <= @now
-     OR runtime_locks.owner_id = @ownerId
-`);
-
-const acquirePersistentLockStatement = sqlite.prepare(`
-  INSERT INTO runtime_locks (name, owner_id, expires_at)
-  VALUES (@name, @ownerId, @expiresAt)
-  ON CONFLICT(name) DO NOTHING
-`);
-
-const releaseLeaseStatement = sqlite.prepare(`
-  DELETE FROM runtime_locks
-  WHERE name = @name
-    AND owner_id = @ownerId
-`);
-
-const clearLeaseStatement = sqlite.prepare(`
-  DELETE FROM runtime_locks
-  WHERE name = @name
 `);
 
 export function computeSyncLockTtlMs(pollIntervalSeconds: number): number {
@@ -52,30 +27,58 @@ export function computeSyncLockTtlMs(pollIntervalSeconds: number): number {
 export function acquireLease(name: string, ownerId: string, ttlMs: number): boolean {
   const now = Date.now();
   const expiresAt = now + ttlMs;
-  const result = acquireLeaseStatement.run({
-    name,
-    ownerId,
-    expiresAt,
-    now,
+
+  return db.transaction((tx) => {
+    const existingLock = tx.select().from(runtimeLocks).where(eq(runtimeLocks.name, name)).get();
+
+    if (existingLock && existingLock.expiresAt > now && existingLock.ownerId !== ownerId) {
+      return false;
+    }
+
+    tx.insert(runtimeLocks)
+      .values({
+        name,
+        ownerId,
+        expiresAt,
+      })
+      .onConflictDoUpdate({
+        target: runtimeLocks.name,
+        set: {
+          ownerId,
+          expiresAt,
+        },
+      })
+      .run();
+
+    return true;
   });
-  return result.changes > 0;
 }
 
 export function releaseLease(name: string, ownerId: string): void {
-  releaseLeaseStatement.run({ name, ownerId });
+  db.delete(runtimeLocks)
+    .where(and(
+      eq(runtimeLocks.name, name),
+      eq(runtimeLocks.ownerId, ownerId),
+    ))
+    .run();
 }
 
 export function clearLease(name: string): boolean {
-  const result = clearLeaseStatement.run({ name });
+  const result = db.delete(runtimeLocks)
+    .where(eq(runtimeLocks.name, name))
+    .run();
   return result.changes > 0;
 }
 
 export function acquireSchedulerLock(): boolean {
-  const result = acquirePersistentLockStatement.run({
-    name: SCHEDULER_LOCK_NAME,
-    ownerId: instanceOwnerId,
-    expiresAt: PERSISTENT_LOCK_EXPIRES_AT_MS,
-  });
+  const result = db.insert(runtimeLocks)
+    .values({
+      name: SCHEDULER_LOCK_NAME,
+      ownerId: instanceOwnerId,
+      expiresAt: PERSISTENT_LOCK_EXPIRES_AT_MS,
+    })
+    .onConflictDoNothing()
+    .run();
   return result.changes > 0;
 }
 

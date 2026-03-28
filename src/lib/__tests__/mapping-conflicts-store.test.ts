@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockState = vi.hoisted(() => ({
-  sqliteExec: vi.fn(),
+  dbRun: vi.fn(),
   mappingConflictsTable: {
     id: 'mapping_conflicts.id',
   },
@@ -23,6 +23,8 @@ const mockState = vi.hoisted(() => ({
 
 vi.mock('drizzle-orm', () => ({
   eq: (left: unknown, right: unknown) => ({ left, right }),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) =>
+    strings.reduce((result, chunk, index) => result + chunk + (values[index] ?? ''), ''),
 }));
 
 vi.mock('../db/schema', () => ({
@@ -32,10 +34,8 @@ vi.mock('../db/schema', () => ({
 }));
 
 vi.mock('../db', () => ({
-  sqlite: {
-    exec: mockState.sqliteExec,
-  },
   db: {
+    run: mockState.dbRun,
     select: vi.fn(() => ({
       from: vi.fn(async (table: unknown) => {
         if (table === mockState.mappingConflictsTable) {
@@ -107,7 +107,7 @@ import { listOpenMappingConflicts, runMappingConflictCheck } from '../mapping-co
 
 describe('mapping conflict store', () => {
   beforeEach(() => {
-    mockState.sqliteExec.mockReset();
+    mockState.dbRun.mockReset();
     mockState.mappingConflictsRows = [];
     mockState.productMappingRows = [];
     mockState.unitMappingRows = [];

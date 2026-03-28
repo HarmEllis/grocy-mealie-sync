@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 type HistoryConfig = {
@@ -10,6 +11,7 @@ async function loadHistoryStore(sqlite: Database.Database, config: HistoryConfig
   vi.resetModules();
 
   vi.doMock('../db', () => ({
+    db: drizzle(sqlite),
     sqlite,
   }));
 

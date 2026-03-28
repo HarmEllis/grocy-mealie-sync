@@ -1,12 +1,11 @@
 import { randomUUID } from 'crypto';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { db } from './db';
 import { mappingConflicts, productMappings, unitMappings } from './db/schema';
 import { RecipesFoodsService, RecipesUnitsService } from './mealie';
 import { extractFoods, extractUnits } from './mealie/types';
 import { getGrocyEntities } from './grocy/types';
 import { detectMappingConflicts, type DetectedMappingConflict } from './mapping-conflicts-detection';
-import { sqlite } from './db';
 
 let conflictStorageReady = false;
 
@@ -15,7 +14,7 @@ function ensureMappingConflictStorage(): void {
     return;
   }
 
-  sqlite.exec(`
+  db.run(sql`
     CREATE TABLE IF NOT EXISTS mapping_conflicts (
       id text PRIMARY KEY NOT NULL,
       conflict_key text NOT NULL,
@@ -34,10 +33,11 @@ function ensureMappingConflictStorage(): void {
       first_seen_at integer NOT NULL,
       last_seen_at integer NOT NULL,
       resolved_at integer
-    );
-
+    )
+  `);
+  db.run(sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_mapping_conflicts_conflict_key
-      ON mapping_conflicts (conflict_key);
+      ON mapping_conflicts (conflict_key)
   `);
 
   conflictStorageReady = true;
