@@ -2,6 +2,30 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2.0] - 2026-03-28
+
+This release substantially expands the mapping workflow, adds an audit trail for scheduler and manual actions, and improves operational controls without introducing a breaking change.
+
+### Added
+
+- A full sync history and audit log with richer event detail, broader manual action logging, and searchable action and trigger filters in the History UI.
+- Major mapping wizard additions, including mapped products and units management, a Grocy minimum-stock mapping tab, conflict detection and remap flows, bulk suggestion helpers, and shortcuts from low-stock views into the wizard.
+- Mealie in-possession syncing, scheduler failure notifications, manual lock recovery controls, configurable display timezone support, toggleable app authentication, and a global insecure TLS option.
+- Maintenance tooling for compose/OpenAPI refresh workflows plus refreshed docs screenshots and local development setup improvements.
+
+### Changed
+
+- The mapping wizard now lazy-loads tabs, gives the Conflicts view more space, and keeps controls and dropdown behavior consistent across history, settings, and mapping screens.
+- Minimum stock editing is now configured through a numeric step setting instead of a binary decimal toggle.
+- Runtime SQLite access now routes through Drizzle-only data access, with SQLite-backed leases and a single active scheduler instance coordinating sync work.
+- Grocy-to-Mealie ensure flows, partial outcome reporting, and history messaging are clearer and more actionable in the UI.
+
+### Fixed
+
+- Invalid nested button markup in settings and mapping wizard UI paths that could surface in the Next.js error overlay.
+- Conflict migration edge cases, unique Grocy mapping assignment enforcement, and several sync error propagation gaps through routes and UI state.
+- Smaller polish issues across history filters, mapping controls, and low-stock status handling.
+
 ## [1.1.0] - 2026-03-26
 
 This release adds a manual “ensure low-stock” sync path and makes the docs screenshot workflow reproducible by generating the screenshot from a locally built production app.
@@ -46,6 +70,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.2.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v0.0.1...v1.0.0
 [0.0.1]: https://github.com/HarmEllis/grocy-mealie-sync/tree/v0.0.1
