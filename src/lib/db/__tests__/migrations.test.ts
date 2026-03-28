@@ -98,6 +98,9 @@ describe('SQLite migrations', () => {
     const db = drizzle(new Database(dbPath));
     migrate(db, { migrationsFolder: path.resolve('drizzle') });
 
+    expect(getSqliteObjectSql(dbPath, 'runtime_locks')).toContain('CREATE TABLE `runtime_locks`');
+    expect(getSqliteObjectSql(dbPath, 'idx_product_mappings_grocy_product_id')).toContain('CREATE UNIQUE INDEX');
+    expect(getSqliteObjectSql(dbPath, 'idx_unit_mappings_grocy_unit_id')).toContain('CREATE UNIQUE INDEX');
     expect(getSqliteObjectSql(dbPath, 'mapping_conflicts')).toContain('CREATE TABLE `mapping_conflicts`');
     expect(getSqliteObjectSql(dbPath, 'idx_mapping_conflicts_conflict_key')).toContain('CREATE UNIQUE INDEX');
     expect(getSqliteObjectSql(dbPath, 'history_runs')).toContain('CREATE TABLE `history_runs`');
