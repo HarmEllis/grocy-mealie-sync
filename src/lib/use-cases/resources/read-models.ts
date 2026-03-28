@@ -86,6 +86,22 @@ export interface OpenMappingConflictsResource {
   conflicts: MappingConflictRecord[];
 }
 
+export interface LowStockProductResource {
+  productRef: string;
+  grocyProductId: number;
+  grocyProductName: string;
+  mealieFoodId: string | null;
+  mealieFoodName: string | null;
+  currentStock: number;
+  minStockAmount: number;
+  isBelowMinimum: boolean;
+}
+
+export interface LowStockProductsResource {
+  count: number;
+  products: LowStockProductResource[];
+}
+
 interface NormalizedMealieFood {
   id: string;
   name: string;
@@ -307,5 +323,46 @@ export async function listOpenMappingConflictsResource(
   return {
     count: conflicts.length,
     conflicts,
+  };
+}
+
+export async function listLowStockProductsResource(
+  deps: Pick<
+    ResourceReadModelDeps,
+    'listProductMappings' | 'listGrocyProducts' | 'getCurrentStock' | 'getVolatileStock'
+  > = defaultDeps,
+): Promise<LowStockProductsResource> {
+  const [mappings, grocyProducts, currentStock, volatileStock] = await Promise.all([
+    deps.listProductMappings(),
+    deps.listGrocyProducts(),
+    deps.getCurrentStock(),
+    deps.getVolatileStock(),
+  ]);
+
+  const grocyProductsById = new Map(grocyProducts.map(product => [Number(product.id), product]));
+  const currentStockByProductId = buildCurrentStockMap(currentStock);
+  const belowMinimumIds = buildBelowMinimumSet(volatileStock.missing_products);
+
+  const products = mappings
+    .filter(mapping => belowMinimumIds.has(mapping.grocyProductId))
+    .map(mapping => {
+      const grocyProduct = grocyProductsById.get(mapping.grocyProductId);
+
+      return {
+        productRef: `mapping:${mapping.id}`,
+        grocyProductId: mapping.grocyProductId,
+        grocyProductName: mapping.grocyProductName,
+        mealieFoodId: mapping.mealieFoodId,
+        mealieFoodName: mapping.mealieFoodName,
+        currentStock: currentStockByProductId.get(mapping.grocyProductId) ?? 0,
+        minStockAmount: Number(grocyProduct?.min_stock_amount ?? 0),
+        isBelowMinimum: true,
+      };
+    })
+    .sort((left, right) => left.grocyProductName.localeCompare(right.grocyProductName));
+
+  return {
+    count: products.length,
+    products,
   };
 }

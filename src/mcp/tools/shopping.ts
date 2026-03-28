@@ -112,4 +112,29 @@ export function registerShoppingTools(server: McpServer, services: ShoppingMcpSe
       };
     },
   );
+
+  server.registerTool(
+    'shopping.merge_duplicates',
+    {
+      title: 'Merge Shopping Duplicates',
+      description: 'Merge unchecked duplicate shopping list items for one Mealie food id',
+      inputSchema: {
+        foodId: z.string().trim().min(1),
+      },
+    },
+    async ({ foodId }) => {
+      const data = await services.mergeShoppingListDuplicates({ foodId });
+      const result = createOkResult(
+        data.merged
+          ? 'Merged duplicate shopping list items.'
+          : 'No duplicate shopping list items needed merging.',
+        data,
+      );
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
 }

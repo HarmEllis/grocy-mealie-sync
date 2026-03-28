@@ -4,6 +4,7 @@ import {
   addShoppingListItem,
   checkShoppingListProduct,
   getShoppingListItemsResource,
+  mergeShoppingListDuplicates,
   removeShoppingListItem,
   type ShoppingListDeps,
 } from '../list';
@@ -213,6 +214,85 @@ describe('shopping list use-cases', () => {
     expect(result).toEqual({
       removed: true,
       itemId: 'item-1',
+    });
+  });
+
+  it('merges duplicate unchecked shopping items for the same foodId', async () => {
+    const updatedItems: Array<{ itemId: string; quantity?: number }> = [];
+    const deletedItems: string[] = [];
+
+    const result = await mergeShoppingListDuplicates(
+      { foodId: 'food-1' },
+      createDeps({
+        fetchShoppingItems: async () => [
+          mockMealieShoppingItem({
+            id: 'item-1',
+            shoppingListId: 'list-1',
+            foodId: 'food-1',
+            quantity: 2,
+            checked: false,
+            display: 'Milk',
+            food: { id: 'food-1', name: 'Milk' } as never,
+            createdAt: '2026-03-29T09:00:00.000Z',
+            updatedAt: '2026-03-29T09:05:00.000Z',
+          }),
+          mockMealieShoppingItem({
+            id: 'item-3',
+            shoppingListId: 'list-1',
+            foodId: 'food-1',
+            quantity: 1,
+            checked: false,
+            display: 'Milk',
+            food: { id: 'food-1', name: 'Milk' } as never,
+            createdAt: '2026-03-29T09:10:00.000Z',
+            updatedAt: '2026-03-29T09:15:00.000Z',
+          }),
+        ],
+        updateShoppingItem: async (itemId, body) => {
+          updatedItems.push({ itemId, quantity: body.quantity });
+          return {
+            updatedItems: [
+              mockMealieShoppingItem({
+                id: itemId,
+                shoppingListId: body.shoppingListId,
+                foodId: body.foodId ?? null,
+                quantity: body.quantity ?? 1,
+                checked: false,
+                display: 'Milk',
+                food: body.foodId ? { id: body.foodId, name: 'Milk' } as never : null,
+                createdAt: '2026-03-29T09:00:00.000Z',
+                updatedAt: '2026-03-29T10:10:00.000Z',
+              }),
+            ],
+          };
+        },
+        deleteShoppingItem: async itemId => {
+          deletedItems.push(itemId);
+          return { removed: true, itemId };
+        },
+      }),
+    );
+
+    expect(updatedItems).toEqual([{ itemId: 'item-1', quantity: 3 }]);
+    expect(deletedItems).toEqual(['item-3']);
+    expect(result).toEqual({
+      merged: true,
+      keptItemId: 'item-1',
+      removedItemIds: ['item-3'],
+      item: {
+        id: 'item-1',
+        shoppingListId: 'list-1',
+        foodId: 'food-1',
+        foodName: 'Milk',
+        unitId: null,
+        unitName: null,
+        quantity: 3,
+        checked: false,
+        note: null,
+        display: 'Milk',
+        createdAt: '2026-03-29T09:00:00.000Z',
+        updatedAt: '2026-03-29T10:10:00.000Z',
+      },
     });
   });
 });

@@ -200,6 +200,36 @@ If polls are not updating, check the container/server logs for errors (likely AP
 
 Manual triggers are useful for testing. The scheduler runs these automatically.
 
+## MCP Server
+
+The app also exposes a Streamable HTTP MCP endpoint at:
+
+```text
+http://localhost:3000/api/mcp
+```
+
+Use the same app URL when running in Docker or on a remote server.
+
+When auth is enabled, connect with:
+
+```text
+Authorization: Bearer <AUTH_SECRET>
+```
+
+This MCP surface is intended for daily operational workflows across Grocy, Mealie, and this sync app, including:
+
+- product search and combined product overview
+- product creation in Grocy, Mealie, or both
+- product and unit mapping management, including mapping suggestions
+- stock updates and Grocy stock-related product defaults
+- Mealie shopping-list correction
+- conflict, history, and product-state diagnostics
+
+Examples:
+
+- Codex: `codex mcp add grocy-mealie-sync --url http://localhost:3000/api/mcp`
+- Claude Code: `claude mcp add --transport http grocy-mealie-sync http://localhost:3000/api/mcp`
+
 ## Authentication
 
 - Auth is optional and controlled by `AUTH_ENABLED` / `AUTH_SECRET`

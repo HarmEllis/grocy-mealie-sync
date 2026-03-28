@@ -74,6 +74,17 @@ export interface RemoveShoppingListItemResult {
   itemId: string;
 }
 
+export interface MergeShoppingListDuplicatesParams {
+  foodId: string;
+}
+
+export interface MergeShoppingListDuplicatesResult {
+  merged: boolean;
+  keptItemId: string | null;
+  removedItemIds: string[];
+  item: ShoppingListItemSummary | null;
+}
+
 export interface ShoppingListDeps {
   resolveShoppingListId(): Promise<string | null>;
   fetchShoppingItems(shoppingListId: string): Promise<MealieShoppingItem[]>;
@@ -309,5 +320,49 @@ export async function removeShoppingListItem(
   return {
     removed: true,
     itemId: params.itemId,
+  };
+}
+
+export async function mergeShoppingListDuplicates(
+  params: MergeShoppingListDuplicatesParams,
+  deps: Pick<
+    ShoppingListDeps,
+    'resolveShoppingListId' | 'fetchShoppingItems' | 'updateShoppingItem' | 'deleteShoppingItem'
+  > = defaultDeps,
+): Promise<MergeShoppingListDuplicatesResult> {
+  const shoppingListId = requireShoppingListId(await deps.resolveShoppingListId());
+  const duplicateItems = (await deps.fetchShoppingItems(shoppingListId))
+    .filter(item => item.foodId === params.foodId && !item.checked);
+
+  if (duplicateItems.length <= 1) {
+    return {
+      merged: false,
+      keptItemId: duplicateItems[0]?.id ?? null,
+      removedItemIds: [],
+      item: duplicateItems[0] ? toShoppingListItemSummary(duplicateItems[0]) : null,
+    };
+  }
+
+  const [keptItem, ...itemsToRemove] = duplicateItems;
+  const quantity = duplicateItems.reduce((total, item) => total + Number(item.quantity ?? 1), 0);
+  const updated = await deps.updateShoppingItem(keptItem.id, {
+    shoppingListId,
+    foodId: keptItem.foodId ?? undefined,
+    unitId: keptItem.unitId ?? undefined,
+    note: keptItem.note ?? undefined,
+    quantity,
+    checked: false,
+  });
+
+  await Promise.all(itemsToRemove.map(item => deps.deleteShoppingItem(item.id)));
+
+  return {
+    merged: true,
+    keptItemId: keptItem.id,
+    removedItemIds: itemsToRemove.map(item => item.id),
+    item: getUpdatedOrFallbackItem(updated, {
+      ...toShoppingListItemSummary(keptItem),
+      quantity,
+    }),
   };
 }

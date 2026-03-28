@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getStatusResource,
+  listLowStockProductsResource,
   listOpenMappingConflictsResource,
   listUnmappedProductsResource,
   listUnmappedUnitsResource,
@@ -141,6 +142,49 @@ describe('resource read models', () => {
         {
           id: 'food-2',
           name: 'Greek Yogurt',
+        },
+      ],
+    });
+  });
+
+  it('returns mapped Grocy products that are currently below minimum stock', async () => {
+    const result = await listLowStockProductsResource(createDeps({
+      listProductMappings: async () => [
+        {
+          id: 'map-1',
+          mealieFoodId: 'food-1',
+          mealieFoodName: 'Whole Milk',
+          grocyProductId: 101,
+          grocyProductName: 'Milk',
+          unitMappingId: 'unit-map-1',
+          createdAt: new Date('2026-03-28T10:00:00.000Z'),
+          updatedAt: new Date('2026-03-28T10:05:00.000Z'),
+        },
+        {
+          id: 'map-2',
+          mealieFoodId: 'food-2',
+          mealieFoodName: 'Greek Yogurt',
+          grocyProductId: 202,
+          grocyProductName: 'Yoghurt',
+          unitMappingId: null,
+          createdAt: new Date('2026-03-28T11:00:00.000Z'),
+          updatedAt: new Date('2026-03-28T11:05:00.000Z'),
+        },
+      ],
+    }));
+
+    expect(result).toEqual({
+      count: 1,
+      products: [
+        {
+          productRef: 'mapping:map-2',
+          grocyProductId: 202,
+          grocyProductName: 'Yoghurt',
+          mealieFoodId: 'food-2',
+          mealieFoodName: 'Greek Yogurt',
+          currentStock: 1,
+          minStockAmount: 1,
+          isBelowMinimum: true,
         },
       ],
     });

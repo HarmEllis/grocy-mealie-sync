@@ -1,5 +1,5 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import type { GrocyMealieSyncMcpServices } from './contracts';
+import type { GrocyMealieSyncMcpServiceOverrides } from './contracts';
 import { createGrocyMealieSyncMcpServer } from './server';
 
 function createMethodNotAllowedResponse(): Response {
@@ -12,7 +12,7 @@ function createMethodNotAllowedResponse(): Response {
 }
 
 export function createMcpHttpHandler(
-  overrides: Partial<GrocyMealieSyncMcpServices> = {},
+  overrides: GrocyMealieSyncMcpServiceOverrides = {},
 ): (request: Request) => Promise<Response> {
   return async function handleMcpHttpRequest(request: Request): Promise<Response> {
     if (request.method !== 'POST') {

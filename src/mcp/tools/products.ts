@@ -73,4 +73,160 @@ export function registerProductTools(server: McpServer, services: ProductMcpServ
       };
     },
   );
+
+  server.registerTool(
+    'products.update_grocy_stock_settings',
+    {
+      title: 'Update Grocy Stock Settings',
+      description: 'Update Grocy minimum stock and shelf-life related product defaults',
+      inputSchema: {
+        productRef: z.string().trim().min(1),
+        minStockAmount: z.number().min(0).optional(),
+        treatOpenedAsOutOfStock: z.boolean().optional(),
+        defaultBestBeforeDays: z.number().int().min(0).nullable().optional(),
+        defaultBestBeforeDaysAfterOpen: z.number().int().min(0).nullable().optional(),
+        allowFreezing: z.boolean().optional(),
+      },
+    },
+    async (params) => {
+      const data = await services.updateGrocyStockSettings(params);
+      const result = createOkResult('Updated Grocy stock settings.', data);
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
+    'products.create_in_both',
+    {
+      title: 'Create Product In Both Systems',
+      description: 'Create a new product in Grocy and Mealie and store the mapping immediately',
+      inputSchema: {
+        name: z.string().trim().min(1),
+        grocyUnitId: z.number().int().positive(),
+        locationId: z.number().int().positive().nullable().optional(),
+        minStockAmount: z.number().min(0).optional(),
+        mealiePluralName: z.string().trim().min(1).nullable().optional(),
+        mealieAliases: z.array(z.string().trim().min(1)).optional(),
+      },
+    },
+    async ({ name, grocyUnitId, locationId, minStockAmount, mealiePluralName, mealieAliases }) => {
+      const data = await services.createProductInBoth({
+        name,
+        grocyUnitId,
+        locationId,
+        minStockAmount,
+        mealiePluralName,
+        mealieAliases,
+      });
+      const result = createOkResult(
+        data.created
+          ? 'Created the product in Grocy and Mealie and stored the mapping.'
+          : 'Skipped product creation because exact duplicates already exist.',
+        data,
+      );
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
+    'products.create_grocy',
+    {
+      title: 'Create Product In Grocy',
+      description: 'Create a new product in Grocy only',
+      inputSchema: {
+        name: z.string().trim().min(1),
+        grocyUnitId: z.number().int().positive(),
+        locationId: z.number().int().positive().nullable().optional(),
+        minStockAmount: z.number().min(0).optional(),
+      },
+    },
+    async ({ name, grocyUnitId, locationId, minStockAmount }) => {
+      const data = await services.createProductInGrocy({
+        name,
+        grocyUnitId,
+        locationId,
+        minStockAmount,
+      });
+      const result = createOkResult(
+        data.created
+          ? 'Created the product in Grocy.'
+          : 'Skipped Grocy product creation because an exact duplicate already exists.',
+        data,
+      );
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
+    'products.create_mealie',
+    {
+      title: 'Create Product In Mealie',
+      description: 'Create a new product in Mealie only',
+      inputSchema: {
+        name: z.string().trim().min(1),
+        pluralName: z.string().trim().min(1).nullable().optional(),
+        aliases: z.array(z.string().trim().min(1)).optional(),
+      },
+    },
+    async ({ name, pluralName, aliases }) => {
+      const data = await services.createProductInMealie({
+        name,
+        pluralName,
+        aliases,
+      });
+      const result = createOkResult(
+        data.created
+          ? 'Created the product in Mealie.'
+          : 'Skipped Mealie product creation because an exact duplicate already exists.',
+        data,
+      );
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
+    'products.update_basic',
+    {
+      title: 'Update Basic Product Metadata',
+      description: 'Update the daily-use product metadata in Grocy and/or Mealie',
+      inputSchema: {
+        productRef: z.string().trim().min(1),
+        grocyName: z.string().trim().min(1).optional(),
+        mealieName: z.string().trim().min(1).optional(),
+        mealiePluralName: z.string().trim().min(1).nullable().optional(),
+        mealieAliases: z.array(z.string().trim().min(1)).optional(),
+      },
+    },
+    async ({ productRef, grocyName, mealieName, mealiePluralName, mealieAliases }) => {
+      const data = await services.updateBasicProduct({
+        productRef,
+        grocyName,
+        mealieName,
+        mealiePluralName,
+        mealieAliases,
+      });
+      const result = createOkResult('Updated the basic product metadata.', data);
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
 }

@@ -121,16 +121,23 @@ export interface CreateQuantityUnitBody {
 /** Fields accepted when updating a Grocy product (partial). */
 export interface UpdateProductBody {
   name?: string;
+  description?: string;
   min_stock_amount?: number;
   qu_id_purchase?: number;
   qu_id_stock?: number;
   location_id?: number;
+  default_best_before_days?: number | null;
+  default_best_before_days_after_open?: number | null;
+  treat_opened_as_out_of_stock?: number;
+  should_not_be_frozen?: number;
 }
 
 /** Fields accepted when updating a Grocy quantity unit (partial). */
 export interface UpdateQuantityUnitBody {
   name?: string;
   name_plural?: string;
+  description?: string;
+  plural_forms?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -282,11 +289,72 @@ export async function getProductDetails(productId: number): Promise<ProductDetai
  */
 export async function addProductStock(
   productId: number,
-  amount: number,
+  amountOrInput: number | {
+    amount: number;
+    bestBeforeDate?: string | null;
+    note?: string | null;
+  },
 ): Promise<void> {
+  const input = typeof amountOrInput === 'number'
+    ? { amount: amountOrInput }
+    : amountOrInput;
+
   await StockService.postStockProductsAdd(productId, {
-    amount,
+    amount: input.amount,
+    best_before_date: input.bestBeforeDate ?? undefined,
+    note: input.note ?? undefined,
     transaction_type: StockTransactionType.PURCHASE,
+  });
+}
+
+/**
+ * Remove stock for a given product.
+ */
+export async function consumeProductStock(
+  productId: number,
+  input: {
+    amount: number;
+    spoiled?: boolean;
+    exactAmount?: boolean;
+  },
+): Promise<void> {
+  await StockService.postStockProductsConsume(productId, {
+    amount: input.amount,
+    spoiled: input.spoiled ?? false,
+    exact_amount: input.exactAmount ?? false,
+    transaction_type: StockTransactionType.CONSUME,
+  });
+}
+
+/**
+ * Correct stock for a given product to the provided exact amount.
+ */
+export async function inventoryProductStock(
+  productId: number,
+  input: {
+    newAmount: number;
+    bestBeforeDate?: string | null;
+    note?: string | null;
+  },
+): Promise<void> {
+  await StockService.postStockProductsInventory(productId, {
+    new_amount: input.newAmount,
+    best_before_date: input.bestBeforeDate ?? undefined,
+    note: input.note ?? undefined,
+  });
+}
+
+/**
+ * Mark stock as opened for a given product.
+ */
+export async function openProductStock(
+  productId: number,
+  input: {
+    amount: number;
+  },
+): Promise<void> {
+  await StockService.postStockProductsOpen(productId, {
+    amount: input.amount,
   });
 }
 

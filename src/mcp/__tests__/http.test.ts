@@ -2,11 +2,26 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type {
+  AddStockResult,
+  ConsumeStockResult,
+  InventoryStockSnapshot,
+  MarkStockOpenedResult,
+  SetStockResult,
+} from '@/lib/use-cases/inventory/manage';
+import type {
   ProductDuplicateCheckResult,
   ProductOverview,
   ProductSearchResult,
 } from '@/lib/use-cases/products/catalog';
 import type {
+  CreateProductInGrocyResult,
+  CreateProductInMealieResult,
+  CreateProductInBothResult,
+  UpdateBasicProductResult,
+  UpdateGrocyStockSettingsResult,
+} from '@/lib/use-cases/products/manage';
+import type {
+  LowStockProductsResource,
   McpStatusResource,
   OpenMappingConflictsResource,
   ProductMappingsResource,
@@ -17,6 +32,7 @@ import type {
 import type {
   AddShoppingListItemResult,
   CheckShoppingListProductResult,
+  MergeShoppingListDuplicatesResult,
   RemoveShoppingListItemResult,
   ShoppingListItemsResource,
 } from '@/lib/use-cases/shopping/list';
@@ -277,6 +293,151 @@ describe('MCP streamable HTTP handler', () => {
     itemId: 'item-1',
   }));
 
+  const mergeShoppingListDuplicates = vi.fn(async (): Promise<MergeShoppingListDuplicatesResult> => ({
+    merged: true,
+    keptItemId: 'item-1',
+    removedItemIds: ['item-4'],
+    item: {
+      id: 'item-1',
+      shoppingListId: 'list-1',
+      foodId: 'food-1',
+      foodName: 'Milk',
+      unitId: null,
+      unitName: null,
+      quantity: 3,
+      checked: false,
+      note: null,
+      display: 'Milk',
+      createdAt: '2026-03-29T09:00:00.000Z',
+      updatedAt: '2026-03-29T10:15:00.000Z',
+    },
+  }));
+
+  const listLowStockProductsResource = vi.fn(async (): Promise<LowStockProductsResource> => ({
+    count: 1,
+    products: [
+      {
+        productRef: 'mapping:map-1',
+        grocyProductId: 101,
+        grocyProductName: 'Milk',
+        mealieFoodId: 'food-1',
+        mealieFoodName: 'Whole Milk',
+        currentStock: 1,
+        minStockAmount: 2,
+        isBelowMinimum: true,
+      },
+    ],
+  }));
+
+  const getInventoryStock = vi.fn(async (): Promise<InventoryStockSnapshot> => ({
+    productRef: 'mapping:map-1',
+    grocyProductId: 101,
+    name: 'Milk',
+    currentStock: 1,
+    openedStock: 0,
+    unopenedStock: 1,
+    minStockAmount: 2,
+    isBelowMinimum: true,
+    treatOpenedAsOutOfStock: true,
+    nextDueDate: '2026-03-31',
+    defaultBestBeforeDays: 7,
+    defaultBestBeforeDaysAfterOpen: 3,
+    shouldNotBeFrozen: false,
+  }));
+
+  const addStock = vi.fn(async (): Promise<AddStockResult> => ({
+    productRef: 'mapping:map-1',
+    grocyProductId: 101,
+    name: 'Milk',
+    amount: 2,
+    bestBeforeDate: '2026-04-05',
+    note: 'Weekly groceries',
+  }));
+
+  const consumeStock = vi.fn(async (): Promise<ConsumeStockResult> => ({
+    productRef: 'mapping:map-1',
+    grocyProductId: 101,
+    name: 'Milk',
+    amount: 1,
+    spoiled: false,
+    exactAmount: false,
+  }));
+
+  const setStock = vi.fn(async (): Promise<SetStockResult> => ({
+    productRef: 'mapping:map-1',
+    grocyProductId: 101,
+    name: 'Milk',
+    amount: 4,
+    bestBeforeDate: null,
+    note: 'Pantry count',
+  }));
+
+  const markStockOpened = vi.fn(async (): Promise<MarkStockOpenedResult> => ({
+    productRef: 'mapping:map-1',
+    grocyProductId: 101,
+    name: 'Milk',
+    amount: 1,
+  }));
+
+  const updateGrocyStockSettings = vi.fn(async (): Promise<UpdateGrocyStockSettingsResult> => ({
+    productRef: 'mapping:map-1',
+    grocyProductId: 101,
+    name: 'Milk',
+    updated: {
+      minStockAmount: 4,
+      treatOpenedAsOutOfStock: true,
+      defaultBestBeforeDays: 10,
+      defaultBestBeforeDaysAfterOpen: 2,
+      allowFreezing: false,
+    },
+  }));
+
+  const createProductInBoth = vi.fn(async (): Promise<CreateProductInBothResult> => ({
+    created: true,
+    grocyProductId: 303,
+    grocyProductName: 'Pasta',
+    mealieFoodId: 'food-303',
+    mealieFoodName: 'Pasta',
+    unitMappingId: 'unit-map-1',
+    duplicateCheck: {
+      skipped: false,
+      exactGrocyMatches: 0,
+      exactMealieMatches: 0,
+    },
+  }));
+
+  const createProductInGrocy = vi.fn(async (): Promise<CreateProductInGrocyResult> => ({
+    created: true,
+    grocyProductId: 404,
+    grocyProductName: 'Beans',
+    duplicateCheck: {
+      skipped: false,
+      exactGrocyMatches: 0,
+    },
+  }));
+
+  const createProductInMealie = vi.fn(async (): Promise<CreateProductInMealieResult> => ({
+    created: true,
+    mealieFoodId: 'food-404',
+    mealieFoodName: 'Oats',
+    duplicateCheck: {
+      skipped: false,
+      exactMealieMatches: 0,
+    },
+  }));
+
+  const updateBasicProduct = vi.fn(async (): Promise<UpdateBasicProductResult> => ({
+    productRef: 'mapping:map-1',
+    grocyProductId: 101,
+    mealieFoodId: 'food-1',
+    updated: {
+      grocyName: 'Semi-skimmed milk',
+      mealieName: 'Semi Skimmed Milk',
+      mealiePluralName: 'Semi Skimmed Milks',
+      mealieAliases: ['Milk'],
+    },
+  }));
+
   afterEach(() => {
     vi.clearAllMocks();
   });
@@ -287,6 +448,11 @@ describe('MCP streamable HTTP handler', () => {
         searchProducts,
         getProductOverview,
         checkProductDuplicates,
+        updateGrocyStockSettings,
+        createProductInGrocy,
+        createProductInMealie,
+        createProductInBoth,
+        updateBasicProduct,
       },
       resources: {
         getStatusResource,
@@ -296,12 +462,22 @@ describe('MCP streamable HTTP handler', () => {
         listUnmappedUnitsResource,
         listOpenMappingConflictsResource,
         getShoppingListItemsResource,
+        listLowStockProductsResource,
       },
       shopping: {
         getShoppingListItemsResource,
         checkShoppingListProduct,
         addShoppingListItem,
         removeShoppingListItem,
+        mergeShoppingListDuplicates,
+      },
+      inventory: {
+        getInventoryStock,
+        listLowStockProductsResource,
+        addStock,
+        consumeStock,
+        setStock,
+        markStockOpened,
       },
     });
 
@@ -336,6 +512,18 @@ describe('MCP streamable HTTP handler', () => {
         'shopping.check_product',
         'shopping.add_item',
         'shopping.remove_item',
+        'shopping.merge_duplicates',
+        'inventory.get_stock',
+        'inventory.list_low_stock',
+        'inventory.add_stock',
+        'inventory.consume_stock',
+        'inventory.set_stock',
+        'inventory.mark_opened',
+        'products.update_grocy_stock_settings',
+        'products.create_grocy',
+        'products.create_mealie',
+        'products.create_in_both',
+        'products.update_basic',
       ]));
       expect(resources.resources.map(resource => resource.uri)).toEqual(expect.arrayContaining([
         'gms://status',
@@ -345,6 +533,7 @@ describe('MCP streamable HTTP handler', () => {
         'gms://units/unmapped',
         'gms://conflicts/open',
         'gms://shopping/items',
+        'gms://inventory/low-stock',
       ]));
       expect(templates.resourceTemplates.map(template => template.uriTemplate)).toEqual(expect.arrayContaining([
         'gms://products/{productRef}',
@@ -368,6 +557,78 @@ describe('MCP streamable HTTP handler', () => {
       const shoppingRemoveResult = await client.callTool({
         name: 'shopping.remove_item',
         arguments: { itemId: 'item-1' },
+      });
+
+      const shoppingMergeResult = await client.callTool({
+        name: 'shopping.merge_duplicates',
+        arguments: { foodId: 'food-1' },
+      });
+
+      const inventoryStockResult = await client.callTool({
+        name: 'inventory.get_stock',
+        arguments: { productRef: 'mapping:map-1' },
+      });
+
+      const inventoryAddResult = await client.callTool({
+        name: 'inventory.add_stock',
+        arguments: {
+          productRef: 'mapping:map-1',
+          amount: 2,
+          bestBeforeDate: '2026-04-05',
+          note: 'Weekly groceries',
+        },
+      });
+
+      const productSettingsResult = await client.callTool({
+        name: 'products.update_grocy_stock_settings',
+        arguments: {
+          productRef: 'mapping:map-1',
+          minStockAmount: 4,
+          treatOpenedAsOutOfStock: true,
+          defaultBestBeforeDays: 10,
+          defaultBestBeforeDaysAfterOpen: 2,
+          allowFreezing: false,
+        },
+      });
+
+      const createInBothResult = await client.callTool({
+        name: 'products.create_in_both',
+        arguments: {
+          name: 'Pasta',
+          grocyUnitId: 10,
+          minStockAmount: 1,
+          mealiePluralName: 'Pastas',
+          mealieAliases: ['Spaghetti'],
+        },
+      });
+
+      const createGrocyResult = await client.callTool({
+        name: 'products.create_grocy',
+        arguments: {
+          name: 'Beans',
+          grocyUnitId: 10,
+          minStockAmount: 2,
+        },
+      });
+
+      const createMealieResult = await client.callTool({
+        name: 'products.create_mealie',
+        arguments: {
+          name: 'Oats',
+          pluralName: 'Oats',
+          aliases: ['Rolled oats'],
+        },
+      });
+
+      const updateBasicResult = await client.callTool({
+        name: 'products.update_basic',
+        arguments: {
+          productRef: 'mapping:map-1',
+          grocyName: 'Semi-skimmed milk',
+          mealieName: 'Semi Skimmed Milk',
+          mealiePluralName: 'Semi Skimmed Milks',
+          mealieAliases: ['Milk'],
+        },
       });
 
       expect(searchProducts).toHaveBeenCalledWith({ query: 'milk', maxResults: 10 });
@@ -463,6 +724,184 @@ describe('MCP streamable HTTP handler', () => {
         data: {
           removed: true,
           itemId: 'item-1',
+        },
+      });
+      expect(mergeShoppingListDuplicates).toHaveBeenCalledWith({ foodId: 'food-1' });
+      expect(shoppingMergeResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Merged duplicate shopping list items.',
+        data: {
+          merged: true,
+          keptItemId: 'item-1',
+          removedItemIds: ['item-4'],
+          item: {
+            id: 'item-1',
+            shoppingListId: 'list-1',
+            foodId: 'food-1',
+            foodName: 'Milk',
+            unitId: null,
+            unitName: null,
+            quantity: 3,
+            checked: false,
+            note: null,
+            display: 'Milk',
+            createdAt: '2026-03-29T09:00:00.000Z',
+            updatedAt: '2026-03-29T10:15:00.000Z',
+          },
+        },
+      });
+      expect(getInventoryStock).toHaveBeenCalledWith({ productRef: 'mapping:map-1' });
+      expect(inventoryStockResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Loaded current stock state.',
+        data: {
+          productRef: 'mapping:map-1',
+          grocyProductId: 101,
+          name: 'Milk',
+          currentStock: 1,
+          openedStock: 0,
+          unopenedStock: 1,
+          minStockAmount: 2,
+          isBelowMinimum: true,
+          treatOpenedAsOutOfStock: true,
+          nextDueDate: '2026-03-31',
+          defaultBestBeforeDays: 7,
+          defaultBestBeforeDaysAfterOpen: 3,
+          shouldNotBeFrozen: false,
+        },
+      });
+      expect(addStock).toHaveBeenCalledWith({
+        productRef: 'mapping:map-1',
+        amount: 2,
+        bestBeforeDate: '2026-04-05',
+        note: 'Weekly groceries',
+      });
+      expect(inventoryAddResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Added stock in Grocy.',
+        data: {
+          productRef: 'mapping:map-1',
+          grocyProductId: 101,
+          name: 'Milk',
+          amount: 2,
+          bestBeforeDate: '2026-04-05',
+          note: 'Weekly groceries',
+        },
+      });
+      expect(updateGrocyStockSettings).toHaveBeenCalledWith({
+        productRef: 'mapping:map-1',
+        minStockAmount: 4,
+        treatOpenedAsOutOfStock: true,
+        defaultBestBeforeDays: 10,
+        defaultBestBeforeDaysAfterOpen: 2,
+        allowFreezing: false,
+      });
+      expect(productSettingsResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Updated Grocy stock settings.',
+        data: {
+          productRef: 'mapping:map-1',
+          grocyProductId: 101,
+          name: 'Milk',
+          updated: {
+            minStockAmount: 4,
+            treatOpenedAsOutOfStock: true,
+            defaultBestBeforeDays: 10,
+            defaultBestBeforeDaysAfterOpen: 2,
+            allowFreezing: false,
+          },
+        },
+      });
+      expect(createProductInBoth).toHaveBeenCalledWith({
+        name: 'Pasta',
+        grocyUnitId: 10,
+        locationId: undefined,
+        minStockAmount: 1,
+        mealiePluralName: 'Pastas',
+        mealieAliases: ['Spaghetti'],
+      });
+      expect(createInBothResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Created the product in Grocy and Mealie and stored the mapping.',
+        data: {
+          created: true,
+          grocyProductId: 303,
+          grocyProductName: 'Pasta',
+          mealieFoodId: 'food-303',
+          mealieFoodName: 'Pasta',
+          unitMappingId: 'unit-map-1',
+          duplicateCheck: {
+            skipped: false,
+            exactGrocyMatches: 0,
+            exactMealieMatches: 0,
+          },
+        },
+      });
+      expect(createProductInGrocy).toHaveBeenCalledWith({
+        name: 'Beans',
+        grocyUnitId: 10,
+        locationId: undefined,
+        minStockAmount: 2,
+      });
+      expect(createGrocyResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Created the product in Grocy.',
+        data: {
+          created: true,
+          grocyProductId: 404,
+          grocyProductName: 'Beans',
+          duplicateCheck: {
+            skipped: false,
+            exactGrocyMatches: 0,
+          },
+        },
+      });
+      expect(createProductInMealie).toHaveBeenCalledWith({
+        name: 'Oats',
+        pluralName: 'Oats',
+        aliases: ['Rolled oats'],
+      });
+      expect(createMealieResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Created the product in Mealie.',
+        data: {
+          created: true,
+          mealieFoodId: 'food-404',
+          mealieFoodName: 'Oats',
+          duplicateCheck: {
+            skipped: false,
+            exactMealieMatches: 0,
+          },
+        },
+      });
+      expect(updateBasicProduct).toHaveBeenCalledWith({
+        productRef: 'mapping:map-1',
+        grocyName: 'Semi-skimmed milk',
+        mealieName: 'Semi Skimmed Milk',
+        mealiePluralName: 'Semi Skimmed Milks',
+        mealieAliases: ['Milk'],
+      });
+      expect(updateBasicResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Updated the basic product metadata.',
+        data: {
+          productRef: 'mapping:map-1',
+          grocyProductId: 101,
+          mealieFoodId: 'food-1',
+          updated: {
+            grocyName: 'Semi-skimmed milk',
+            mealieName: 'Semi Skimmed Milk',
+            mealiePluralName: 'Semi Skimmed Milks',
+            mealieAliases: ['Milk'],
+          },
         },
       });
 
@@ -678,6 +1117,26 @@ describe('MCP streamable HTTP handler', () => {
             display: 'Bread',
             createdAt: '2026-03-29T08:00:00.000Z',
             updatedAt: '2026-03-29T08:30:00.000Z',
+          },
+        ],
+      });
+
+      const lowStockResource = await client.readResource({ uri: 'gms://inventory/low-stock' });
+      const lowStockContent = lowStockResource.contents[0];
+      expect(lowStockContent).toBeDefined();
+      expect(listLowStockProductsResource).toHaveBeenCalledTimes(1);
+      expect(lowStockContent && 'text' in lowStockContent ? JSON.parse(lowStockContent.text) : null).toEqual({
+        count: 1,
+        products: [
+          {
+            productRef: 'mapping:map-1',
+            grocyProductId: 101,
+            grocyProductName: 'Milk',
+            mealieFoodId: 'food-1',
+            mealieFoodName: 'Whole Milk',
+            currentStock: 1,
+            minStockAmount: 2,
+            isBelowMinimum: true,
           },
         ],
       });

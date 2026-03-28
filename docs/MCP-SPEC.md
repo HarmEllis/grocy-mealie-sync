@@ -264,6 +264,8 @@ Resources should cover stable read-heavy operational context.
 | `mappings.list_products` | Return product mappings |
 | `mappings.list_units` | Return unit mappings |
 | `mappings.list_unmapped` | Return unmapped products and units |
+| `mappings.suggest_products` | Suggest likely product mappings for unmapped Mealie foods |
+| `mappings.suggest_units` | Suggest likely unit mappings for unmapped Mealie units |
 | `units.list_catalog` | Return Grocy and Mealie unit catalogs for comparison |
 | `units.compare` | Compare one candidate unit pair across both systems |
 | `conflicts.list` | Return open conflicts |
