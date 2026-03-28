@@ -1,4 +1,7 @@
+import packageMetadata from '../package.json';
+
 let shutdownHooksRegistered = false;
+let startupVersionLogged = false;
 
 function registerSchedulerShutdownHooks(stopScheduler: () => void) {
   if (shutdownHooksRegistered) {
@@ -38,6 +41,10 @@ export async function register() {
     // Log config warnings
     const { config } = await import('./lib/config');
     const { log } = await import('./lib/logger');
+    if (!startupVersionLogged) {
+      log.info(`[App] Starting ${packageMetadata.name} v${packageMetadata.version}`);
+      startupVersionLogged = true;
+    }
     const { getSettings } = await import('./lib/settings');
     const settings = await getSettings();
     if (!settings.defaultUnitMappingId && !config.grocyDefaultUnitId) {

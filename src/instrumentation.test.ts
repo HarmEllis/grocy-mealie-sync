@@ -9,6 +9,7 @@ const mockState = vi.hoisted(() => ({
   })),
   startScheduler: vi.fn(),
   stopScheduler: vi.fn(),
+  logInfo: vi.fn(),
   logWarn: vi.fn(),
 }));
 
@@ -36,6 +37,7 @@ vi.mock('./lib/config', () => ({
 
 vi.mock('./lib/logger', () => ({
   log: {
+    info: mockState.logInfo,
     warn: mockState.logWarn,
   },
 }));
@@ -58,6 +60,7 @@ describe('instrumentation register', () => {
     mockState.getSettings.mockClear();
     mockState.startScheduler.mockReset();
     mockState.stopScheduler.mockReset();
+    mockState.logInfo.mockReset();
     mockState.logWarn.mockReset();
     process.env.NEXT_RUNTIME = 'nodejs';
   });
@@ -97,5 +100,15 @@ describe('instrumentation register', () => {
     expect(onceSpy).toHaveBeenCalledTimes(3);
 
     onceSpy.mockRestore();
+  });
+
+  it('logs the app version only once when instrumentation runs multiple times', async () => {
+    const { register } = await import('./instrumentation');
+
+    await register();
+    await register();
+
+    expect(mockState.logInfo).toHaveBeenCalledTimes(1);
+    expect(mockState.logInfo).toHaveBeenCalledWith('[App] Starting grocy-mealie-sync v1.2.0');
   });
 });
