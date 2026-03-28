@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { normalizeUnits } from '@/lib/sync/normalize';
 import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
 import { log } from '@/lib/logger';
+import { buildManualHistoryEvent, createManualHistoryRecorder, formatManualActionError } from '@/lib/manual-action-history';
 
 export async function POST() {
   if (!acquireSyncLock()) {
@@ -11,12 +12,47 @@ export async function POST() {
     );
   }
 
+  const history = createManualHistoryRecorder(
+    'mapping_unit_normalize',
+    '[History] Failed to record unit normalization:',
+  );
+
   try {
     const result = await normalizeUnits();
     log.info(`[MappingWizard] Units normalized: Mealie ${result.normalizedMealie}, Grocy ${result.normalizedGrocy}`);
+    await history.record({
+      status: 'success',
+      message: `Normalized ${result.normalizedMealie} Mealie and ${result.normalizedGrocy} Grocy unit name(s).`,
+      summary: result,
+      events: [
+        buildManualHistoryEvent({
+          level: 'info',
+          category: 'mapping',
+          entityKind: 'unit',
+          entityRef: 'units',
+          message: 'Normalized mapped unit names.',
+          details: result,
+        }),
+      ],
+    });
     return NextResponse.json(result);
   } catch (error) {
     log.error('[MappingWizard] Unit normalization failed:', error);
+    await history.record({
+      status: 'failure',
+      message: `Unit normalization failed: ${formatManualActionError(error)}`,
+      summary: { error: formatManualActionError(error) },
+      events: [
+        buildManualHistoryEvent({
+          level: 'error',
+          category: 'mapping',
+          entityKind: 'unit',
+          entityRef: 'units',
+          message: 'Unit normalization failed.',
+          details: { error: formatManualActionError(error) },
+        }),
+      ],
+    });
     return NextResponse.json({ error: 'Unit normalization failed' }, { status: 500 });
   } finally {
     releaseSyncLock();

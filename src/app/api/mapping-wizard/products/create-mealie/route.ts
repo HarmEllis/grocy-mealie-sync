@@ -7,6 +7,7 @@ import { log } from '@/lib/logger';
 import { RecipesFoodsService } from '@/lib/mealie';
 import { productCreateMealieRequestSchema } from '@/lib/validation';
 import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
+import { buildManualHistoryEvent, createManualHistoryRecorder, formatManualActionError } from '@/lib/manual-action-history';
 
 export async function POST(request: Request) {
   if (!acquireSyncLock()) {
@@ -15,6 +16,11 @@ export async function POST(request: Request) {
       { status: 409 },
     );
   }
+
+  const history = createManualHistoryRecorder(
+    'mapping_product_create_mealie',
+    '[History] Failed to record Mealie product creation:',
+  );
 
   try {
     let body: unknown;
@@ -93,9 +99,43 @@ export async function POST(request: Request) {
     }
 
     log.info(`[MappingWizard] Mealie products created from Grocy: ${created}, skipped: ${skipped}`);
+    await history.record({
+      status: 'success',
+      message: `Created ${created} Mealie product mapping(s); skipped ${skipped}.`,
+      summary: {
+        requested: grocyProductIds.length,
+        created,
+        skipped,
+      },
+      events: [
+        buildManualHistoryEvent({
+          level: 'info',
+          category: 'mapping',
+          entityKind: 'product',
+          entityRef: 'products',
+          message: `Created ${created} Mealie product(s) from Grocy products.`,
+          details: { requested: grocyProductIds.length, created, skipped },
+        }),
+      ],
+    });
     return NextResponse.json({ created, skipped });
   } catch (error) {
     log.error('[MappingWizard] Creating Mealie products from Grocy failed:', error);
+    await history.record({
+      status: 'failure',
+      message: `Mealie product creation failed: ${formatManualActionError(error)}`,
+      summary: { error: formatManualActionError(error) },
+      events: [
+        buildManualHistoryEvent({
+          level: 'error',
+          category: 'mapping',
+          entityKind: 'product',
+          entityRef: 'products',
+          message: 'Mealie product creation failed.',
+          details: { error: formatManualActionError(error) },
+        }),
+      ],
+    });
     return NextResponse.json({ error: 'Creating Mealie products failed' }, { status: 500 });
   } finally {
     releaseSyncLock();

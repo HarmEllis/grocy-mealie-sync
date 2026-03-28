@@ -21,6 +21,7 @@ const mockState = vi.hoisted(() => ({
   updateGrocyEntity: vi.fn().mockResolvedValue(undefined),
   updateFood: vi.fn().mockResolvedValue(undefined),
   updateUnit: vi.fn().mockResolvedValue(undefined),
+  recordHistoryRun: vi.fn(),
   acquireSyncLock: vi.fn(() => true),
   releaseSyncLock: vi.fn(),
   logError: vi.fn(),
@@ -79,6 +80,10 @@ vi.mock('@/lib/mealie', () => ({
   },
 }));
 
+vi.mock('@/lib/history-store', () => ({
+  recordHistoryRun: mockState.recordHistoryRun,
+}));
+
 vi.mock('@/lib/logger', () => ({
   log: {
     error: mockState.logError,
@@ -111,6 +116,8 @@ describe('mapping wizard normalization routes', () => {
     mockState.updateGrocyEntity.mockClear();
     mockState.updateFood.mockClear();
     mockState.updateUnit.mockClear();
+    mockState.recordHistoryRun.mockReset();
+    mockState.recordHistoryRun.mockResolvedValue(null);
     mockState.acquireSyncLock.mockReset();
     mockState.acquireSyncLock.mockReturnValue(true);
     mockState.releaseSyncLock.mockClear();
@@ -159,6 +166,11 @@ describe('mapping wizard normalization routes', () => {
     });
     expect(mockState.updateGrocyEntity).toHaveBeenCalledTimes(1);
     expect(mockState.updateGrocyEntity).toHaveBeenCalledWith('products', 10, { name: 'Apple' });
+    expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      trigger: 'manual',
+      action: 'mapping_product_normalize',
+      status: 'success',
+    }));
     expect(mockState.releaseSyncLock).toHaveBeenCalledTimes(1);
   });
 
@@ -212,6 +224,11 @@ describe('mapping wizard normalization routes', () => {
       name: 'tablespoon',
       name_plural: 'tablespoons',
     });
+    expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      trigger: 'manual',
+      action: 'mapping_unit_normalize',
+      status: 'success',
+    }));
     expect(mockState.releaseSyncLock).toHaveBeenCalledTimes(1);
   });
 });

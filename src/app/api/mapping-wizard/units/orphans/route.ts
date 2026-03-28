@@ -9,6 +9,7 @@ import type { MealieUnit } from '@/lib/mealie/types';
 import { log } from '@/lib/logger';
 import { orphanDeleteRequestSchema } from '@/lib/validation';
 import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
+import { buildManualHistoryEvent, createManualHistoryRecorder, formatManualActionError } from '@/lib/manual-action-history';
 
 /** GET: List orphan units (Grocy units with no Mealie counterpart) */
 export async function GET() {
@@ -53,6 +54,11 @@ export async function POST(request: Request) {
       { status: 409 },
     );
   }
+
+  const history = createManualHistoryRecorder(
+    'mapping_unit_delete_orphans',
+    '[History] Failed to record orphan unit deletion:',
+  );
   try {
     let body: unknown;
     try {
@@ -144,9 +150,43 @@ export async function POST(request: Request) {
     }
 
     log.info(`[MappingWizard] Orphan units deleted: ${deleted}/${validIds.length}`);
+    await history.record({
+      status: 'success',
+      message: `Deleted ${deleted} orphan Grocy unit(s) out of ${validIds.length} requested orphan(s).`,
+      summary: {
+        requested: ids.length,
+        valid: validIds.length,
+        deleted,
+      },
+      events: [
+        buildManualHistoryEvent({
+          level: 'info',
+          category: 'mapping',
+          entityKind: 'unit',
+          entityRef: 'orphans',
+          message: `Deleted ${deleted} orphan Grocy unit(s).`,
+          details: { requested: ids.length, valid: validIds.length, deleted },
+        }),
+      ],
+    });
     return NextResponse.json({ deleted, total: validIds.length });
   } catch (error) {
     log.error('[MappingWizard] Orphan unit deletion failed:', error);
+    await history.record({
+      status: 'failure',
+      message: `Orphan unit deletion failed: ${formatManualActionError(error)}`,
+      summary: { error: formatManualActionError(error) },
+      events: [
+        buildManualHistoryEvent({
+          level: 'error',
+          category: 'mapping',
+          entityKind: 'unit',
+          entityRef: 'orphans',
+          message: 'Orphan unit deletion failed.',
+          details: { error: formatManualActionError(error) },
+        }),
+      ],
+    });
     return NextResponse.json({ error: 'Orphan unit deletion failed' }, { status: 500 });
   } finally {
     releaseSyncLock();

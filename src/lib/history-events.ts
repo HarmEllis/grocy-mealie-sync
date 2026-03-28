@@ -1,5 +1,6 @@
 import type { MappingConflictCheckResult, MappingConflictRecord } from './mapping-conflicts-store';
-import type { HistoryEventInput, HistoryEventRecord, HistoryRunAction, HistoryRunStatus } from './history-store';
+import type { HistoryRunAction, HistoryRunStatus } from './history-types';
+import type { HistoryEventInput, HistoryEventRecord } from './history-store';
 import type { SchedulerStepName } from './scheduler-notifications';
 import type { GrocyMissingStockPollResult } from './sync/grocy-to-mealie';
 import type { MealieInPossessionSyncResult } from './sync/mealie-in-possession';
@@ -91,6 +92,32 @@ export function formatHistoryActionLabel(action: HistoryRunAction): string {
       return 'Conflict check';
     case 'clear_sync_locks':
       return 'Clear sync locks';
+    case 'settings_update':
+      return 'Settings update';
+    case 'mapping_product_create':
+      return 'Create Grocy products';
+    case 'mapping_product_create_mealie':
+      return 'Create Mealie products';
+    case 'mapping_product_sync':
+      return 'Map products';
+    case 'mapping_product_unmap':
+      return 'Unmap product';
+    case 'mapping_product_normalize':
+      return 'Normalize products';
+    case 'mapping_product_delete_orphans':
+      return 'Delete orphan products';
+    case 'mapping_unit_create':
+      return 'Create Grocy units';
+    case 'mapping_unit_sync':
+      return 'Map units';
+    case 'mapping_unit_unmap':
+      return 'Unmap unit';
+    case 'mapping_unit_normalize':
+      return 'Normalize units';
+    case 'mapping_unit_delete_orphans':
+      return 'Delete orphan units';
+    case 'conflict_remap':
+      return 'Resolve conflict';
   }
 }
 

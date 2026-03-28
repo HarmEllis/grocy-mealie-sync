@@ -260,4 +260,97 @@ describe('history store', () => {
       sqlite.close();
     }
   });
+
+  it('filters runs by search term, action, and trigger', async () => {
+    const sqlite = new Database(':memory:');
+
+    try {
+      const historyStore = await loadHistoryStore(sqlite, {
+        historyEnabled: true,
+        historyRetentionDays: 7,
+      });
+
+      await historyStore.initializeHistoryStorage();
+
+      await historyStore.recordHistoryRun({
+        trigger: 'manual',
+        action: 'settings_update',
+        status: 'success',
+        message: 'Updated stock settings.',
+        startedAt: new Date('2026-03-28T09:00:00.000Z'),
+        finishedAt: new Date('2026-03-28T09:00:05.000Z'),
+        events: [
+          {
+            level: 'info',
+            category: 'system',
+            message: 'Disabled stock-only min stock mode.',
+          },
+        ],
+      });
+
+      await historyStore.recordHistoryRun({
+        trigger: 'manual',
+        action: 'conflict_remap',
+        status: 'success',
+        message: 'Resolved duplicate product conflict.',
+        startedAt: new Date('2026-03-28T10:00:00.000Z'),
+        finishedAt: new Date('2026-03-28T10:00:06.000Z'),
+        events: [
+          {
+            level: 'info',
+            category: 'conflict',
+            message: 'Updated conflict mapping selection.',
+          },
+        ],
+      });
+
+      await historyStore.recordHistoryRun({
+        trigger: 'scheduler',
+        action: 'scheduler_cycle',
+        status: 'success',
+        message: 'Scheduler cycle completed.',
+        startedAt: new Date('2026-03-28T11:00:00.000Z'),
+        finishedAt: new Date('2026-03-28T11:00:30.000Z'),
+        events: [
+          {
+            level: 'info',
+            category: 'sync',
+            message: 'Conflict check step success.',
+          },
+        ],
+      });
+
+      await expect(historyStore.listHistoryRuns(100, { search: 'duplicate' })).resolves.toEqual([
+        expect.objectContaining({
+          action: 'conflict_remap',
+        }),
+      ]);
+
+      await expect(historyStore.listHistoryRuns(100, { action: 'settings_update' })).resolves.toEqual([
+        expect.objectContaining({
+          action: 'settings_update',
+        }),
+      ]);
+
+      await expect(historyStore.listHistoryRuns(100, { trigger: 'scheduler' })).resolves.toEqual([
+        expect.objectContaining({
+          action: 'scheduler_cycle',
+          trigger: 'scheduler',
+        }),
+      ]);
+
+      await expect(historyStore.listHistoryRuns(100, {
+        search: 'updated',
+        action: 'settings_update',
+        trigger: 'manual',
+      })).resolves.toEqual([
+        expect.objectContaining({
+          action: 'settings_update',
+          trigger: 'manual',
+        }),
+      ]);
+    } finally {
+      sqlite.close();
+    }
+  });
 });

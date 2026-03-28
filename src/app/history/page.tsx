@@ -6,8 +6,13 @@ import { buttonVariants } from '@/components/ui/button-styles';
 import { config } from '@/lib/config';
 import { formatDateTime } from '@/lib/date-time';
 import { formatHistoryActionLabel, formatHistoryTriggerLabel } from '@/lib/history-events';
-import { getHistoryFeatureState, listHistoryRuns } from '@/lib/history-store';
+import {
+  getHistoryFeatureState,
+  listHistoryRuns,
+} from '@/lib/history-store';
 import { HistoryDisabledState, HistoryStatusBadge } from '@/components/history/HistoryShared';
+import { resolveHistoryFilters } from './history-filters';
+import { HistoryFiltersBar } from './HistoryFiltersBar';
 
 function formatDurationMs(durationMs: number): string {
   if (durationMs < 1000) {
@@ -27,14 +32,23 @@ function formatDurationMs(durationMs: number): string {
 
 export const dynamic = 'force-dynamic';
 
-export default async function HistoryPage() {
+export default async function HistoryPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined> | undefined>;
+}) {
   const historyState = getHistoryFeatureState();
 
   if (!historyState.enabled) {
     return <HistoryDisabledState />;
   }
 
-  const runs = await listHistoryRuns(100);
+  const { search, action, trigger, hasFilters } = resolveHistoryFilters(await searchParams);
+  const runs = await listHistoryRuns(100, {
+    search,
+    action,
+    trigger,
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -66,12 +80,20 @@ export default async function HistoryPage() {
             <CardDescription>
               {runs.length === 0
                 ? 'No history entries have been recorded yet.'
-                : `Showing ${runs.length} most recent run${runs.length === 1 ? '' : 's'}.`}
+                : hasFilters
+                  ? `Showing ${runs.length} filtered run${runs.length === 1 ? '' : 's'}.`
+                  : `Showing ${runs.length} most recent run${runs.length === 1 ? '' : 's'}.`}
             </CardDescription>
           </CardHeader>
           <CardContent>
+            <HistoryFiltersBar search={search} action={action} trigger={trigger} />
+
             {runs.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No sync or recovery actions have been recorded yet.</p>
+              <p className="text-sm text-muted-foreground">
+                {hasFilters
+                  ? 'No history runs match the current filters.'
+                  : 'No sync or recovery actions have been recorded yet.'}
+              </p>
             ) : (
               <Table>
                 <TableHeader>

@@ -12,6 +12,7 @@ import {
   formatProductMappingConflictMessage,
   formatUnitMappingConflictMessage,
 } from '@/lib/mapping-conflicts';
+import { buildManualHistoryEvent, createManualHistoryRecorder, formatManualActionError } from '@/lib/manual-action-history';
 
 const remapOptionsQuerySchema = z.object({
   mappingKind: z.enum(['product', 'unit']),
@@ -203,6 +204,11 @@ export async function POST(request: Request) {
     );
   }
 
+  const history = createManualHistoryRecorder(
+    'conflict_remap',
+    '[History] Failed to record conflict remap:',
+  );
+
   try {
     let body: unknown;
     try {
@@ -312,6 +318,32 @@ export async function POST(request: Request) {
 
       await resolveConflictsForMapping('product', payload.mappingId);
 
+      await history.record({
+        status: 'success',
+        message: `Resolved product conflict for mapping ${payload.mappingId}.`,
+        summary: {
+          mappingKind: 'product',
+          mappingId: payload.mappingId,
+          mealieFoodId: payload.mealieFoodId,
+          grocyProductId: payload.grocyProductId,
+          grocyUnitId: payload.grocyUnitId,
+        },
+        events: [
+          buildManualHistoryEvent({
+            level: 'info',
+            category: 'conflict',
+            entityKind: 'product',
+            entityRef: payload.mappingId,
+            message: `Resolved product conflict for mapping ${payload.mappingId}.`,
+            details: {
+              mealieFoodId: payload.mealieFoodId,
+              grocyProductId: payload.grocyProductId,
+              grocyUnitId: payload.grocyUnitId,
+            },
+          }),
+        ],
+      });
+
       return NextResponse.json({
         status: 'ok',
         mappingKind: 'product',
@@ -398,6 +430,30 @@ export async function POST(request: Request) {
 
     await resolveConflictsForMapping('unit', payload.mappingId);
 
+    await history.record({
+      status: 'success',
+      message: `Resolved unit conflict for mapping ${payload.mappingId}.`,
+      summary: {
+        mappingKind: 'unit',
+        mappingId: payload.mappingId,
+        mealieUnitId: payload.mealieUnitId,
+        grocyUnitId: payload.grocyUnitId,
+      },
+      events: [
+        buildManualHistoryEvent({
+          level: 'info',
+          category: 'conflict',
+          entityKind: 'unit',
+          entityRef: payload.mappingId,
+          message: `Resolved unit conflict for mapping ${payload.mappingId}.`,
+          details: {
+            mealieUnitId: payload.mealieUnitId,
+            grocyUnitId: payload.grocyUnitId,
+          },
+        }),
+      ],
+    });
+
     return NextResponse.json({
       status: 'ok',
       mappingKind: 'unit',
@@ -405,6 +461,19 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     log.error('[MappingWizard] Conflict remap failed:', error);
+    await history.record({
+      status: 'failure',
+      message: `Conflict remap failed: ${formatManualActionError(error)}`,
+      summary: { error: formatManualActionError(error) },
+      events: [
+        buildManualHistoryEvent({
+          level: 'error',
+          category: 'conflict',
+          message: 'Conflict remap failed.',
+          details: { error: formatManualActionError(error) },
+        }),
+      ],
+    });
     return NextResponse.json({ error: 'Failed to remap conflict' }, { status: 500 });
   } finally {
     releaseSyncLock();

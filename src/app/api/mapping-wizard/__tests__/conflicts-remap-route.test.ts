@@ -14,6 +14,7 @@ const mockState = vi.hoisted(() => ({
   grocyProducts: [] as Array<Record<string, any>>,
   grocyUnits: [] as Array<Record<string, any>>,
   updateCalls: [] as Array<Record<string, any>>,
+  recordHistoryRun: vi.fn(),
   acquireSyncLock: vi.fn(() => true),
   releaseSyncLock: vi.fn(),
   updateGrocyEntity: vi.fn().mockResolvedValue(undefined),
@@ -93,6 +94,10 @@ vi.mock('@/lib/mealie', () => ({
   },
 }));
 
+vi.mock('@/lib/history-store', () => ({
+  recordHistoryRun: mockState.recordHistoryRun,
+}));
+
 vi.mock('@/lib/logger', () => ({
   log: {
     error: mockState.logError,
@@ -120,6 +125,8 @@ describe('mapping wizard conflict remap route', () => {
     mockState.grocyUnits = [];
     mockState.updateCalls = [];
 
+    mockState.recordHistoryRun.mockReset();
+    mockState.recordHistoryRun.mockResolvedValue(null);
     mockState.acquireSyncLock.mockReset();
     mockState.acquireSyncLock.mockReturnValue(true);
     mockState.releaseSyncLock.mockClear();
@@ -255,6 +262,11 @@ describe('mapping wizard conflict remap route', () => {
     expect(mockState.updateGrocyEntity).toHaveBeenCalledWith('products', 10, {
       name: 'Cherry tomaten',
     });
+    expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      trigger: 'manual',
+      action: 'conflict_remap',
+      status: 'success',
+    }));
     expect(mockState.resolveConflictsForMapping).toHaveBeenCalledWith('product', 'product-map-1');
     expect(mockState.productMappingsRows[0]).toEqual(expect.objectContaining({
       mealieFoodId: 'food-1',

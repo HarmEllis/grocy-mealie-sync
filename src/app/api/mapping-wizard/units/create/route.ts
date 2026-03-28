@@ -9,6 +9,7 @@ import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { unitCreateRequestSchema } from '@/lib/validation';
 import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
+import { buildManualHistoryEvent, createManualHistoryRecorder, formatManualActionError } from '@/lib/manual-action-history';
 
 export async function POST(request: Request) {
   if (!acquireSyncLock()) {
@@ -17,6 +18,11 @@ export async function POST(request: Request) {
       { status: 409 },
     );
   }
+
+  const history = createManualHistoryRecorder(
+    'mapping_unit_create',
+    '[History] Failed to record unit creation:',
+  );
   try {
     let body: unknown;
     try {
@@ -86,9 +92,43 @@ export async function POST(request: Request) {
     }
 
     log.info(`[MappingWizard] Units created: ${created}, skipped: ${skipped}`);
+    await history.record({
+      status: 'success',
+      message: `Created ${created} Grocy unit mapping(s); skipped ${skipped}.`,
+      summary: {
+        requested: mealieUnitIds.length,
+        created,
+        skipped,
+      },
+      events: [
+        buildManualHistoryEvent({
+          level: 'info',
+          category: 'mapping',
+          entityKind: 'unit',
+          entityRef: 'units',
+          message: `Created ${created} Grocy unit(s) from Mealie units.`,
+          details: { requested: mealieUnitIds.length, created, skipped },
+        }),
+      ],
+    });
     return NextResponse.json({ created, skipped });
   } catch (error) {
     log.error('[MappingWizard] Unit creation failed:', error);
+    await history.record({
+      status: 'failure',
+      message: `Grocy unit creation failed: ${formatManualActionError(error)}`,
+      summary: { error: formatManualActionError(error) },
+      events: [
+        buildManualHistoryEvent({
+          level: 'error',
+          category: 'mapping',
+          entityKind: 'unit',
+          entityRef: 'units',
+          message: 'Grocy unit creation failed.',
+          details: { error: formatManualActionError(error) },
+        }),
+      ],
+    });
     return NextResponse.json({ error: 'Unit creation failed' }, { status: 500 });
   } finally {
     releaseSyncLock();

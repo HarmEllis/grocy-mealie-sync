@@ -19,6 +19,7 @@ import { db } from '@/lib/db';
 import { unitMappings } from '@/lib/db/schema';
 import { HouseholdsShoppingListsService } from '@/lib/mealie';
 import { log } from '@/lib/logger';
+import { buildManualHistoryEvent, createManualHistoryRecorder, formatManualActionError } from '@/lib/manual-action-history';
 import { settingsUpdateSchema } from '@/lib/validation';
 import { getSyncState, saveSyncState } from '@/lib/sync/state';
 
@@ -92,66 +93,123 @@ export async function PUT(request: Request) {
     );
   }
 
-  const settings = await getSettings();
   const data = parsed.data;
+  const updatedFields = Object.keys(data).filter((key) => data[key as keyof typeof data] !== undefined);
+  const history = createManualHistoryRecorder(
+    'settings_update',
+    '[History] Failed to record settings update:',
+  );
 
-  for (const key of Object.keys(data) as (keyof typeof data)[]) {
-    if (data[key] !== undefined && isSettingLockedByEnv(key)) {
-      const locks = getSettingsLocks();
-      return NextResponse.json(
-        {
-          error: getSettingLockedMessage(key),
-          field: key,
-          envVar: locks[key].envVar,
-        },
-        { status: 409 },
-      );
+  try {
+    const settings = await getSettings();
+
+    for (const key of Object.keys(data) as (keyof typeof data)[]) {
+      if (data[key] !== undefined && isSettingLockedByEnv(key)) {
+        const locks = getSettingsLocks();
+        return NextResponse.json(
+          {
+            error: getSettingLockedMessage(key),
+            field: key,
+            envVar: locks[key].envVar,
+          },
+          { status: 409 },
+        );
+      }
     }
+
+    if (data.defaultUnitMappingId !== undefined) {
+      settings.defaultUnitMappingId = data.defaultUnitMappingId ?? null;
+    }
+
+    if (data.mealieShoppingListId !== undefined) {
+      settings.mealieShoppingListId = data.mealieShoppingListId ?? null;
+    }
+
+    if (data.autoCreateProducts !== undefined) {
+      settings.autoCreateProducts = data.autoCreateProducts;
+    }
+
+    if (data.autoCreateUnits !== undefined) {
+      settings.autoCreateUnits = data.autoCreateUnits;
+    }
+
+    if (data.ensureLowStockOnMealieList !== undefined) {
+      settings.ensureLowStockOnMealieList = data.ensureLowStockOnMealieList;
+    }
+
+    if (data.syncMealieInPossession !== undefined) {
+      settings.syncMealieInPossession = data.syncMealieInPossession;
+    }
+
+    if (data.mealieInPossessionOnlyAboveMinStock !== undefined) {
+      settings.mealieInPossessionOnlyAboveMinStock = data.mealieInPossessionOnlyAboveMinStock;
+    }
+
+    if (data.mappingWizardMinStockStep !== undefined) {
+      settings.mappingWizardMinStockStep = data.mappingWizardMinStockStep;
+    }
+
+    if (data.stockOnlyMinStock !== undefined) {
+      settings.stockOnlyMinStock = data.stockOnlyMinStock;
+    }
+
+    await saveSettings(settings);
+
+    if (data.syncMealieInPossession === false) {
+      const syncState = await getSyncState();
+      syncState.mealieInPossessionByGrocyProduct = {};
+      await saveSyncState(syncState);
+    }
+
+    await history.record({
+      status: 'success',
+      message: `Updated ${updatedFields.length} setting(s).`,
+      summary: {
+        updatedFields,
+        resetMealieInPossessionState: data.syncMealieInPossession === false,
+      },
+      events: [
+        buildManualHistoryEvent({
+          level: 'info',
+          category: 'system',
+          entityKind: 'system',
+          entityRef: 'settings',
+          message: `Updated settings: ${updatedFields.join(', ') || 'none'}.`,
+          details: { updatedFields },
+        }),
+        ...(data.syncMealieInPossession === false
+          ? [buildManualHistoryEvent({
+            level: 'info',
+            category: 'system',
+            entityKind: 'system',
+            entityRef: 'sync-state',
+            message: 'Cleared Mealie in-possession sync state after disabling the feature.',
+          })]
+          : []),
+      ],
+    });
+
+    return NextResponse.json({ status: 'ok', ...settings });
+  } catch (error) {
+    log.error('[Settings] Failed to update settings:', error);
+    await history.record({
+      status: 'failure',
+      message: `Settings update failed: ${formatManualActionError(error)}`,
+      summary: {
+        updatedFields,
+        error: formatManualActionError(error),
+      },
+      events: [
+        buildManualHistoryEvent({
+          level: 'error',
+          category: 'system',
+          entityKind: 'system',
+          entityRef: 'settings',
+          message: 'Settings update failed.',
+          details: { error: formatManualActionError(error) },
+        }),
+      ],
+    });
+    return NextResponse.json({ error: 'Failed to update settings' }, { status: 500 });
   }
-
-  if (data.defaultUnitMappingId !== undefined) {
-    settings.defaultUnitMappingId = data.defaultUnitMappingId ?? null;
-  }
-
-  if (data.mealieShoppingListId !== undefined) {
-    settings.mealieShoppingListId = data.mealieShoppingListId ?? null;
-  }
-
-  if (data.autoCreateProducts !== undefined) {
-    settings.autoCreateProducts = data.autoCreateProducts;
-  }
-
-  if (data.autoCreateUnits !== undefined) {
-    settings.autoCreateUnits = data.autoCreateUnits;
-  }
-
-  if (data.ensureLowStockOnMealieList !== undefined) {
-    settings.ensureLowStockOnMealieList = data.ensureLowStockOnMealieList;
-  }
-
-  if (data.syncMealieInPossession !== undefined) {
-    settings.syncMealieInPossession = data.syncMealieInPossession;
-  }
-
-  if (data.mealieInPossessionOnlyAboveMinStock !== undefined) {
-    settings.mealieInPossessionOnlyAboveMinStock = data.mealieInPossessionOnlyAboveMinStock;
-  }
-
-  if (data.mappingWizardMinStockStep !== undefined) {
-    settings.mappingWizardMinStockStep = data.mappingWizardMinStockStep;
-  }
-
-  if (data.stockOnlyMinStock !== undefined) {
-    settings.stockOnlyMinStock = data.stockOnlyMinStock;
-  }
-
-  await saveSettings(settings);
-
-  if (data.syncMealieInPossession === false) {
-    const syncState = await getSyncState();
-    syncState.mealieInPossessionByGrocyProduct = {};
-    await saveSyncState(syncState);
-  }
-
-  return NextResponse.json({ status: 'ok', ...settings });
 }

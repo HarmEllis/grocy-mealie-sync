@@ -1,28 +1,33 @@
 import { randomUUID } from 'crypto';
 import { config } from './config';
 import { sqlite } from './db';
+import {
+  historyRunActions,
+  historyRunTriggers,
+  isHistoryRunAction,
+  isHistoryRunTrigger,
+  type HistoryEventCategory,
+  type HistoryEventEntityKind,
+  type HistoryEventLevel,
+  type HistoryRunAction,
+  type HistoryRunStatus,
+  type HistoryRunTrigger,
+} from './history-types';
 
-export type HistoryRunTrigger = 'scheduler' | 'manual';
-export type HistoryRunAction =
-  | 'scheduler_cycle'
-  | 'product_sync'
-  | 'grocy_to_mealie'
-  | 'ensure_low_stock'
-  | 'reconcile_in_possession'
-  | 'mealie_to_grocy'
-  | 'conflict_check'
-  | 'clear_sync_locks';
-export type HistoryRunStatus = 'success' | 'partial' | 'failure' | 'skipped';
-export type HistoryEventLevel = 'info' | 'warning' | 'error';
-export type HistoryEventCategory = 'sync' | 'conflict' | 'mapping' | 'notification' | 'lock' | 'system';
-export type HistoryEventEntityKind =
-  | 'product'
-  | 'unit'
-  | 'shopping_item'
-  | 'conflict'
-  | 'lock'
-  | 'system'
-  | null;
+export {
+  historyRunActions,
+  historyRunTriggers,
+  isHistoryRunAction,
+  isHistoryRunTrigger,
+};
+export type {
+  HistoryEventCategory,
+  HistoryEventEntityKind,
+  HistoryEventLevel,
+  HistoryRunAction,
+  HistoryRunStatus,
+  HistoryRunTrigger,
+};
 
 export interface HistoryEventInput {
   level: HistoryEventLevel;
@@ -72,6 +77,12 @@ export interface HistoryEventRecord {
 export interface HistoryRunDetails {
   run: HistoryRunRecord;
   events: HistoryEventRecord[];
+}
+
+export interface HistoryRunListFilters {
+  search?: string;
+  action?: HistoryRunAction | null;
+  trigger?: HistoryRunTrigger | null;
 }
 
 let historyStorageReady = false;
@@ -320,12 +331,49 @@ export async function recordHistoryRun(input: RecordHistoryRunInput): Promise<st
   return runId;
 }
 
-export async function listHistoryRuns(limit = 100): Promise<HistoryRunRecord[]> {
+export async function listHistoryRuns(limit = 100, filters: HistoryRunListFilters = {}): Promise<HistoryRunRecord[]> {
   ensureHistoryStorage();
 
   if (!config.historyEnabled) {
     return [];
   }
+
+  const whereClauses: string[] = [];
+  const params: unknown[] = [];
+  const search = filters.search?.trim().toLowerCase() ?? '';
+
+  if (search) {
+    const searchPattern = `%${search}%`;
+    whereClauses.push(`
+      (
+        lower(runs.id) LIKE ?
+        OR lower(runs.action) LIKE ?
+        OR lower(runs.trigger) LIKE ?
+        OR lower(COALESCE(runs.message, '')) LIKE ?
+        OR EXISTS (
+          SELECT 1
+          FROM history_events events
+          WHERE events.run_id = runs.id
+            AND lower(events.message) LIKE ?
+        )
+      )
+    `);
+    params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
+  }
+
+  if (filters.action) {
+    whereClauses.push('runs.action = ?');
+    params.push(filters.action);
+  }
+
+  if (filters.trigger) {
+    whereClauses.push('runs.trigger = ?');
+    params.push(filters.trigger);
+  }
+
+  const whereSql = whereClauses.length > 0
+    ? `WHERE ${whereClauses.join(' AND ')}`
+    : '';
 
   const rows = sqlite.prepare(`
     SELECT
@@ -336,9 +384,10 @@ export async function listHistoryRuns(limit = 100): Promise<HistoryRunRecord[]> 
         WHERE events.run_id = runs.id
       ) AS event_count
     FROM history_runs runs
+    ${whereSql}
     ORDER BY runs.started_at DESC, runs.id DESC
     LIMIT ?
-  `).all(limit) as Array<{
+  `).all(...params, limit) as Array<{
     id: string;
     trigger: HistoryRunTrigger;
     action: HistoryRunAction;

@@ -13,6 +13,7 @@ import {
   findProductMappingConflict,
   formatProductMappingConflictMessage,
 } from '@/lib/mapping-conflicts';
+import { buildManualHistoryEvent, createManualHistoryRecorder, formatManualActionError } from '@/lib/manual-action-history';
 
 export async function POST(request: Request) {
   if (!acquireSyncLock()) {
@@ -21,6 +22,11 @@ export async function POST(request: Request) {
       { status: 409 },
     );
   }
+
+  const history = createManualHistoryRecorder(
+    'mapping_product_sync',
+    '[History] Failed to record product mapping sync:',
+  );
   try {
     let body: unknown;
     try {
@@ -135,9 +141,43 @@ export async function POST(request: Request) {
     }
 
     log.info(`[MappingWizard] Products synced: ${synced}, renamed: ${renamed}`);
+    await history.record({
+      status: 'success',
+      message: `Mapped ${synced} product(s); renamed ${renamed}.`,
+      summary: {
+        requested: mappings.length,
+        synced,
+        renamed,
+      },
+      events: [
+        buildManualHistoryEvent({
+          level: 'info',
+          category: 'mapping',
+          entityKind: 'product',
+          entityRef: 'products',
+          message: `Mapped ${synced} product(s).`,
+          details: { requested: mappings.length, synced, renamed },
+        }),
+      ],
+    });
     return NextResponse.json({ synced, renamed });
   } catch (error) {
     log.error('[MappingWizard] Product sync failed:', error);
+    await history.record({
+      status: 'failure',
+      message: `Product mapping sync failed: ${formatManualActionError(error)}`,
+      summary: { error: formatManualActionError(error) },
+      events: [
+        buildManualHistoryEvent({
+          level: 'error',
+          category: 'mapping',
+          entityKind: 'product',
+          entityRef: 'products',
+          message: 'Product mapping sync failed.',
+          details: { error: formatManualActionError(error) },
+        }),
+      ],
+    });
     return NextResponse.json({ error: 'Product sync failed' }, { status: 500 });
   } finally {
     releaseSyncLock();

@@ -14,6 +14,7 @@ import {
   findUnitMappingConflict,
   formatUnitMappingConflictMessage,
 } from '@/lib/mapping-conflicts';
+import { buildManualHistoryEvent, createManualHistoryRecorder, formatManualActionError } from '@/lib/manual-action-history';
 
 export async function POST(request: Request) {
   if (!acquireSyncLock()) {
@@ -22,6 +23,11 @@ export async function POST(request: Request) {
       { status: 409 },
     );
   }
+
+  const history = createManualHistoryRecorder(
+    'mapping_unit_sync',
+    '[History] Failed to record unit mapping sync:',
+  );
   try {
     let body: unknown;
     try {
@@ -126,9 +132,43 @@ export async function POST(request: Request) {
     }
 
     log.info(`[MappingWizard] Units synced: ${synced}, renamed: ${renamed}`);
+    await history.record({
+      status: 'success',
+      message: `Mapped ${synced} unit(s); renamed ${renamed}.`,
+      summary: {
+        requested: mappings.length,
+        synced,
+        renamed,
+      },
+      events: [
+        buildManualHistoryEvent({
+          level: 'info',
+          category: 'mapping',
+          entityKind: 'unit',
+          entityRef: 'units',
+          message: `Mapped ${synced} unit(s).`,
+          details: { requested: mappings.length, synced, renamed },
+        }),
+      ],
+    });
     return NextResponse.json({ synced, renamed });
   } catch (error) {
     log.error('[MappingWizard] Unit sync failed:', error);
+    await history.record({
+      status: 'failure',
+      message: `Unit mapping sync failed: ${formatManualActionError(error)}`,
+      summary: { error: formatManualActionError(error) },
+      events: [
+        buildManualHistoryEvent({
+          level: 'error',
+          category: 'mapping',
+          entityKind: 'unit',
+          entityRef: 'units',
+          message: 'Unit mapping sync failed.',
+          details: { error: formatManualActionError(error) },
+        }),
+      ],
+    });
     return NextResponse.json({ error: 'Unit sync failed' }, { status: 500 });
   } finally {
     releaseSyncLock();

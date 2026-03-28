@@ -9,6 +9,7 @@ import type { MealieFood } from '@/lib/mealie/types';
 import { log } from '@/lib/logger';
 import { orphanDeleteRequestSchema } from '@/lib/validation';
 import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
+import { buildManualHistoryEvent, createManualHistoryRecorder, formatManualActionError } from '@/lib/manual-action-history';
 
 /** GET: List orphan products (Grocy products with no Mealie counterpart) */
 export async function GET() {
@@ -50,6 +51,11 @@ export async function POST(request: Request) {
       { status: 409 },
     );
   }
+
+  const history = createManualHistoryRecorder(
+    'mapping_product_delete_orphans',
+    '[History] Failed to record orphan product deletion:',
+  );
   try {
     let body: unknown;
     try {
@@ -138,9 +144,43 @@ export async function POST(request: Request) {
     }
 
     log.info(`[MappingWizard] Orphan products deleted: ${deleted}/${validIds.length}`);
+    await history.record({
+      status: 'success',
+      message: `Deleted ${deleted} orphan Grocy product(s) out of ${validIds.length} requested orphan(s).`,
+      summary: {
+        requested: ids.length,
+        valid: validIds.length,
+        deleted,
+      },
+      events: [
+        buildManualHistoryEvent({
+          level: 'info',
+          category: 'mapping',
+          entityKind: 'product',
+          entityRef: 'orphans',
+          message: `Deleted ${deleted} orphan Grocy product(s).`,
+          details: { requested: ids.length, valid: validIds.length, deleted },
+        }),
+      ],
+    });
     return NextResponse.json({ deleted, total: validIds.length });
   } catch (error) {
     log.error('[MappingWizard] Orphan product deletion failed:', error);
+    await history.record({
+      status: 'failure',
+      message: `Orphan product deletion failed: ${formatManualActionError(error)}`,
+      summary: { error: formatManualActionError(error) },
+      events: [
+        buildManualHistoryEvent({
+          level: 'error',
+          category: 'mapping',
+          entityKind: 'product',
+          entityRef: 'orphans',
+          message: 'Orphan product deletion failed.',
+          details: { error: formatManualActionError(error) },
+        }),
+      ],
+    });
     return NextResponse.json({ error: 'Orphan product deletion failed' }, { status: 500 });
   } finally {
     releaseSyncLock();

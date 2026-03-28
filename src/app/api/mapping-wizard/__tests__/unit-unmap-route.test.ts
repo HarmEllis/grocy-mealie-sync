@@ -6,6 +6,7 @@ const mockState = vi.hoisted(() => ({
   },
   existingMapping: null as Record<string, unknown> | null,
   deleteWhereCalls: [] as unknown[],
+  recordHistoryRun: vi.fn(),
   acquireSyncLock: vi.fn(() => true),
   releaseSyncLock: vi.fn(),
   resolveConflictsForMapping: vi.fn(),
@@ -39,6 +40,10 @@ vi.mock('@/lib/logger', () => ({
   },
 }));
 
+vi.mock('@/lib/history-store', () => ({
+  recordHistoryRun: mockState.recordHistoryRun,
+}));
+
 vi.mock('@/lib/mapping-conflicts-store', () => ({
   resolveConflictsForMapping: mockState.resolveConflictsForMapping,
 }));
@@ -54,6 +59,8 @@ describe('mapping wizard unit unmap route', () => {
   beforeEach(() => {
     mockState.existingMapping = null;
     mockState.deleteWhereCalls = [];
+    mockState.recordHistoryRun.mockReset();
+    mockState.recordHistoryRun.mockResolvedValue(null);
     mockState.acquireSyncLock.mockReset();
     mockState.acquireSyncLock.mockReturnValue(true);
     mockState.releaseSyncLock.mockClear();
@@ -93,6 +100,11 @@ describe('mapping wizard unit unmap route', () => {
       unmapped: true,
       id: 'unit-map-1',
     });
+    expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      trigger: 'manual',
+      action: 'mapping_unit_unmap',
+      status: 'success',
+    }));
     expect(mockState.deleteWhereCalls).toHaveLength(1);
     expect(mockState.resolveConflictsForMapping).toHaveBeenCalledWith('unit', 'unit-map-1');
     expect(mockState.releaseSyncLock).toHaveBeenCalledTimes(1);

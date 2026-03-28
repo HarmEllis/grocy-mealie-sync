@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { buttonVariants } from '@/components/ui/button-styles';
 import { cn } from '@/lib/utils';
 import { formatHistoryStatusLabel } from '@/lib/history-events';
-import type { HistoryRunStatus } from '@/lib/history-store';
+import type { HistoryRunStatus } from '@/lib/history-types';
 
 export function HistoryStatusBadge({ status }: { status: HistoryRunStatus }) {
   if (status === 'failure') {

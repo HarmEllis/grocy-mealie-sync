@@ -10,6 +10,7 @@ const mockState = vi.hoisted(() => ({
   insertValuesCalls: [] as Array<Record<string, unknown>>,
   conflictCalls: [] as Array<Record<string, unknown>>,
   updateGrocyEntity: vi.fn().mockResolvedValue(undefined),
+  recordHistoryRun: vi.fn(),
   acquireSyncLock: vi.fn(() => true),
   releaseSyncLock: vi.fn(),
   logError: vi.fn(),
@@ -55,6 +56,10 @@ vi.mock('@/lib/mealie', () => ({
   },
 }));
 
+vi.mock('@/lib/history-store', () => ({
+  recordHistoryRun: mockState.recordHistoryRun,
+}));
+
 vi.mock('@/lib/logger', () => ({
   log: {
     error: mockState.logError,
@@ -78,6 +83,8 @@ describe('mapping wizard unit sync route', () => {
     mockState.conflictCalls = [];
 
     mockState.updateGrocyEntity.mockClear();
+    mockState.recordHistoryRun.mockReset();
+    mockState.recordHistoryRun.mockResolvedValue(null);
     mockState.acquireSyncLock.mockReset();
     mockState.acquireSyncLock.mockReturnValue(true);
     mockState.releaseSyncLock.mockClear();
@@ -152,5 +159,30 @@ describe('mapping wizard unit sync route', () => {
       },
     });
     expect(mockState.insertValuesCalls).toHaveLength(0);
+  });
+
+  it('records manual history for a successful unit mapping sync', async () => {
+    mockState.mealieUnits = [
+      { id: 'unit-1', name: 'Liter', abbreviation: 'l', pluralName: 'Liters' },
+    ];
+    mockState.grocyUnits = [
+      { id: 10, name: 'Liter' },
+    ];
+
+    const response = await POST(new Request('http://localhost/api/mapping-wizard/units/sync', {
+      method: 'POST',
+      body: JSON.stringify({
+        mappings: [
+          { mealieUnitId: 'unit-1', grocyUnitId: 10 },
+        ],
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      trigger: 'manual',
+      action: 'mapping_unit_sync',
+      status: 'success',
+    }));
   });
 });

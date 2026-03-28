@@ -12,6 +12,7 @@ const mockState = vi.hoisted(() => ({
   insertValuesCalls: [] as Array<Record<string, unknown>>,
   conflictCalls: [] as Array<Record<string, unknown>>,
   updateGrocyEntity: vi.fn().mockResolvedValue(undefined),
+  recordHistoryRun: vi.fn(),
   acquireSyncLock: vi.fn(() => true),
   releaseSyncLock: vi.fn(),
   logError: vi.fn(),
@@ -67,6 +68,10 @@ vi.mock('@/lib/mealie', () => ({
   },
 }));
 
+vi.mock('@/lib/history-store', () => ({
+  recordHistoryRun: mockState.recordHistoryRun,
+}));
+
 vi.mock('@/lib/logger', () => ({
   log: {
     error: mockState.logError,
@@ -91,6 +96,8 @@ describe('mapping wizard product sync route', () => {
     mockState.conflictCalls = [];
 
     mockState.updateGrocyEntity.mockClear();
+    mockState.recordHistoryRun.mockReset();
+    mockState.recordHistoryRun.mockResolvedValue(null);
     mockState.acquireSyncLock.mockReset();
     mockState.acquireSyncLock.mockReturnValue(true);
     mockState.releaseSyncLock.mockClear();
@@ -148,6 +155,11 @@ describe('mapping wizard product sync route', () => {
         grocyProductName: 'Optimel Drinkyogurt',
         unitMappingId: 'unit-map-1',
       }),
+    }));
+    expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      trigger: 'manual',
+      action: 'mapping_product_sync',
+      status: 'success',
     }));
     expect(mockState.releaseSyncLock).toHaveBeenCalledTimes(1);
   });
