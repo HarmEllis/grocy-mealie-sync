@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import packageMetadata from '../package.json';
 
 const mockState = vi.hoisted(() => ({
   migrate: vi.fn(),
@@ -109,6 +110,8 @@ describe('instrumentation register', () => {
     await register();
 
     expect(mockState.logInfo).toHaveBeenCalledTimes(1);
-    expect(mockState.logInfo).toHaveBeenCalledWith('[App] Starting grocy-mealie-sync v1.2.0');
+    expect(mockState.logInfo).toHaveBeenCalledWith(
+      `[App] Starting ${packageMetadata.name} v${packageMetadata.version}`,
+    );
   });
 });

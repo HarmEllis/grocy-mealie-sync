@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2.1] - 2026-03-28
+
+This patch release fixes the `v1.1.0` to `v1.2.0` SQLite upgrade path, adds startup version logging, and refreshes the release workflow metadata.
+
+### Added
+
+- Startup logging now includes the app name and version during Node.js boot.
+- A root `AGENTS.md` file now documents the required release-prep workflow for changelog updates, screenshot generation, version bumps, and tagging.
+
+### Changed
+
+- Refreshed the bundled dashboard screenshot used in the project documentation.
+
+### Fixed
+
+- Upgrades from older databases now repair skipped SQLite objects by creating the missing `runtime_locks` table and unique indexes for `grocy_product_id` and `grocy_unit_id` when earlier out-of-order migration timestamps caused them to be skipped.
+- Added regression coverage for the broken migration path so future releases keep the repair in place.
+
 ## [1.2.0] - 2026-03-28
 
 This release substantially expands the mapping workflow, adds an audit trail for scheduler and manual actions, and improves operational controls without introducing a breaking change.
@@ -70,6 +88,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.2.1]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v0.0.1...v1.0.0
