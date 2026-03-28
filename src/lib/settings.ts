@@ -60,7 +60,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   syncMealieInPossession: false,
   mealieInPossessionOnlyAboveMinStock: false,
   mappingWizardMinStockStep: '1',
-  stockOnlyMinStock: false,
+  stockOnlyMinStock: true,
 };
 
 export async function getSettings(): Promise<AppSettings> {
@@ -100,7 +100,7 @@ export async function getSettings(): Promise<AppSettings> {
           : '1'),
       '1',
     ),
-    stockOnlyMinStock: (data.stockOnlyMinStock as boolean) ?? false,
+    stockOnlyMinStock: (data.stockOnlyMinStock as boolean) ?? DEFAULT_SETTINGS.stockOnlyMinStock,
   };
 }
 
