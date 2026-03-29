@@ -1267,7 +1267,7 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
           : conflictsData;
   const isRunning = !!actionRunning;
 
-  async function updateMappedProductMinStock(grocyProductId: number, minStockAmount: number) {
+  async function updateGrocyProductMinStock(grocyProductId: number, minStockAmount: number) {
     const res = await fetch('/api/mapping-wizard/products/mapped', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -1283,11 +1283,27 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
       minStockStep: prev.minStockStep,
       mappedProducts: prev.mappedProducts.map(product =>
         product.grocyProductId === grocyProductId
-          ? { ...product, minStockAmount }
+          ? {
+            ...product,
+            minStockAmount,
+            isBelowMinimum: product.currentStock < minStockAmount,
+          }
           : product,
       ),
     }) : prev);
-    markOtherLoadedTabsDirty('mapped-products');
+    setGrocyMinStockData(prev => prev ? ({
+      ...prev,
+      unmappedGrocyMinStockProducts: prev.unmappedGrocyMinStockProducts.map(product =>
+        product.id === grocyProductId
+          ? {
+            ...product,
+            minStockAmount,
+            isBelowMinimum: product.currentStock < minStockAmount,
+          }
+          : product,
+      ),
+    }) : prev);
+    markOtherLoadedTabsDirty(tab === 'grocy-min-stock' ? 'grocy-min-stock' : 'mapped-products');
     toast.success('Minimum stock updated');
   }
 
@@ -1412,6 +1428,7 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
             actionRunning={actionRunning}
             onAcceptAllSuggestions={() => openBulkSuggestionDialog('grocy-min-stock')}
             onAcceptSuggestion={acceptGrocyMinStockProductSuggestion}
+            onUpdateMinStock={updateGrocyProductMinStock}
           />
         );
       case 'mapped-products':
@@ -1422,7 +1439,7 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
             setProductSearch={setMappedProductSearch}
             showOnlyBelowMinimumStock={showOnlyMappedProductsBelowMinimum}
             setShowOnlyBelowMinimumStock={setShowOnlyMappedProductsBelowMinimum}
-            onUpdateMinStock={updateMappedProductMinStock}
+            onUpdateMinStock={updateGrocyProductMinStock}
             onUnmapProduct={(mappingId, productName) => openConfirm(
               `unmapProduct_${mappingId}`,
               `Unmap "${productName}"?`,

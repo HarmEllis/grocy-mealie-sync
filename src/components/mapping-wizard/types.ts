@@ -81,7 +81,9 @@ export type ProductsTabData = Pick<
 export type GrocyMinStockTabData = Pick<
   WizardData,
   'unmappedGrocyMinStockProducts' | 'grocyUnits' | 'unmappedMealieFoods' | 'lowStockGrocyProductSuggestions'
->;
+> & {
+  minStockStep: MinStockStep;
+};
 
 export interface MappedProductRow {
   id: string;

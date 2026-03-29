@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo } from 'react';
-import { CheckCircle2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, Loader2, Save } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -28,6 +28,7 @@ interface GrocyMinStockProductsTabProps {
   actionRunning: string | null;
   onAcceptAllSuggestions: () => void;
   onAcceptSuggestion: (grocyProductId: number) => void;
+  onUpdateMinStock: (grocyProductId: number, minStockAmount: number) => Promise<void>;
 }
 
 export function GrocyMinStockProductsTab({
@@ -45,8 +46,19 @@ export function GrocyMinStockProductsTab({
   actionRunning,
   onAcceptAllSuggestions,
   onAcceptSuggestion,
+  onUpdateMinStock,
 }: GrocyMinStockProductsTabProps) {
   const isRunning = !!actionRunning;
+  const [draftMinStock, setDraftMinStock] = useState<Record<number, string>>({});
+  const [savingGrocyProductId, setSavingGrocyProductId] = useState<number | null>(null);
+
+  useEffect(() => {
+    setDraftMinStock(
+      Object.fromEntries(
+        data.unmappedGrocyMinStockProducts.map(product => [product.id, String(product.minStockAmount)]),
+      ),
+    );
+  }, [data]);
 
   const belowMinimumCount = useMemo(() =>
     data.unmappedGrocyMinStockProducts.filter(product =>
@@ -100,6 +112,22 @@ export function GrocyMinStockProductsTab({
 
   const allVisibleProductsChecked = visibleUnmappedProductIds.length > 0 && visibleUnmappedProductIds.every(id => createProductChecked[id]);
 
+  async function saveMinStock(grocyProductId: number) {
+    const rawValue = draftMinStock[grocyProductId] ?? '0';
+    const nextValue = Number(rawValue);
+
+    if (!Number.isFinite(nextValue) || nextValue < 0) {
+      return;
+    }
+
+    setSavingGrocyProductId(grocyProductId);
+    try {
+      await onUpdateMinStock(grocyProductId, nextValue);
+    } finally {
+      setSavingGrocyProductId(current => (current === grocyProductId ? null : current));
+    }
+  }
+
   if (data.unmappedGrocyMinStockProducts.length === 0) {
     return (
       <Alert className="border-success/30 bg-success/10">
@@ -135,7 +163,7 @@ export function GrocyMinStockProductsTab({
       </div>
 
       <div className="min-h-0 min-w-0 flex-1 rounded-md border">
-        <Table className="min-w-[920px]" containerClassName="h-full min-w-0">
+        <Table className="min-w-[1040px]" containerClassName="h-full min-w-0">
           <TableHeader>
             <TableRow>
               <TableHead className="w-9 text-center">
@@ -151,7 +179,7 @@ export function GrocyMinStockProductsTab({
                 />
               </TableHead>
               <TableHead>Grocy Product</TableHead>
-              <TableHead className="w-[120px]">Min Stock</TableHead>
+              <TableHead className="w-[220px]">Min Stock</TableHead>
               <TableHead className="w-[35%]">Mealie Product</TableHead>
               <TableHead className="w-[20%]">Unit</TableHead>
               <TableHead className="w-[70px]">Match</TableHead>
@@ -170,6 +198,11 @@ export function GrocyMinStockProductsTab({
               const mapping = productMaps[productKey];
               const suggestion = data.lowStockGrocyProductSuggestions[productKey];
               const isAccepted = mapping?.mealieFoodId !== null;
+              const draftValue = draftMinStock[product.id] ?? String(product.minStockAmount);
+              const parsedDraft = Number(draftValue);
+              const isInvalid = !Number.isFinite(parsedDraft) || parsedDraft < 0;
+              const isDirty = !isInvalid && parsedDraft !== product.minStockAmount;
+              const isSaving = savingGrocyProductId === product.id;
               const rowOptions = mealieProductOptions.filter(option =>
                 option.value === mapping?.mealieFoodId || !selectedMealieFoodIds.has(option.value),
               );
@@ -185,7 +218,38 @@ export function GrocyMinStockProductsTab({
                     )}
                   </TableCell>
                   <TableCell className="font-medium">{product.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{product.minStockAmount}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <Input
+                        type="number"
+                        min="0"
+                        step={data.minStockStep}
+                        value={draftValue}
+                        onChange={event => {
+                          const value = event.target.value;
+                          setDraftMinStock(prev => ({ ...prev, [product.id]: value }));
+                        }}
+                        onKeyDown={event => {
+                          if (event.key === 'Enter' && isDirty && !isSaving) {
+                            event.preventDefault();
+                            void saveMinStock(product.id);
+                          }
+                        }}
+                        className="h-8 min-w-[11rem]"
+                      />
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => void saveMinStock(product.id)}
+                        disabled={isSaving || !isDirty}
+                        aria-label={`Save minimum stock for ${product.name}`}
+                        title={`Save minimum stock for ${product.name}`}
+                        className="w-full sm:w-auto sm:shrink-0"
+                      >
+                        {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                      </Button>
+                    </div>
+                  </TableCell>
                   <TableCell>
                     <SearchableSelect
                       options={rowOptions}

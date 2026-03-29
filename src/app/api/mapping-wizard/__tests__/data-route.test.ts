@@ -11,6 +11,7 @@ const mockState = vi.hoisted(() => ({
   grocyUnits: [] as Array<Record<string, unknown>>,
   currentStock: [] as Array<Record<string, unknown>>,
   volatileStock: { missing_products: [] as Array<Record<string, unknown>> },
+  resolveMappingWizardMinStockStep: vi.fn(async () => '1'),
   logError: vi.fn(),
 }));
 
@@ -56,6 +57,10 @@ vi.mock('@/lib/logger', () => ({
   },
 }));
 
+vi.mock('@/lib/settings', () => ({
+  resolveMappingWizardMinStockStep: mockState.resolveMappingWizardMinStockStep,
+}));
+
 import { GET } from '../data/route';
 
 function createRequest(url = 'http://localhost/api/mapping-wizard/data'): Request {
@@ -72,6 +77,8 @@ describe('mapping wizard data route', () => {
     mockState.grocyUnits = [];
     mockState.currentStock = [];
     mockState.volatileStock = { missing_products: [] };
+    mockState.resolveMappingWizardMinStockStep.mockReset();
+    mockState.resolveMappingWizardMinStockStep.mockResolvedValue('1');
     mockState.logError.mockClear();
   });
 
@@ -156,6 +163,7 @@ describe('mapping wizard data route', () => {
     expect(body.unmappedGrocyMinStockProducts).toEqual([
       { id: 66, name: 'Pandan rijst', quIdPurchase: 10, minStockAmount: 1, currentStock: 1, isBelowMinimum: true },
     ]);
+    expect(body.minStockStep).toBe('1');
   });
 
   it('supports tab-specific lazy loading for units', async () => {

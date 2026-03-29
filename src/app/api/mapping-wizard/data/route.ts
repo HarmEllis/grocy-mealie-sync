@@ -6,6 +6,7 @@ import { RecipesFoodsService, RecipesUnitsService } from '@/lib/mealie';
 import { extractFoods, extractUnits } from '@/lib/mealie/types';
 import { findSuggestedMatch, type MatchVariant } from '@/lib/fuzzy-match';
 import { log } from '@/lib/logger';
+import { resolveMappingWizardMinStockStep } from '@/lib/settings';
 import type {
   GrocyMinStockProduct,
   GrocyMinStockTabData,
@@ -409,13 +410,14 @@ async function loadProductsTabData(): Promise<ProductsTabData> {
 }
 
 async function loadGrocyMinStockTabData(): Promise<GrocyMinStockTabData> {
-  const [mealieFoods, grocyProducts, grocyUnits, existingProductMappings, stockByProductId, missingProductIds] = await Promise.all([
+  const [mealieFoods, grocyProducts, grocyUnits, existingProductMappings, stockByProductId, missingProductIds, minStockStep] = await Promise.all([
     fetchMealieFoods(),
     fetchGrocyProducts(),
     fetchGrocyUnits(),
     fetchExistingProductMappings(),
     fetchGrocyCurrentStockByProductId(),
     fetchGrocyMissingProductIds(),
+    resolveMappingWizardMinStockStep(),
   ]);
 
   const unmappedMealieFoods = buildUnmappedMealieFoods(mealieFoods, existingProductMappings);
@@ -427,6 +429,7 @@ async function loadGrocyMinStockTabData(): Promise<GrocyMinStockTabData> {
   );
 
   return {
+    minStockStep,
     unmappedMealieFoods: toPublicMealieFoods(unmappedMealieFoods),
     grocyUnits: toPublicGrocyUnits(grocyUnits),
     unmappedGrocyMinStockProducts,
