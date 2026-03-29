@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.3.0] - 2026-03-29
+
+This minor release adds an optional HTTP MCP server for operational workflows, expands mapping wizard inventory controls, and improves UI polish and release tooling resilience.
+
+### Added
+
+- An HTTP MCP endpoint with product, unit, inventory, shopping, history, conflict, and diagnostics tools plus supporting MCP resources, prompts, action history, and documentation.
+- Mapping wizard controls to edit mapped product current stock, update Grocy minimum stock from the reverse-mapping view, and refresh tab data without closing the wizard.
+- Playwright coverage for manual action history, history search, mapping wizard refresh flows, mapped-products mobile behavior, MCP HTTP routes, and dark-mode settings selectors.
+
+### Changed
+
+- The dashboard header now shows the running app version, and startup logging now reports whether the MCP endpoint is enabled.
+- History runs are sorted by newest completion, history search is debounced without dropping typed input, and settings selectors behave more reliably in dark mode.
+- The docs screenshot workflow now hardens upstream service checks and falls back more reliably from `host.docker.internal` to local loopback addresses when needed.
+
+### Fixed
+
+- MCP inventory follow-up flows now resolve product references correctly for subsequent operations.
+- Partial mapping wizard actions are now recorded as partial history runs instead of appearing fully successful.
+- Smaller UI regressions, including the mobile width of the minimum-stock editor.
+- Refreshed Drizzle migration metadata for the existing history tables so future schema generation stays aligned with the shipped SQLite schema.
+
 ## [1.2.1] - 2026-03-28
 
 This patch release fixes the `v1.1.0` to `v1.2.0` SQLite upgrade path, adds startup version logging, and refreshes the release workflow metadata.
@@ -88,6 +111,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.3.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.0.0...v1.1.0

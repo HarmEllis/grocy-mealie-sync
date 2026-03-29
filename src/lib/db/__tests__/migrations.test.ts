@@ -25,6 +25,12 @@ function getSqliteObjectSql(dbPath: string, name: string): string | null {
   }
 }
 
+function readDrizzleJournal(): { entries: Array<{ idx: number; tag: string; when: number }> } {
+  return JSON.parse(fs.readFileSync(path.resolve('drizzle/meta/_journal.json'), 'utf8')) as {
+    entries: Array<{ idx: number; tag: string; when: number }>;
+  };
+}
+
 describe('SQLite migrations', () => {
   const tempDirs: string[] = [];
 
@@ -105,5 +111,20 @@ describe('SQLite migrations', () => {
     expect(getSqliteObjectSql(dbPath, 'idx_mapping_conflicts_conflict_key')).toContain('CREATE UNIQUE INDEX');
     expect(getSqliteObjectSql(dbPath, 'history_runs')).toContain('CREATE TABLE `history_runs`');
     expect(getSqliteObjectSql(dbPath, 'history_events')).toContain('CREATE TABLE `history_events`');
+  });
+
+  it('keeps post-repair drizzle journal timestamps strictly increasing in migration order', () => {
+    const journal = readDrizzleJournal();
+    const tailStartIndex = journal.entries.findIndex(entry => entry.tag === '0006_steady_sentry');
+
+    expect(tailStartIndex).toBeGreaterThanOrEqual(0);
+
+    for (let index = tailStartIndex + 1; index < journal.entries.length; index += 1) {
+      const previous = journal.entries[index - 1];
+      const current = journal.entries[index];
+
+      expect(current.when).toBeGreaterThan(previous.when);
+      expect(current.idx).toBe(index);
+    }
   });
 });
