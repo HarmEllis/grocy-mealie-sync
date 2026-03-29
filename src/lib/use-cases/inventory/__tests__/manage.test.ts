@@ -30,6 +30,9 @@ const baseOverview: ProductOverview = {
     treatOpenedAsOutOfStock: true,
     defaultBestBeforeDays: 7,
     defaultBestBeforeDaysAfterOpen: 3,
+    defaultBestBeforeDaysAfterFreezing: 14,
+    defaultBestBeforeDaysAfterThawing: 2,
+    dueType: 'expiration',
     shouldNotBeFrozen: false,
   },
   mealieFood: {
@@ -69,6 +72,9 @@ describe('inventory use-cases', () => {
       nextDueDate: '2026-03-31',
       defaultBestBeforeDays: 7,
       defaultBestBeforeDaysAfterOpen: 3,
+      defaultBestBeforeDaysAfterFreezing: 14,
+      defaultBestBeforeDaysAfterThawing: 2,
+      dueType: 'expiration',
       shouldNotBeFrozen: false,
     });
   });

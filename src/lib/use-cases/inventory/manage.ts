@@ -26,6 +26,9 @@ export interface InventoryStockSnapshot {
   nextDueDate: string | null;
   defaultBestBeforeDays: number | null;
   defaultBestBeforeDaysAfterOpen: number | null;
+  defaultBestBeforeDaysAfterFreezing: number | null;
+  defaultBestBeforeDaysAfterThawing: number | null;
+  dueType: 'best_before' | 'expiration' | null;
   shouldNotBeFrozen: boolean;
 }
 
@@ -169,6 +172,9 @@ function toInventoryStockSnapshot(
     nextDueDate: details.next_due_date ?? null,
     defaultBestBeforeDays: grocyProduct.defaultBestBeforeDays,
     defaultBestBeforeDaysAfterOpen: grocyProduct.defaultBestBeforeDaysAfterOpen,
+    defaultBestBeforeDaysAfterFreezing: grocyProduct.defaultBestBeforeDaysAfterFreezing,
+    defaultBestBeforeDaysAfterThawing: grocyProduct.defaultBestBeforeDaysAfterThawing,
+    dueType: grocyProduct.dueType,
     shouldNotBeFrozen: grocyProduct.shouldNotBeFrozen,
   };
 }

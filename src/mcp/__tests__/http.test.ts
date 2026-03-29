@@ -77,6 +77,9 @@ describe('MCP streamable HTTP handler', () => {
       treatOpenedAsOutOfStock: true,
       defaultBestBeforeDays: 7,
       defaultBestBeforeDaysAfterOpen: 3,
+      defaultBestBeforeDaysAfterFreezing: 14,
+      defaultBestBeforeDaysAfterThawing: 2,
+      dueType: 'expiration',
       shouldNotBeFrozen: false,
     },
     mealieFood: {
@@ -342,6 +345,9 @@ describe('MCP streamable HTTP handler', () => {
     nextDueDate: '2026-03-31',
     defaultBestBeforeDays: 7,
     defaultBestBeforeDaysAfterOpen: 3,
+    defaultBestBeforeDaysAfterFreezing: 14,
+    defaultBestBeforeDaysAfterThawing: 2,
+    dueType: 'expiration',
     shouldNotBeFrozen: false,
   }));
 
@@ -388,6 +394,9 @@ describe('MCP streamable HTTP handler', () => {
       treatOpenedAsOutOfStock: true,
       defaultBestBeforeDays: 10,
       defaultBestBeforeDaysAfterOpen: 2,
+      frozenShelfLifeDays: 30,
+      thawedShelfLifeDays: 4,
+      bestBeforeType: 'expiration',
       allowFreezing: false,
     },
   }));
@@ -587,6 +596,9 @@ describe('MCP streamable HTTP handler', () => {
           treatOpenedAsOutOfStock: true,
           defaultBestBeforeDays: 10,
           defaultBestBeforeDaysAfterOpen: 2,
+          frozenShelfLifeDays: 30,
+          thawedShelfLifeDays: 4,
+          bestBeforeType: 'expiration',
           allowFreezing: false,
         },
       });
@@ -769,6 +781,9 @@ describe('MCP streamable HTTP handler', () => {
           nextDueDate: '2026-03-31',
           defaultBestBeforeDays: 7,
           defaultBestBeforeDaysAfterOpen: 3,
+          defaultBestBeforeDaysAfterFreezing: 14,
+          defaultBestBeforeDaysAfterThawing: 2,
+          dueType: 'expiration',
           shouldNotBeFrozen: false,
         },
       });
@@ -797,6 +812,9 @@ describe('MCP streamable HTTP handler', () => {
         treatOpenedAsOutOfStock: true,
         defaultBestBeforeDays: 10,
         defaultBestBeforeDaysAfterOpen: 2,
+        frozenShelfLifeDays: 30,
+        thawedShelfLifeDays: 4,
+        bestBeforeType: 'expiration',
         allowFreezing: false,
       });
       expect(productSettingsResult.structuredContent).toEqual({
@@ -812,6 +830,9 @@ describe('MCP streamable HTTP handler', () => {
             treatOpenedAsOutOfStock: true,
             defaultBestBeforeDays: 10,
             defaultBestBeforeDaysAfterOpen: 2,
+            frozenShelfLifeDays: 30,
+            thawedShelfLifeDays: 4,
+            bestBeforeType: 'expiration',
             allowFreezing: false,
           },
         },
@@ -933,6 +954,9 @@ describe('MCP streamable HTTP handler', () => {
           treatOpenedAsOutOfStock: true,
           defaultBestBeforeDays: 7,
           defaultBestBeforeDaysAfterOpen: 3,
+          defaultBestBeforeDaysAfterFreezing: 14,
+          defaultBestBeforeDaysAfterThawing: 2,
+          dueType: 'expiration',
           shouldNotBeFrozen: false,
         },
         mealieFood: {

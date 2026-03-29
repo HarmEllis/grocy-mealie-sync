@@ -80,6 +80,9 @@ export interface GrocyProductOverview {
   treatOpenedAsOutOfStock: boolean;
   defaultBestBeforeDays: number | null;
   defaultBestBeforeDaysAfterOpen: number | null;
+  defaultBestBeforeDaysAfterFreezing: number | null;
+  defaultBestBeforeDaysAfterThawing: number | null;
+  dueType: 'best_before' | 'expiration' | null;
   shouldNotBeFrozen: boolean;
 }
 
@@ -291,6 +294,12 @@ function toGrocyProductOverview(
 
   const productId = Number(grocyProduct.id);
 
+  const extendedProduct = grocyProduct as Product & {
+    default_best_before_days_after_freezing?: number | null;
+    default_best_before_days_after_thawing?: number | null;
+    due_type?: number | null;
+  };
+
   return {
     id: productId,
     name: grocyProduct.name || 'Unknown',
@@ -302,6 +311,13 @@ function toGrocyProductOverview(
     treatOpenedAsOutOfStock: Boolean(grocyProduct.treat_opened_as_out_of_stock),
     defaultBestBeforeDays: grocyProduct.default_best_before_days ?? null,
     defaultBestBeforeDaysAfterOpen: grocyProduct.default_best_before_days_after_open ?? null,
+    defaultBestBeforeDaysAfterFreezing: extendedProduct.default_best_before_days_after_freezing ?? null,
+    defaultBestBeforeDaysAfterThawing: extendedProduct.default_best_before_days_after_thawing ?? null,
+    dueType: extendedProduct.due_type === 2
+      ? 'expiration'
+      : extendedProduct.due_type === 1
+        ? 'best_before'
+        : null,
     shouldNotBeFrozen: Boolean(grocyProduct.should_not_be_frozen),
   };
 }

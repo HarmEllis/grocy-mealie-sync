@@ -32,9 +32,10 @@ export interface UpdateGrocyStockSettingsParams {
   treatOpenedAsOutOfStock?: boolean;
   defaultBestBeforeDays?: number | null;
   defaultBestBeforeDaysAfterOpen?: number | null;
+  thawedShelfLifeDays?: number | null;
   allowFreezing?: boolean;
   frozenShelfLifeDays?: number | null;
-  bestBeforeType?: string | null;
+  bestBeforeType?: 'best_before' | 'expiration';
 }
 
 export interface UpdateGrocyStockSettingsResult {
@@ -46,6 +47,9 @@ export interface UpdateGrocyStockSettingsResult {
     treatOpenedAsOutOfStock?: boolean;
     defaultBestBeforeDays?: number | null;
     defaultBestBeforeDaysAfterOpen?: number | null;
+    frozenShelfLifeDays?: number | null;
+    thawedShelfLifeDays?: number | null;
+    bestBeforeType?: 'best_before' | 'expiration';
     allowFreezing?: boolean;
   };
 }
@@ -224,12 +228,6 @@ function toMealieAliases(aliases: string[] | undefined) {
     .map(name => ({ name }));
 }
 
-function assertSupportedGrocyShelfLifeFields(params: UpdateGrocyStockSettingsParams) {
-  if (params.frozenShelfLifeDays !== undefined || params.bestBeforeType !== undefined) {
-    throw new Error('The current Grocy API does not expose frozen shelf-life days or due-date semantics fields.');
-  }
-}
-
 export async function updateGrocyStockSettings(
   params: UpdateGrocyStockSettingsParams,
   deps: Pick<
@@ -237,8 +235,6 @@ export async function updateGrocyStockSettings(
     'acquireSyncLock' | 'releaseSyncLock' | 'getProductOverview' | 'updateGrocyProduct'
   > = defaultDeps,
 ): Promise<UpdateGrocyStockSettingsResult> {
-  assertSupportedGrocyShelfLifeFields(params);
-
   return runWithSyncLock(deps, async () => {
     const overview = await deps.getProductOverview({ productRef: params.productRef });
     const grocyProduct = requireGrocyProduct(overview);
@@ -263,6 +259,23 @@ export async function updateGrocyStockSettings(
     if (params.defaultBestBeforeDaysAfterOpen !== undefined) {
       update.default_best_before_days_after_open = params.defaultBestBeforeDaysAfterOpen;
       updated.defaultBestBeforeDaysAfterOpen = params.defaultBestBeforeDaysAfterOpen;
+    }
+
+    if (params.frozenShelfLifeDays !== undefined) {
+      update.default_best_before_days_after_freezing = params.frozenShelfLifeDays;
+      updated.frozenShelfLifeDays = params.frozenShelfLifeDays;
+    }
+
+    if (params.thawedShelfLifeDays !== undefined) {
+      update.default_best_before_days_after_thawing = params.thawedShelfLifeDays;
+      updated.thawedShelfLifeDays = params.thawedShelfLifeDays;
+    }
+
+    if (params.bestBeforeType !== undefined) {
+      update.due_type = params.bestBeforeType === 'expiration'
+        ? 2
+        : 1;
+      updated.bestBeforeType = params.bestBeforeType;
     }
 
     if (params.allowFreezing !== undefined) {

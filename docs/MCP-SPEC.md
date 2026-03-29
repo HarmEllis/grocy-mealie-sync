@@ -135,8 +135,11 @@ A capability is not considered complete until:
 - View and update whether opened stock counts as out of stock via `treat_opened_as_out_of_stock`.
 - View and update `default_best_before_days`.
 - View and update `default_best_before_days_after_open`.
+- View and update `default_best_before_days_after_freezing`.
+- View and update `default_best_before_days_after_thawing`.
+- View and update `due_type` for THT vs expiration semantics.
 - View and update whether a product may be frozen via `should_not_be_frozen`.
-- Manage the user's desired shelf-life model, including freezer-related days and due-date semantics, with implementation details to be validated against the target Grocy API version.
+- Manage the user's desired shelf-life model through the Grocy product fields exposed by the target API version.
 
 ### Shopping List Management
 
@@ -460,18 +463,3 @@ This structure keeps the TDD boundary clean and makes contract tests much easier
 - Shopping-list add/remove flows prevent or explain duplicates.
 - The MCP layer provides practical explanations when mappings or sync outcomes are confusing.
 - Every shipped capability is backed by TDD at the appropriate test layer.
-
----
-
-## Open Validation Items
-
-The following are approved functional wishes, but the exact implementation needs to be validated against the target upstream API versions:
-
-1. freezer-related shelf-life days in Grocy
-2. due-date semantics such as THT vs "houdbaar tot" in Grocy
-
-If the target Grocy API version does not expose these directly, the implementation phase must decide whether to:
-
-- map them through another supported field or workflow
-- defer them
-- or explicitly document them as unsupported by the current upstream API

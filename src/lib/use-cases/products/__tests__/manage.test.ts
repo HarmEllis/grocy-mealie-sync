@@ -29,6 +29,9 @@ const mappedOverview: ProductOverview = {
     treatOpenedAsOutOfStock: false,
     defaultBestBeforeDays: 7,
     defaultBestBeforeDaysAfterOpen: 3,
+    defaultBestBeforeDaysAfterFreezing: 14,
+    defaultBestBeforeDaysAfterThawing: 2,
+    dueType: 'best_before',
     shouldNotBeFrozen: false,
   },
   mealieFood: {
@@ -50,6 +53,9 @@ describe('product management use-cases', () => {
         treatOpenedAsOutOfStock: true,
         defaultBestBeforeDays: 10,
         defaultBestBeforeDaysAfterOpen: 2,
+        frozenShelfLifeDays: 30,
+        thawedShelfLifeDays: 4,
+        bestBeforeType: 'expiration',
         allowFreezing: false,
       },
       {
@@ -65,6 +71,9 @@ describe('product management use-cases', () => {
       treat_opened_as_out_of_stock: 1,
       default_best_before_days: 10,
       default_best_before_days_after_open: 2,
+      default_best_before_days_after_freezing: 30,
+      default_best_before_days_after_thawing: 4,
+      due_type: 2,
       should_not_be_frozen: 1,
     });
     expect(result).toEqual({
@@ -76,24 +85,12 @@ describe('product management use-cases', () => {
         treatOpenedAsOutOfStock: true,
         defaultBestBeforeDays: 10,
         defaultBestBeforeDaysAfterOpen: 2,
+        frozenShelfLifeDays: 30,
+        thawedShelfLifeDays: 4,
+        bestBeforeType: 'expiration',
         allowFreezing: false,
       },
     });
-  });
-
-  it('rejects unsupported freezer shelf-life and due-date semantics fields', async () => {
-    await expect(updateGrocyStockSettings(
-      {
-        productRef: 'mapping:map-1',
-        frozenShelfLifeDays: 30,
-      },
-      {
-        acquireSyncLock: vi.fn(() => true),
-        releaseSyncLock: vi.fn(),
-        getProductOverview: vi.fn(async () => mappedOverview),
-        updateGrocyProduct: vi.fn(),
-      },
-    )).rejects.toThrow('The current Grocy API does not expose frozen shelf-life days or due-date semantics fields.');
   });
 
   it('creates a new product in Grocy and Mealie and stores the mapping', async () => {

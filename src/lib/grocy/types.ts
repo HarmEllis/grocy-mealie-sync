@@ -72,8 +72,11 @@ const EDITABLE_ENTITY_FIELDS = {
     'min_stock_amount',
     'default_best_before_days',
     'default_best_before_days_after_open',
+    'default_best_before_days_after_freezing',
+    'default_best_before_days_after_thawing',
     'picture_file_name',
     'shopping_location_id',
+    'due_type',
     'treat_opened_as_out_of_stock',
     'auto_reprint_stock_label',
     'no_own_stock',
@@ -128,6 +131,9 @@ export interface UpdateProductBody {
   location_id?: number;
   default_best_before_days?: number | null;
   default_best_before_days_after_open?: number | null;
+  default_best_before_days_after_freezing?: number | null;
+  default_best_before_days_after_thawing?: number | null;
+  due_type?: number | null;
   treat_opened_as_out_of_stock?: number;
   should_not_be_frozen?: number;
 }

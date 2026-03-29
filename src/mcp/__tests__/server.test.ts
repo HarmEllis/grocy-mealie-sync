@@ -47,6 +47,9 @@ describe('MCP server contract', () => {
       treatOpenedAsOutOfStock: true,
       defaultBestBeforeDays: 7,
       defaultBestBeforeDaysAfterOpen: 3,
+      defaultBestBeforeDaysAfterFreezing: 14,
+      defaultBestBeforeDaysAfterThawing: 2,
+      dueType: 'expiration',
       shouldNotBeFrozen: false,
     },
     mealieFood: {
@@ -160,6 +163,9 @@ describe('MCP server contract', () => {
           treatOpenedAsOutOfStock: true,
           defaultBestBeforeDays: 7,
           defaultBestBeforeDaysAfterOpen: 3,
+          defaultBestBeforeDaysAfterFreezing: 14,
+          defaultBestBeforeDaysAfterThawing: 2,
+          dueType: 'expiration',
           shouldNotBeFrozen: false,
         },
         mealieFood: {
