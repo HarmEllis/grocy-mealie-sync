@@ -72,6 +72,7 @@ export interface CreateProductInGrocyParams {
 
 export interface CreateProductInGrocyResult {
   created: boolean;
+  productRef?: string | null;
   grocyProductId: number | null;
   grocyProductName: string | null;
   duplicateCheck: {
@@ -88,6 +89,7 @@ export interface CreateProductInMealieParams {
 
 export interface CreateProductInMealieResult {
   created: boolean;
+  productRef?: string | null;
   mealieFoodId: string | null;
   mealieFoodName: string | null;
   duplicateCheck: {
@@ -98,6 +100,9 @@ export interface CreateProductInMealieResult {
 
 export interface CreateProductInBothResult {
   created: boolean;
+  productRef?: string | null;
+  grocyProductRef?: string | null;
+  mealieProductRef?: string | null;
   grocyProductId: number | null;
   grocyProductName: string | null;
   mealieFoodId: string | null;
@@ -148,7 +153,7 @@ export interface ProductManageDeps extends SyncLockDeps {
     grocyProductId: number;
     grocyProductName: string;
     unitMappingId: string | null;
-  }): Promise<void>;
+  }): Promise<string>;
 }
 
 const defaultDeps: ProductManageDeps = {
@@ -179,8 +184,10 @@ const defaultDeps: ProductManageDeps = {
   deleteGrocyProduct: productId => deleteGrocyEntity('products', productId),
   deleteMealieFood: foodId => RecipesFoodsService.deleteOneApiFoodsItemIdDelete(foodId).then(() => undefined),
   insertProductMapping: async values => {
+    const mappingId = randomUUID();
+
     await db.insert(productMappings).values({
-      id: randomUUID(),
+      id: mappingId,
       mealieFoodId: values.mealieFoodId,
       mealieFoodName: values.mealieFoodName,
       grocyProductId: values.grocyProductId,
@@ -189,6 +196,8 @@ const defaultDeps: ProductManageDeps = {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
+
+    return mappingId;
   },
 };
 
@@ -226,6 +235,14 @@ function toMealieAliases(aliases: string[] | undefined) {
     .map(alias => alias.trim())
     .filter(Boolean)
     .map(name => ({ name }));
+}
+
+function toGrocyProductRef(productId: number | null | undefined): string | null {
+  return productId ? `grocy:${productId}` : null;
+}
+
+function toMealieProductRef(foodId: string | null | undefined): string | null {
+  return foodId ? `mealie:${foodId}` : null;
 }
 
 export async function updateGrocyStockSettings(
@@ -315,8 +332,14 @@ export async function createProductInBoth(
     const duplicateSummary = createExactDuplicateSummary(duplicateCheck);
 
     if (duplicateSummary.skipped) {
+      const grocyProductRef = duplicateCheck.exactGrocyMatches[0]?.productRef ?? null;
+      const mealieProductRef = duplicateCheck.exactMealieMatches[0]?.productRef ?? null;
+
       return {
         created: false,
+        productRef: grocyProductRef ?? mealieProductRef,
+        grocyProductRef,
+        mealieProductRef,
         grocyProductId: duplicateCheck.exactGrocyMatches[0]?.id ?? null,
         grocyProductName: duplicateCheck.exactGrocyMatches[0]?.name ?? null,
         mealieFoodId: duplicateCheck.exactMealieMatches[0]?.id ?? null,
@@ -350,7 +373,7 @@ export async function createProductInBoth(
       });
       createdMealieFoodId = mealieFood.id;
 
-      await deps.insertProductMapping({
+      const mappingId = await deps.insertProductMapping({
         mealieFoodId: mealieFood.id,
         mealieFoodName: mealieFood.name || params.name,
         grocyProductId: createdGrocyProductId,
@@ -360,6 +383,9 @@ export async function createProductInBoth(
 
       return {
         created: true,
+        productRef: `mapping:${mappingId}`,
+        grocyProductRef: toGrocyProductRef(createdGrocyProductId),
+        mealieProductRef: toMealieProductRef(mealieFood.id),
         grocyProductId: createdGrocyProductId,
         grocyProductName: params.name,
         mealieFoodId: mealieFood.id,
@@ -400,6 +426,7 @@ export async function createProductInGrocy(
     if (duplicateSummary.skipped) {
       return {
         created: false,
+        productRef: duplicateCheck.exactGrocyMatches[0]?.productRef ?? null,
         grocyProductId: duplicateCheck.exactGrocyMatches[0]?.id ?? null,
         grocyProductName: duplicateCheck.exactGrocyMatches[0]?.name ?? null,
         duplicateCheck: duplicateSummary,
@@ -417,6 +444,7 @@ export async function createProductInGrocy(
 
     return {
       created: true,
+      productRef: toGrocyProductRef(grocyResult.createdObjectId),
       grocyProductId: grocyResult.createdObjectId,
       grocyProductName: params.name,
       duplicateCheck: duplicateSummary,
@@ -444,6 +472,7 @@ export async function createProductInMealie(
     if (duplicateSummary.skipped) {
       return {
         created: false,
+        productRef: duplicateCheck.exactMealieMatches[0]?.productRef ?? null,
         mealieFoodId: duplicateCheck.exactMealieMatches[0]?.id ?? null,
         mealieFoodName: duplicateCheck.exactMealieMatches[0]?.name ?? null,
         duplicateCheck: duplicateSummary,
@@ -458,6 +487,7 @@ export async function createProductInMealie(
 
     return {
       created: true,
+      productRef: toMealieProductRef(mealieFood.id),
       mealieFoodId: mealieFood.id,
       mealieFoodName: mealieFood.name || params.name,
       duplicateCheck: duplicateSummary,

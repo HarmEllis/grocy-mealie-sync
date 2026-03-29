@@ -209,7 +209,7 @@ export async function addStock(
     });
 
     return {
-      productRef: params.productRef,
+      productRef: overview.productRef,
       grocyProductId: grocyProduct.id,
       name: grocyProduct.name,
       amount: params.amount,
@@ -241,7 +241,7 @@ export async function consumeStock(
     });
 
     return {
-      productRef: params.productRef,
+      productRef: overview.productRef,
       grocyProductId: grocyProduct.id,
       name: grocyProduct.name,
       amount: params.amount,
@@ -273,7 +273,7 @@ export async function setStock(
     });
 
     return {
-      productRef: params.productRef,
+      productRef: overview.productRef,
       grocyProductId: grocyProduct.id,
       name: grocyProduct.name,
       amount: params.amount,
@@ -300,7 +300,7 @@ export async function markStockOpened(
     await deps.openProductStock(grocyProduct.id, { amount });
 
     return {
-      productRef: params.productRef,
+      productRef: overview.productRef,
       grocyProductId: grocyProduct.id,
       name: grocyProduct.name,
       amount,

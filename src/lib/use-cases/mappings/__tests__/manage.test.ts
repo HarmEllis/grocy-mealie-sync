@@ -50,6 +50,7 @@ describe('mapping management use-cases', () => {
     });
     expect(result).toEqual({
       mappingId: 'map-1',
+      productRef: 'mapping:map-1',
       mealieFoodId: 'food-1',
       mealieFoodName: 'Whole Milk',
       grocyProductId: 101,

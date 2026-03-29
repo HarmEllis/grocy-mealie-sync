@@ -142,7 +142,7 @@ interface SearchCandidate {
 }
 
 interface ProductRefLookup {
-  kind: 'mapping' | 'grocy' | 'mealie';
+  kind: 'mapping' | 'grocy' | 'mealie' | 'search';
   id: string | number;
 }
 
@@ -237,12 +237,14 @@ function roundScore(score: number): number {
 }
 
 function parseProductRef(productRef: string): ProductRefLookup {
-  if (productRef.startsWith('mapping:')) {
-    return { kind: 'mapping', id: productRef.slice('mapping:'.length) };
+  const trimmedRef = productRef.trim();
+
+  if (trimmedRef.startsWith('mapping:')) {
+    return { kind: 'mapping', id: trimmedRef.slice('mapping:'.length) };
   }
 
-  if (productRef.startsWith('grocy:')) {
-    const id = Number(productRef.slice('grocy:'.length));
+  if (trimmedRef.startsWith('grocy:')) {
+    const id = Number(trimmedRef.slice('grocy:'.length));
     if (!Number.isInteger(id)) {
       throw new Error(`Invalid Grocy product ref: ${productRef}`);
     }
@@ -250,11 +252,65 @@ function parseProductRef(productRef: string): ProductRefLookup {
     return { kind: 'grocy', id };
   }
 
-  if (productRef.startsWith('mealie:')) {
-    return { kind: 'mealie', id: productRef.slice('mealie:'.length) };
+  if (trimmedRef.startsWith('mealie:')) {
+    return { kind: 'mealie', id: trimmedRef.slice('mealie:'.length) };
   }
 
-  throw new Error(`Unsupported product ref: ${productRef}`);
+  if (/^\d+$/.test(trimmedRef)) {
+    const id = Number(trimmedRef);
+    if (!Number.isInteger(id)) {
+      throw new Error(`Invalid Grocy product ref: ${productRef}`);
+    }
+
+    return { kind: 'grocy', id };
+  }
+
+  return { kind: 'search', id: trimmedRef };
+}
+
+function toCanonicalProductRef(ref: ProductRefLookup): string {
+  switch (ref.kind) {
+    case 'mapping':
+      return `mapping:${ref.id}`;
+    case 'grocy':
+      return `grocy:${ref.id}`;
+    case 'mealie':
+      return `mealie:${ref.id}`;
+    case 'search':
+      return String(ref.id);
+  }
+}
+
+function formatRefCandidate(candidate: SearchCandidate): string {
+  return `${candidate.productRef} (${candidate.label})`;
+}
+
+function resolveExactProductRef(
+  rawRef: string,
+  mappings: ProductMappingRecord[],
+  grocyProducts: Product[],
+  mealieFoods: NormalizedMealieFood[],
+): ProductRefLookup {
+  const normalizedRef = normalizeMatchText(rawRef);
+  const exactMatches = buildSearchCandidates(mappings, grocyProducts, mealieFoods)
+    .filter(candidate => candidate.variants.some(variant =>
+      normalizeMatchText(variant.text) === normalizedRef,
+    ));
+  const uniqueMatches = [...new Map(exactMatches.map(candidate => [candidate.productRef, candidate])).values()];
+
+  if (uniqueMatches.length === 0) {
+    throw new Error(
+      `Unknown product ref: ${rawRef}. Use mapping:<id>, grocy:<id>, mealie:<id>, a raw Grocy numeric id, or an exact product name.`,
+    );
+  }
+
+  if (uniqueMatches.length > 1) {
+    throw new Error(
+      `Ambiguous product ref: ${rawRef}. Use one of ${uniqueMatches.map(formatRefCandidate).join(', ')}.`,
+    );
+  }
+
+  return parseProductRef(uniqueMatches[0].productRef);
 }
 
 function buildCurrentStockMap(currentStock: CurrentStockResponse[]): Map<number, number> {
@@ -464,7 +520,7 @@ export async function getProductOverview(
   params: ProductOverviewParams,
   deps: ProductCatalogDeps = defaultDeps,
 ): Promise<ProductOverview> {
-  const ref = parseProductRef(params.productRef);
+  const parsedRef = parseProductRef(params.productRef);
   const [mappings, grocyProducts, mealieFoods, currentStock, volatileStock] = await Promise.all([
     deps.listProductMappings(),
     deps.listGrocyProducts(),
@@ -473,6 +529,10 @@ export async function getProductOverview(
     deps.getVolatileStock(),
   ]);
   const normalizedMealieFoods = mealieFoods.map(normalizeMealieFoodRecord);
+  const ref = parsedRef.kind === 'search'
+    ? resolveExactProductRef(String(parsedRef.id), mappings, grocyProducts, normalizedMealieFoods)
+    : parsedRef;
+  const canonicalProductRef = toCanonicalProductRef(ref);
 
   let mapping: ProductMappingRecord | null = null;
 
@@ -507,7 +567,7 @@ export async function getProductOverview(
   }
 
   return {
-    productRef: params.productRef,
+    productRef: canonicalProductRef,
     mapping: toProductOverviewMapping(mapping),
     grocyProduct: toGrocyProductOverview(
       grocyProduct,

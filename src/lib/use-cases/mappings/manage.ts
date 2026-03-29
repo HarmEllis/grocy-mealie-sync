@@ -26,6 +26,7 @@ export interface UpsertProductMappingParams {
 
 export interface UpsertProductMappingResult {
   mappingId: string;
+  productRef?: string;
   mealieFoodId: string;
   mealieFoodName: string;
   grocyProductId: number;
@@ -302,6 +303,7 @@ export async function upsertProductMapping(
 
     return {
       mappingId,
+      productRef: `mapping:${mappingId}`,
       mealieFoodId: params.mealieFoodId,
       mealieFoodName: mealieFood.name || 'Unknown',
       grocyProductId: params.grocyProductId,

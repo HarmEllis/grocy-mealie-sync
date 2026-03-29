@@ -96,7 +96,7 @@ describe('product management use-cases', () => {
   it('creates a new product in Grocy and Mealie and stores the mapping', async () => {
     const createGrocyProduct = vi.fn(async () => ({ createdObjectId: 201 }));
     const createMealieFood = vi.fn(async () => ({ id: 'food-201', name: 'Pasta' }));
-    const insertProductMapping = vi.fn(async () => undefined);
+    const insertProductMapping = vi.fn(async () => 'map-new');
 
     const result = await createProductInBoth(
       {
@@ -146,6 +146,9 @@ describe('product management use-cases', () => {
     }));
     expect(result).toEqual({
       created: true,
+      productRef: 'mapping:map-new',
+      grocyProductRef: 'grocy:201',
+      mealieProductRef: 'mealie:food-201',
       grocyProductId: 201,
       grocyProductName: 'Pasta',
       mealieFoodId: 'food-201',
@@ -186,7 +189,7 @@ describe('product management use-cases', () => {
         }),
         deleteGrocyProduct,
         deleteMealieFood: vi.fn(async () => undefined),
-        insertProductMapping: vi.fn(async () => undefined),
+        insertProductMapping: vi.fn(async () => 'map-new'),
       },
     )).rejects.toThrow('Mealie failed');
 
@@ -218,6 +221,7 @@ describe('product management use-cases', () => {
 
     expect(result).toEqual({
       created: true,
+      productRef: 'grocy:222',
       grocyProductId: 222,
       grocyProductName: 'Beans',
       duplicateCheck: {
@@ -251,6 +255,7 @@ describe('product management use-cases', () => {
 
     expect(result).toEqual({
       created: true,
+      productRef: 'mealie:food-222',
       mealieFoodId: 'food-222',
       mealieFoodName: 'Oats',
       duplicateCheck: {

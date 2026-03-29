@@ -3,6 +3,10 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { MappingMcpServices } from '../contracts';
 import { createJsonTextContent, createOkResult, formatCountMessage } from '../helpers';
 
+const verifiedGrocyUnitIdSchema = z.number().int().positive().describe(
+  'Verified existing Grocy unit id only. Inspect units.list_catalog first and stop if the correct unit is unclear.',
+);
+
 export function registerMappingTools(server: McpServer, services: MappingMcpServices) {
   server.registerTool(
     'mappings.list_products',
@@ -118,7 +122,7 @@ export function registerMappingTools(server: McpServer, services: MappingMcpServ
         mappingId: z.string().trim().min(1).optional(),
         mealieFoodId: z.string().trim().min(1),
         grocyProductId: z.number().int().positive(),
-        grocyUnitId: z.number().int().positive().optional(),
+        grocyUnitId: verifiedGrocyUnitIdSchema.optional(),
       },
     },
     async ({ mappingId, mealieFoodId, grocyProductId, grocyUnitId }) => {

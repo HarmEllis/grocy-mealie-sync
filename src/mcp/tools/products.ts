@@ -3,6 +3,14 @@ import { z } from 'zod';
 import type { ProductMcpServices } from '../contracts';
 import { createJsonTextContent, createOkResult, formatCountMessage } from '../helpers';
 
+const productRefSchema = z.string().trim().min(1).describe(
+  'Accepts mapping:<id>, grocy:<id>, mealie:<id>, a raw Grocy numeric id, or an exact product name. Prefer the returned productRef from previous tool calls.',
+);
+
+const verifiedGrocyUnitIdSchema = z.number().int().positive().describe(
+  'Verified existing Grocy unit id only. Inspect units.list_catalog first and stop if the correct unit is unclear.',
+);
+
 export function registerProductTools(server: McpServer, services: ProductMcpServices) {
   server.registerTool(
     'products.search',
@@ -34,7 +42,7 @@ export function registerProductTools(server: McpServer, services: ProductMcpServ
       title: 'Get Product Overview',
       description: 'Load the combined Grocy, Mealie, and mapping overview for one product reference',
       inputSchema: {
-        productRef: z.string().trim().min(1),
+        productRef: productRefSchema,
       },
     },
     async ({ productRef }) => {
@@ -80,7 +88,7 @@ export function registerProductTools(server: McpServer, services: ProductMcpServ
       title: 'Update Grocy Stock Settings',
       description: 'Update Grocy minimum stock and shelf-life related product defaults',
       inputSchema: {
-        productRef: z.string().trim().min(1),
+        productRef: productRefSchema,
         minStockAmount: z.number().min(0).optional(),
         treatOpenedAsOutOfStock: z.boolean().optional(),
         defaultBestBeforeDays: z.number().int().min(0).nullable().optional(),
@@ -109,7 +117,7 @@ export function registerProductTools(server: McpServer, services: ProductMcpServ
       description: 'Create a new product in Grocy and Mealie and store the mapping immediately',
       inputSchema: {
         name: z.string().trim().min(1),
-        grocyUnitId: z.number().int().positive(),
+        grocyUnitId: verifiedGrocyUnitIdSchema,
         locationId: z.number().int().positive().nullable().optional(),
         minStockAmount: z.number().min(0).optional(),
         mealiePluralName: z.string().trim().min(1).nullable().optional(),
@@ -143,10 +151,10 @@ export function registerProductTools(server: McpServer, services: ProductMcpServ
     'products.create_grocy',
     {
       title: 'Create Product In Grocy',
-      description: 'Create a new product in Grocy only',
+      description: 'Create a new product in Grocy only. Use a verified existing Grocy unit and stop if the correct unit is unclear.',
       inputSchema: {
         name: z.string().trim().min(1),
-        grocyUnitId: z.number().int().positive(),
+        grocyUnitId: verifiedGrocyUnitIdSchema,
         locationId: z.number().int().positive().nullable().optional(),
         minStockAmount: z.number().min(0).optional(),
       },
@@ -209,7 +217,7 @@ export function registerProductTools(server: McpServer, services: ProductMcpServ
       title: 'Update Basic Product Metadata',
       description: 'Update the daily-use product metadata in Grocy and/or Mealie',
       inputSchema: {
-        productRef: z.string().trim().min(1),
+        productRef: productRefSchema,
         grocyName: z.string().trim().min(1).optional(),
         mealieName: z.string().trim().min(1).optional(),
         mealiePluralName: z.string().trim().min(1).nullable().optional(),

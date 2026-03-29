@@ -153,6 +153,47 @@ describe('product catalog use-cases', () => {
     });
   });
 
+  it('resolves an exact product name to the canonical mapped product ref', async () => {
+    const overview = await getProductOverview(
+      { productRef: 'Milk' },
+      createDeps(),
+    );
+
+    expect(overview.productRef).toBe('mapping:map-1');
+    expect(overview.mapping?.id).toBe('map-1');
+    expect(overview.grocyProduct?.id).toBe(101);
+    expect(overview.mealieFood?.id).toBe('food-1');
+  });
+
+  it('resolves a raw Grocy numeric id to the canonical Grocy product ref', async () => {
+    const overview = await getProductOverview(
+      { productRef: '202' },
+      createDeps(),
+    );
+
+    expect(overview).toEqual({
+      productRef: 'grocy:202',
+      mapping: null,
+      grocyProduct: {
+        id: 202,
+        name: 'Butter',
+        quIdPurchase: 10,
+        quIdStock: 10,
+        minStockAmount: 1,
+        currentStock: 3,
+        isBelowMinimum: false,
+        treatOpenedAsOutOfStock: false,
+        defaultBestBeforeDays: 30,
+        defaultBestBeforeDaysAfterOpen: 10,
+        defaultBestBeforeDaysAfterFreezing: 90,
+        defaultBestBeforeDaysAfterThawing: 5,
+        dueType: 'best_before',
+        shouldNotBeFrozen: true,
+      },
+      mealieFood: null,
+    });
+  });
+
   it('checks duplicates across Grocy and Mealie with exact and fuzzy matches', async () => {
     const duplicates = await checkProductDuplicates(
       { name: 'Butter' },

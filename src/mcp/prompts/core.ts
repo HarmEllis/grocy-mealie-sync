@@ -34,9 +34,10 @@ export function registerCorePrompts(server: McpServer) {
         `Create a new product${requestedName} through the grocy-mealie-sync MCP server.${requestedTarget}
 
 First call products.check_duplicates before any write. If exact duplicates exist, stop and summarize them instead of mutating.
-If you need unit context, inspect units.list_catalog or mappings.suggest_units. Only use existing Grocy units and never guess a grocyUnitId.
+If the product already exists in Mealie but not Grocy, prefer products.create_grocy followed by mappings.upsert_product instead of creating a duplicate in Mealie.
+If you need unit context, inspect units.list_catalog or mappings.suggest_units. Only use existing Grocy units, never guess a grocyUnitId, and stop to ask the user if the correct unit is not clearly verified.
 Use products.create_grocy, products.create_mealie, or products.create_in_both only after the duplicate check is clear and the target system is explicit.
-After the write, summarize the created Grocy id, Mealie id, and whether a mapping was stored.`,
+After any create or mapping write, prefer the returned productRef for follow-up actions instead of inventing bare ids or names. Summarize the created Grocy id, Mealie id, canonical productRef, and whether a mapping was stored.`,
       );
     },
   );
@@ -118,6 +119,7 @@ Summarize the duplicate logic and the intended final shopping-list state before 
 
 Inspect products.get_overview and inventory.get_stock first.
 Choose exactly one of inventory.add_stock, inventory.consume_stock, inventory.set_stock, or inventory.mark_opened based on the user's intent.
+Prefer canonical productRef values returned by prior tool calls; do not fall back to bare ids or names when a returned productRef is available.
 If the instruction is ambiguous, explain the ambiguity and stop instead of guessing.
 After the action, summarize what changed, including quantity, best-before data, and opened state if relevant.`,
     ),

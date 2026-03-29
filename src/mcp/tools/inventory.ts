@@ -3,6 +3,10 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { InventoryMcpServices } from '../contracts';
 import { createJsonTextContent, createOkResult, formatCountMessage } from '../helpers';
 
+const productRefSchema = z.string().trim().min(1).describe(
+  'Accepts mapping:<id>, grocy:<id>, mealie:<id>, a raw Grocy numeric id, or an exact product name. Prefer the returned productRef from previous tool calls.',
+);
+
 export function registerInventoryTools(server: McpServer, services: InventoryMcpServices) {
   server.registerTool(
     'inventory.get_stock',
@@ -10,7 +14,7 @@ export function registerInventoryTools(server: McpServer, services: InventoryMcp
       title: 'Get Inventory Stock',
       description: 'Load the current Grocy stock state for one product reference',
       inputSchema: {
-        productRef: z.string().trim().min(1),
+        productRef: productRefSchema,
       },
     },
     async ({ productRef }) => {
@@ -51,7 +55,7 @@ export function registerInventoryTools(server: McpServer, services: InventoryMcp
       title: 'Add Stock',
       description: 'Add stock in Grocy with an optional best-before date and note',
       inputSchema: {
-        productRef: z.string().trim().min(1),
+        productRef: productRefSchema,
         amount: z.number().positive(),
         bestBeforeDate: z.string().trim().min(1).nullable().optional(),
         note: z.string().trim().min(1).nullable().optional(),
@@ -74,7 +78,7 @@ export function registerInventoryTools(server: McpServer, services: InventoryMcp
       title: 'Consume Stock',
       description: 'Remove stock in Grocy because it was used or consumed',
       inputSchema: {
-        productRef: z.string().trim().min(1),
+        productRef: productRefSchema,
         amount: z.number().positive(),
         spoiled: z.boolean().optional(),
         exactAmount: z.boolean().optional(),
@@ -97,7 +101,7 @@ export function registerInventoryTools(server: McpServer, services: InventoryMcp
       title: 'Set Stock',
       description: 'Correct the Grocy stock amount to an exact target value',
       inputSchema: {
-        productRef: z.string().trim().min(1),
+        productRef: productRefSchema,
         amount: z.number().min(0),
         bestBeforeDate: z.string().trim().min(1).nullable().optional(),
         note: z.string().trim().min(1).nullable().optional(),
@@ -120,7 +124,7 @@ export function registerInventoryTools(server: McpServer, services: InventoryMcp
       title: 'Mark Stock Opened',
       description: 'Mark an amount of Grocy stock as opened',
       inputSchema: {
-        productRef: z.string().trim().min(1),
+        productRef: productRefSchema,
         amount: z.number().positive().optional(),
       },
     },
