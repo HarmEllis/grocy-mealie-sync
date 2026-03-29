@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Wand2, Loader2, Link, Plus, Trash2 } from 'lucide-react';
+import { Wand2, Loader2, Link, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
@@ -60,6 +60,14 @@ const TAB_ENDPOINTS: Record<WizardTab, string> = {
   'grocy-min-stock': '/api/mapping-wizard/data?tab=grocy-min-stock',
   'mapped-products': '/api/mapping-wizard/products/mapped',
   conflicts: '/api/mapping-wizard/conflicts',
+};
+
+const TAB_LABELS: Record<WizardTab, string> = {
+  units: 'Units',
+  products: 'Products',
+  'grocy-min-stock': 'Grocy Min Stock',
+  'mapped-products': 'Mapped Products',
+  conflicts: 'Conflicts',
 };
 
 const INITIAL_TAB_LOADING: Record<WizardTab, boolean> = {
@@ -284,6 +292,17 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
       showLoading: true,
     });
   }, [conflictsData, dirtyTabs, fetchTabData, grocyMinStockData, mappedProductsData, productsData, unitsData]);
+
+  const refreshTab = useCallback(async (targetTab: WizardTab) => {
+    const preserveWizardState = targetTab === 'units'
+      || targetTab === 'products'
+      || targetTab === 'grocy-min-stock';
+
+    await fetchTabData(targetTab, {
+      preserveWizardState,
+      showLoading: true,
+    });
+  }, [fetchTabData]);
 
   useEffect(() => {
     if (!open) {
@@ -1256,6 +1275,7 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
 
   const currentTabLoading = tabLoading[tab];
   const currentTabError = tabErrors[tab];
+  const currentTabLabel = TAB_LABELS[tab];
   const currentTabData = tab === 'units'
     ? unitsData
     : tab === 'products'
@@ -1569,29 +1589,30 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
             </Tabs>
           </div>
 
-          {currentTabData && tab !== 'mapped-products' && tab !== 'conflicts' && (
-            <WizardFooter
-              tab={tab}
-              actionRunning={actionRunning}
-              unitMappedCount={unitsData ? getPendingUnitMappings(unitsData, unitMaps).length : 0}
-              checkedUnitCount={unmappedUnitIds.filter(id => createUnitChecked[id]).length}
-              orphanUnitCount={unitsData?.orphanGrocyUnitCount ?? 0}
-              productMappedCount={Object.values(productMaps).filter(mapping => mapping.grocyProductId !== null).length}
-              checkedProductCount={unmappedProductIds.filter(id => createProductChecked[id]).length}
-              orphanProductCount={productsData?.orphanGrocyProductCount ?? 0}
-              grocyMinStockProductMappedCount={Object.values(grocyMinStockProductMaps).filter(mapping => mapping.mealieFoodId !== null).length}
-              checkedGrocyMinStockProductCount={unmappedGrocyMinStockProductIds.filter(id => createMealieProductChecked[id]).length}
-              defaultCreateUnitId={defaultCreateUnitId}
-              onSyncUnits={syncUnits}
-              onCreateUnits={createUnmappedUnits}
-              onDeleteOrphanUnits={handleDeleteOrphanUnits}
-              onSyncProducts={syncProducts}
-              onCreateProducts={createUnmappedProducts}
-              onDeleteOrphanProducts={handleDeleteOrphanProducts}
-              onSyncGrocyMinStockProducts={syncGrocyMinStockProducts}
-              onCreateMealieProducts={createMealieProductsFromGrocy}
-            />
-          )}
+          <WizardFooter
+            tab={tab}
+            tabLabel={currentTabLabel}
+            actionRunning={actionRunning}
+            currentTabLoading={currentTabLoading}
+            unitMappedCount={unitsData ? getPendingUnitMappings(unitsData, unitMaps).length : 0}
+            checkedUnitCount={unmappedUnitIds.filter(id => createUnitChecked[id]).length}
+            orphanUnitCount={unitsData?.orphanGrocyUnitCount ?? 0}
+            productMappedCount={Object.values(productMaps).filter(mapping => mapping.grocyProductId !== null).length}
+            checkedProductCount={unmappedProductIds.filter(id => createProductChecked[id]).length}
+            orphanProductCount={productsData?.orphanGrocyProductCount ?? 0}
+            grocyMinStockProductMappedCount={Object.values(grocyMinStockProductMaps).filter(mapping => mapping.mealieFoodId !== null).length}
+            checkedGrocyMinStockProductCount={unmappedGrocyMinStockProductIds.filter(id => createMealieProductChecked[id]).length}
+            defaultCreateUnitId={defaultCreateUnitId}
+            onRefreshTab={() => { void refreshTab(tab); }}
+            onSyncUnits={syncUnits}
+            onCreateUnits={createUnmappedUnits}
+            onDeleteOrphanUnits={handleDeleteOrphanUnits}
+            onSyncProducts={syncProducts}
+            onCreateProducts={createUnmappedProducts}
+            onDeleteOrphanProducts={handleDeleteOrphanProducts}
+            onSyncGrocyMinStockProducts={syncGrocyMinStockProducts}
+            onCreateMealieProducts={createMealieProductsFromGrocy}
+          />
 
           <ConfirmDialog
             open={confirmAction !== null}
@@ -1761,7 +1782,9 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
 
 interface WizardFooterProps {
   tab: WizardTab;
+  tabLabel: string;
   actionRunning: string | null;
+  currentTabLoading: boolean;
   unitMappedCount: number;
   checkedUnitCount: number;
   orphanUnitCount: number;
@@ -1771,6 +1794,7 @@ interface WizardFooterProps {
   grocyMinStockProductMappedCount: number;
   checkedGrocyMinStockProductCount: number;
   defaultCreateUnitId: number | null;
+  onRefreshTab: () => void;
   onSyncUnits: () => void;
   onCreateUnits: () => void;
   onDeleteOrphanUnits: () => void;
@@ -1783,7 +1807,9 @@ interface WizardFooterProps {
 
 function WizardFooter({
   tab,
+  tabLabel,
   actionRunning,
+  currentTabLoading,
   unitMappedCount,
   checkedUnitCount,
   orphanUnitCount,
@@ -1793,6 +1819,7 @@ function WizardFooter({
   grocyMinStockProductMappedCount,
   checkedGrocyMinStockProductCount,
   defaultCreateUnitId,
+  onRefreshTab,
   onSyncUnits,
   onCreateUnits,
   onDeleteOrphanUnits,
@@ -1804,9 +1831,11 @@ function WizardFooter({
 }: WizardFooterProps) {
   const isRunning = !!actionRunning;
 
+  let actions: React.ReactNode = null;
+
   if (tab === 'units') {
-    return (
-      <DialogFooter className="flex-row flex-wrap gap-2 sm:justify-start">
+    actions = (
+      <>
         <Button size="sm" onClick={onSyncUnits} disabled={isRunning || unitMappedCount === 0}>
           {actionRunning === 'syncUnits' ? <Loader2 className="size-4 animate-spin" /> : <Link className="size-4" />}
           {actionRunning === 'syncUnits' ? 'Syncing...' : `Sync Mapped (${unitMappedCount})`}
@@ -1819,13 +1848,13 @@ function WizardFooter({
           <Trash2 className="size-4" />
           Delete Grocy Orphans ({orphanUnitCount})
         </Button>
-      </DialogFooter>
+      </>
     );
   }
 
   if (tab === 'grocy-min-stock') {
-    return (
-      <DialogFooter className="flex-row flex-wrap gap-2 sm:justify-start">
+    actions = (
+      <>
         <Button size="sm" onClick={onSyncGrocyMinStockProducts} disabled={isRunning || grocyMinStockProductMappedCount === 0}>
           {actionRunning === 'syncGrocyMinStockProducts' ? <Loader2 className="size-4 animate-spin" /> : <Link className="size-4" />}
           {actionRunning === 'syncGrocyMinStockProducts' ? 'Syncing...' : `Sync Mapped (${grocyMinStockProductMappedCount})`}
@@ -1834,23 +1863,43 @@ function WizardFooter({
           {actionRunning === 'createMealieProducts' ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
           {actionRunning === 'createMealieProducts' ? 'Creating...' : `Create Checked in Mealie (${checkedGrocyMinStockProductCount})`}
         </Button>
-      </DialogFooter>
+      </>
+    );
+  } else if (tab === 'products') {
+    actions = (
+      <>
+        <Button size="sm" onClick={onSyncProducts} disabled={isRunning || productMappedCount === 0}>
+          {actionRunning === 'syncProducts' ? <Loader2 className="size-4 animate-spin" /> : <Link className="size-4" />}
+          {actionRunning === 'syncProducts' ? 'Syncing...' : `Sync Mapped (${productMappedCount})`}
+        </Button>
+        <Button variant="secondary" size="sm" onClick={onCreateProducts} disabled={isRunning || !defaultCreateUnitId || checkedProductCount === 0}>
+          {actionRunning === 'createProducts' ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+          {actionRunning === 'createProducts' ? 'Creating...' : `Create Checked in Grocy (${checkedProductCount})`}
+        </Button>
+        <Button variant="destructive" size="sm" onClick={onDeleteOrphanProducts} disabled={isRunning || orphanProductCount === 0}>
+          <Trash2 className="size-4" />
+          Delete Grocy Orphans ({orphanProductCount})
+        </Button>
+      </>
     );
   }
 
   return (
-    <DialogFooter className="flex-row flex-wrap gap-2 sm:justify-start">
-      <Button size="sm" onClick={onSyncProducts} disabled={isRunning || productMappedCount === 0}>
-        {actionRunning === 'syncProducts' ? <Loader2 className="size-4 animate-spin" /> : <Link className="size-4" />}
-        {actionRunning === 'syncProducts' ? 'Syncing...' : `Sync Mapped (${productMappedCount})`}
-      </Button>
-      <Button variant="secondary" size="sm" onClick={onCreateProducts} disabled={isRunning || !defaultCreateUnitId || checkedProductCount === 0}>
-        {actionRunning === 'createProducts' ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-        {actionRunning === 'createProducts' ? 'Creating...' : `Create Checked in Grocy (${checkedProductCount})`}
-      </Button>
-      <Button variant="destructive" size="sm" onClick={onDeleteOrphanProducts} disabled={isRunning || orphanProductCount === 0}>
-        <Trash2 className="size-4" />
-        Delete Grocy Orphans ({orphanProductCount})
+    <DialogFooter className="flex-row flex-wrap items-center justify-between gap-2 sm:justify-between">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        {actions}
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={onRefreshTab}
+        disabled={isRunning || currentTabLoading}
+        aria-label={`Refresh ${tabLabel}`}
+        className="ml-auto"
+      >
+        {currentTabLoading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+        {currentTabLoading ? `Refreshing ${tabLabel}...` : `Refresh ${tabLabel}`}
       </Button>
     </DialogFooter>
   );
