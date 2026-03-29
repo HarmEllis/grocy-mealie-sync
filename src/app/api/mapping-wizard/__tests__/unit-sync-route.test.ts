@@ -185,4 +185,36 @@ describe('mapping wizard unit sync route', () => {
       status: 'success',
     }));
   });
+
+  it('records partial history when the Grocy rename fails during unit sync', async () => {
+    mockState.mealieUnits = [
+      { id: 'unit-1', name: 'Liter', abbreviation: 'l', pluralName: 'Liters' },
+    ];
+    mockState.grocyUnits = [
+      { id: 10, name: 'Old name' },
+    ];
+    mockState.updateGrocyEntity.mockRejectedValueOnce(new Error('Rename failed'));
+
+    const response = await POST(new Request('http://localhost/api/mapping-wizard/units/sync', {
+      method: 'POST',
+      body: JSON.stringify({
+        mappings: [
+          { mealieUnitId: 'unit-1', grocyUnitId: 10 },
+        ],
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({ synced: 1, renamed: 0 });
+    expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'mapping_unit_sync',
+      status: 'partial',
+      summary: expect.objectContaining({
+        synced: 1,
+        renamed: 0,
+        renameFailed: 1,
+      }),
+    }));
+  });
 });

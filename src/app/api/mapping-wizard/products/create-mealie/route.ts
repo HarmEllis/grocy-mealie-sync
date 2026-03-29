@@ -53,6 +53,7 @@ export async function POST(request: Request) {
 
     let created = 0;
     let skipped = 0;
+    let failed = 0;
 
     for (const grocyProductId of grocyProductIds) {
       if (mappedGrocyProductIds.has(grocyProductId)) {
@@ -94,26 +95,36 @@ export async function POST(request: Request) {
         mappedGrocyProductIds.add(grocyProductId);
         created++;
       } catch (error) {
+        failed++;
         log.error(`[MappingWizard] Failed to create Mealie product "${grocyProductName}":`, error);
       }
     }
 
-    await history.recordSuccess({
-      logMessage: `[MappingWizard] Mealie products created from Grocy: ${created}, skipped: ${skipped}`,
-      message: `Created ${created} Mealie product mapping(s); skipped ${skipped}.`,
+    const status = failed > 0 ? 'partial' : 'success';
+
+    await history.recordOutcome({
+      status,
+      logLevel: 'info',
+      logMessage: `[MappingWizard] Mealie products created from Grocy: ${created}, skipped: ${skipped}, failed: ${failed}`,
+      message: failed > 0
+        ? `Created ${created} Mealie product mapping(s); skipped ${skipped}; failed ${failed}.`
+        : `Created ${created} Mealie product mapping(s); skipped ${skipped}.`,
       summary: {
         requested: grocyProductIds.length,
         created,
         skipped,
+        failed,
       },
       events: [
         buildManualHistoryEvent({
-          level: 'info',
+          level: failed > 0 ? 'warning' : 'info',
           category: 'mapping',
           entityKind: 'product',
           entityRef: 'products',
-          message: `Created ${created} Mealie product(s) from Grocy products.`,
-          details: { requested: grocyProductIds.length, created, skipped },
+          message: failed > 0
+            ? `Created ${created} Mealie product(s) from Grocy products; ${failed} failed.`
+            : `Created ${created} Mealie product(s) from Grocy products.`,
+          details: { requested: grocyProductIds.length, created, skipped, failed },
         }),
       ],
     });

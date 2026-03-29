@@ -232,4 +232,36 @@ describe('mapping wizard product sync route', () => {
     });
     expect(mockState.insertValuesCalls).toHaveLength(0);
   });
+
+  it('records partial history when the Grocy rename fails during product sync', async () => {
+    mockState.mealieFoods = [
+      { id: 'food-1', name: 'Optimel Drinkyogurt' },
+    ];
+    mockState.grocyProducts = [
+      { id: 101, name: 'Optimel' },
+    ];
+    mockState.updateGrocyEntity.mockRejectedValueOnce(new Error('Rename failed'));
+
+    const response = await POST(new Request('http://localhost/api/mapping-wizard/products/sync', {
+      method: 'POST',
+      body: JSON.stringify({
+        mappings: [
+          { mealieFoodId: 'food-1', grocyProductId: 101, grocyUnitId: 10 },
+        ],
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({ synced: 1, renamed: 0 });
+    expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'mapping_product_sync',
+      status: 'partial',
+      summary: expect.objectContaining({
+        synced: 1,
+        renamed: 0,
+        renameFailed: 1,
+      }),
+    }));
+  });
 });

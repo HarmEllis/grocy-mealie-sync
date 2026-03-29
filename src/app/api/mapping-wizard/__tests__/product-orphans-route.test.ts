@@ -98,4 +98,38 @@ describe('mapping wizard orphan product route', () => {
       status: 'success',
     }));
   });
+
+  it('records partial history when one orphan product deletion fails', async () => {
+    mockState.grocyProducts = [
+      { id: 1, name: 'Orphan product' },
+      { id: 2, name: 'Second orphan product' },
+      { id: 3, name: 'Third product' },
+      { id: 4, name: 'Fourth product' },
+    ];
+    mockState.mealieFoods = [{ id: 'food-1', name: 'Milk' }];
+    mockState.deleteGrocyEntity
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('Delete failed'));
+
+    const response = await POST(new Request('http://localhost/api/mapping-wizard/products/orphans', {
+      method: 'POST',
+      body: JSON.stringify({
+        confirm: true,
+        ids: ['1', '2'],
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({ deleted: 1, total: 2 });
+    expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'mapping_product_delete_orphans',
+      status: 'partial',
+      summary: expect.objectContaining({
+        valid: 2,
+        deleted: 1,
+        failed: 1,
+      }),
+    }));
+  });
 });

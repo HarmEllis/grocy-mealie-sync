@@ -111,4 +111,37 @@ describe('mapping wizard product create route', () => {
       status: 'success',
     }));
   });
+
+  it('records partial history when one of the Grocy product creations fails', async () => {
+    mockState.mealieFoods = [
+      { id: 'food-1', name: 'Milk' },
+      { id: 'food-2', name: 'Yogurt' },
+    ];
+    mockState.unitMappingsRows = [{ id: 'unit-map-1', grocyUnitId: 3 }];
+    mockState.getGrocyEntities.mockResolvedValue([{ id: 10, name: 'Fridge' }]);
+    mockState.createGrocyEntity
+      .mockResolvedValueOnce({ created_object_id: 101 })
+      .mockRejectedValueOnce(new Error('Grocy unavailable'));
+
+    const response = await POST(new Request('http://localhost/api/mapping-wizard/products/create', {
+      method: 'POST',
+      body: JSON.stringify({
+        mealieFoodIds: ['food-1', 'food-2'],
+        defaultGrocyUnitId: 3,
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({ created: 1, skipped: 0 });
+    expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'mapping_product_create',
+      status: 'partial',
+      summary: expect.objectContaining({
+        created: 1,
+        skipped: 0,
+        failed: 1,
+      }),
+    }));
+  });
 });

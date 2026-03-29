@@ -98,4 +98,38 @@ describe('mapping wizard orphan unit route', () => {
       status: 'success',
     }));
   });
+
+  it('records partial history when one orphan unit deletion fails', async () => {
+    mockState.grocyUnits = [
+      { id: 1, name: 'Orphan unit' },
+      { id: 2, name: 'Second orphan unit' },
+      { id: 3, name: 'Third unit' },
+      { id: 4, name: 'Fourth unit' },
+    ];
+    mockState.mealieUnits = [{ id: 'unit-1', name: 'Liter', abbreviation: 'l' }];
+    mockState.deleteGrocyEntity
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('Delete failed'));
+
+    const response = await POST(new Request('http://localhost/api/mapping-wizard/units/orphans', {
+      method: 'POST',
+      body: JSON.stringify({
+        confirm: true,
+        ids: ['1', '2'],
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({ deleted: 1, total: 2 });
+    expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'mapping_unit_delete_orphans',
+      status: 'partial',
+      summary: expect.objectContaining({
+        valid: 2,
+        deleted: 1,
+        failed: 1,
+      }),
+    }));
+  });
 });

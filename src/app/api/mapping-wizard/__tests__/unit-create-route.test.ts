@@ -97,4 +97,34 @@ describe('mapping wizard unit create route', () => {
       status: 'success',
     }));
   });
+
+  it('records partial history when one of the Grocy unit creations fails', async () => {
+    mockState.mealieUnits = [
+      { id: 'unit-1', name: 'Bottle', pluralName: 'Bottles', abbreviation: 'btl' },
+      { id: 'unit-2', name: 'Liter', pluralName: 'Liters', abbreviation: 'l' },
+    ];
+    mockState.createGrocyEntity
+      .mockResolvedValueOnce({ created_object_id: 33 })
+      .mockRejectedValueOnce(new Error('Grocy unavailable'));
+
+    const response = await POST(new Request('http://localhost/api/mapping-wizard/units/create', {
+      method: 'POST',
+      body: JSON.stringify({
+        mealieUnitIds: ['unit-1', 'unit-2'],
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({ created: 1, skipped: 0 });
+    expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'mapping_unit_create',
+      status: 'partial',
+      summary: expect.objectContaining({
+        created: 1,
+        skipped: 0,
+        failed: 1,
+      }),
+    }));
+  });
 });

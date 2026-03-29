@@ -88,6 +88,7 @@ export async function POST(request: Request) {
 
     let synced = 0;
     let renamed = 0;
+    let renameFailed = 0;
 
     for (const entry of mappings) {
       const mFood = mealieFoods.find(f => f.id === entry.mealieFoodId);
@@ -112,6 +113,7 @@ export async function POST(request: Request) {
           effectiveGrocyName = mealieName;
           renamed++;
         } catch (e) {
+          renameFailed++;
           log.error(`[MappingWizard] Failed to rename Grocy product ${entry.grocyProductId}:`, e);
         }
       }
@@ -140,22 +142,31 @@ export async function POST(request: Request) {
       synced++;
     }
 
-    await history.recordSuccess({
-      logMessage: `[MappingWizard] Products synced: ${synced}, renamed: ${renamed}`,
-      message: `Mapped ${synced} product(s); renamed ${renamed}.`,
+    const status = renameFailed > 0 ? 'partial' : 'success';
+
+    await history.recordOutcome({
+      status,
+      logLevel: 'info',
+      logMessage: `[MappingWizard] Products synced: ${synced}, renamed: ${renamed}, rename failures: ${renameFailed}`,
+      message: renameFailed > 0
+        ? `Mapped ${synced} product(s); renamed ${renamed}; ${renameFailed} rename(s) failed.`
+        : `Mapped ${synced} product(s); renamed ${renamed}.`,
       summary: {
         requested: mappings.length,
         synced,
         renamed,
+        renameFailed,
       },
       events: [
         buildManualHistoryEvent({
-          level: 'info',
+          level: renameFailed > 0 ? 'warning' : 'info',
           category: 'mapping',
           entityKind: 'product',
           entityRef: 'products',
-          message: `Mapped ${synced} product(s).`,
-          details: { requested: mappings.length, synced, renamed },
+          message: renameFailed > 0
+            ? `Mapped ${synced} product(s); ${renameFailed} rename(s) failed.`
+            : `Mapped ${synced} product(s).`,
+          details: { requested: mappings.length, synced, renamed, renameFailed },
         }),
       ],
     });

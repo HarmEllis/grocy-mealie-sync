@@ -140,31 +140,42 @@ export async function POST(request: Request) {
     }
 
     let deleted = 0;
+    let failed = 0;
     for (const id of validIds) {
       try {
         await deleteGrocyEntity('quantity_units', Number(id));
         deleted++;
       } catch (e) {
+        failed++;
         log.error(`[MappingWizard] Failed to delete Grocy unit ${id}:`, e);
       }
     }
 
-    await history.recordSuccess({
-      logMessage: `[MappingWizard] Orphan units deleted: ${deleted}/${validIds.length}`,
-      message: `Deleted ${deleted} orphan Grocy unit(s) out of ${validIds.length} requested orphan(s).`,
+    const status = failed > 0 ? 'partial' : 'success';
+
+    await history.recordOutcome({
+      status,
+      logLevel: 'info',
+      logMessage: `[MappingWizard] Orphan units deleted: ${deleted}/${validIds.length}, failed: ${failed}`,
+      message: failed > 0
+        ? `Deleted ${deleted} orphan Grocy unit(s) out of ${validIds.length} requested orphan(s); ${failed} failed.`
+        : `Deleted ${deleted} orphan Grocy unit(s) out of ${validIds.length} requested orphan(s).`,
       summary: {
         requested: ids.length,
         valid: validIds.length,
         deleted,
+        failed,
       },
       events: [
         buildManualHistoryEvent({
-          level: 'info',
+          level: failed > 0 ? 'warning' : 'info',
           category: 'mapping',
           entityKind: 'unit',
           entityRef: 'orphans',
-          message: `Deleted ${deleted} orphan Grocy unit(s).`,
-          details: { requested: ids.length, valid: validIds.length, deleted },
+          message: failed > 0
+            ? `Deleted ${deleted} orphan Grocy unit(s); ${failed} failed.`
+            : `Deleted ${deleted} orphan Grocy unit(s).`,
+          details: { requested: ids.length, valid: validIds.length, deleted, failed },
         }),
       ],
     });

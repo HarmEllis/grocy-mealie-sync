@@ -87,6 +87,7 @@ export async function POST(request: Request) {
 
     let synced = 0;
     let renamed = 0;
+    let renameFailed = 0;
 
     for (const entry of mappings) {
       const mUnit = mealieUnits.find(u => u.id === entry.mealieUnitId);
@@ -126,27 +127,37 @@ export async function POST(request: Request) {
           });
           renamed++;
         } catch (e) {
+          renameFailed++;
           log.error(`[MappingWizard] Failed to rename Grocy unit ${entry.grocyUnitId}:`, e);
         }
       }
     }
 
-    await history.recordSuccess({
-      logMessage: `[MappingWizard] Units synced: ${synced}, renamed: ${renamed}`,
-      message: `Mapped ${synced} unit(s); renamed ${renamed}.`,
+    const status = renameFailed > 0 ? 'partial' : 'success';
+
+    await history.recordOutcome({
+      status,
+      logLevel: 'info',
+      logMessage: `[MappingWizard] Units synced: ${synced}, renamed: ${renamed}, rename failures: ${renameFailed}`,
+      message: renameFailed > 0
+        ? `Mapped ${synced} unit(s); renamed ${renamed}; ${renameFailed} rename(s) failed.`
+        : `Mapped ${synced} unit(s); renamed ${renamed}.`,
       summary: {
         requested: mappings.length,
         synced,
         renamed,
+        renameFailed,
       },
       events: [
         buildManualHistoryEvent({
-          level: 'info',
+          level: renameFailed > 0 ? 'warning' : 'info',
           category: 'mapping',
           entityKind: 'unit',
           entityRef: 'units',
-          message: `Mapped ${synced} unit(s).`,
-          details: { requested: mappings.length, synced, renamed },
+          message: renameFailed > 0
+            ? `Mapped ${synced} unit(s); ${renameFailed} rename(s) failed.`
+            : `Mapped ${synced} unit(s).`,
+          details: { requested: mappings.length, synced, renamed, renameFailed },
         }),
       ],
     });

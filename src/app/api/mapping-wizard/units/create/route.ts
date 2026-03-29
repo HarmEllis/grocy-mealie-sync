@@ -55,6 +55,7 @@ export async function POST(request: Request) {
 
     let created = 0;
     let skipped = 0;
+    let failed = 0;
 
     for (const mealieUnitId of mealieUnitIds) {
       if (mappedMealieUnitIds.has(mealieUnitId)) {
@@ -87,26 +88,36 @@ export async function POST(request: Request) {
 
         created++;
       } catch (e) {
+        failed++;
         log.error(`[MappingWizard] Failed to create Grocy unit "${name}":`, e);
       }
     }
 
-    await history.recordSuccess({
-      logMessage: `[MappingWizard] Units created: ${created}, skipped: ${skipped}`,
-      message: `Created ${created} Grocy unit mapping(s); skipped ${skipped}.`,
+    const status = failed > 0 ? 'partial' : 'success';
+
+    await history.recordOutcome({
+      status,
+      logLevel: 'info',
+      logMessage: `[MappingWizard] Units created: ${created}, skipped: ${skipped}, failed: ${failed}`,
+      message: failed > 0
+        ? `Created ${created} Grocy unit mapping(s); skipped ${skipped}; failed ${failed}.`
+        : `Created ${created} Grocy unit mapping(s); skipped ${skipped}.`,
       summary: {
         requested: mealieUnitIds.length,
         created,
         skipped,
+        failed,
       },
       events: [
         buildManualHistoryEvent({
-          level: 'info',
+          level: failed > 0 ? 'warning' : 'info',
           category: 'mapping',
           entityKind: 'unit',
           entityRef: 'units',
-          message: `Created ${created} Grocy unit(s) from Mealie units.`,
-          details: { requested: mealieUnitIds.length, created, skipped },
+          message: failed > 0
+            ? `Created ${created} Grocy unit(s) from Mealie units; ${failed} failed.`
+            : `Created ${created} Grocy unit(s) from Mealie units.`,
+          details: { requested: mealieUnitIds.length, created, skipped, failed },
         }),
       ],
     });
