@@ -3,10 +3,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { NativeSelect } from '@/components/ui/native-select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
+import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
@@ -151,13 +151,13 @@ export function SettingsForm() {
 
   if (!settings) return null;
 
-  async function handleShoppingListChange(value: string) {
+  async function handleShoppingListChange(value: string | null) {
     const newValue = value || null;
     const ok = await saveSetting({ mealieShoppingListId: newValue });
     if (ok) setSettings(s => s ? { ...s, mealieShoppingListId: newValue } : s);
   }
 
-  async function handleUnitChange(value: string) {
+  async function handleUnitChange(value: string | null) {
     const newValue = value || null;
     const ok = await saveSetting({ defaultUnitMappingId: newValue });
     if (ok) setSettings(s => s ? { ...s, defaultUnitMappingId: newValue } : s);
@@ -193,6 +193,22 @@ export function SettingsForm() {
     if (ok) setSettings(s => s ? { ...s, mappingWizardMinStockStep: value } : s);
   }
 
+  const shoppingListOptions = [...settings.availableShoppingLists]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(list => ({ value: list.id, label: list.name }));
+
+  const unitOptions = [...settings.availableUnits]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(unit => ({
+      value: unit.id,
+      label: `${unit.name}${unit.abbreviation ? ` (${unit.abbreviation})` : ''}`,
+    }));
+
+  const minStockStepOptions = MIN_STOCK_STEP_VALUES.map(step => ({
+    value: step,
+    label: MIN_STOCK_STEP_LABELS[step],
+  }));
+
   return (
     <TooltipProvider>
       <div className="space-y-5">
@@ -206,18 +222,16 @@ export function SettingsForm() {
           {settings.availableShoppingLists.length === 0 ? (
             <p className="text-sm text-muted-foreground">Could not load shopping lists from Mealie.</p>
           ) : (
-            <NativeSelect
-              id="shopping-list"
-              value={settings.mealieShoppingListId || ''}
-              onChange={e => handleShoppingListChange(e.target.value)}
+            <SearchableSelect
+              options={shoppingListOptions}
+              value={settings.mealieShoppingListId}
+              onChange={value => { void handleShoppingListChange(value); }}
               disabled={settings.locks.mealieShoppingListId.locked}
-              containerClassName="ml-auto w-full max-w-xs"
-            >
-              <option value="">-- Not set --</option>
-              {[...settings.availableShoppingLists].sort((a, b) => a.name.localeCompare(b.name)).map(l => (
-                <option key={l.id} value={l.id}>{l.name}</option>
-              ))}
-            </NativeSelect>
+              ariaLabel="Mealie shopping list"
+              placeholder="Not set"
+              searchPlaceholder="Search shopping lists..."
+              className="ml-auto w-full max-w-xs"
+            />
           )}
         </div>
 
@@ -231,20 +245,16 @@ export function SettingsForm() {
           {settings.availableUnits.length === 0 ? (
             <p className="text-sm text-muted-foreground">No units synced yet. Run a product sync first.</p>
           ) : (
-            <NativeSelect
-              id="default-unit"
-              value={settings.defaultUnitMappingId || ''}
-              onChange={e => handleUnitChange(e.target.value)}
+            <SearchableSelect
+              options={unitOptions}
+              value={settings.defaultUnitMappingId}
+              onChange={value => { void handleUnitChange(value); }}
               disabled={settings.locks.defaultUnitMappingId.locked}
-              containerClassName="ml-auto w-full max-w-xs"
-            >
-              <option value="">-- Not set --</option>
-              {[...settings.availableUnits].sort((a, b) => a.name.localeCompare(b.name)).map(u => (
-                <option key={u.id} value={u.id}>
-                  {u.name}{u.abbreviation ? ` (${u.abbreviation})` : ''}
-                </option>
-              ))}
-            </NativeSelect>
+              ariaLabel="Default unit for new Grocy products"
+              placeholder="Not set"
+              searchPlaceholder="Search units..."
+              className="ml-auto w-full max-w-xs"
+            />
           )}
         </div>
 
@@ -370,19 +380,20 @@ export function SettingsForm() {
               </label>
               <LockBadge lock={settings.locks.mappingWizardMinStockStep} />
             </div>
-            <NativeSelect
-              id="mapping-wizard-min-stock-step"
+            <SearchableSelect
+              options={minStockStepOptions}
               value={settings.mappingWizardMinStockStep}
-              onChange={event => handleMappingWizardMinStockStepChange(event.target.value as MinStockStep)}
+              onChange={value => {
+                if (value) {
+                  void handleMappingWizardMinStockStepChange(value);
+                }
+              }}
               disabled={settings.locks.mappingWizardMinStockStep.locked}
-              containerClassName="ml-auto w-full max-w-xs"
-            >
-              {MIN_STOCK_STEP_VALUES.map(step => (
-                <option key={step} value={step}>
-                  {MIN_STOCK_STEP_LABELS[step]}
-                </option>
-              ))}
-            </NativeSelect>
+              ariaLabel="Min stock input step"
+              searchPlaceholder="Search step sizes..."
+              className="ml-auto w-full max-w-xs"
+              clearable={false}
+            />
           </div>
           <p className="pl-6 text-xs text-muted-foreground">
             This only changes the browser stepper increment. Manually typed values like `0.1` are still accepted even when the step is `1`.

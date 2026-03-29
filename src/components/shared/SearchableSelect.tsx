@@ -20,6 +20,7 @@ interface SearchableSelectProps<T extends string | number> {
   className?: string;
   controlClassName?: string;
   clearable?: boolean;
+  disabled?: boolean;
 }
 
 interface DropdownPosition {
@@ -41,6 +42,7 @@ export function SearchableSelect<T extends string | number>({
   className,
   controlClassName,
   clearable = true,
+  disabled = false,
 }: SearchableSelectProps<T>) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -137,12 +139,18 @@ export function SearchableSelect<T extends string | number>({
 
   function handleClear(e: React.MouseEvent) {
     e.stopPropagation();
+    if (disabled) {
+      return;
+    }
     onChange(null);
     setSearch('');
     setActiveIndex(-1);
   }
 
   function openDropdown() {
+    if (disabled) {
+      return;
+    }
     setOpen(true);
     setTimeout(() => {
       updateDropdownPosition();
@@ -151,6 +159,10 @@ export function SearchableSelect<T extends string | number>({
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
+    if (disabled) {
+      return;
+    }
+
     if (!open) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') {
         e.preventDefault();
@@ -234,14 +246,16 @@ export function SearchableSelect<T extends string | number>({
         aria-haspopup="listbox"
         aria-owns={listboxId}
         aria-activedescendant={activeDescendant}
+        aria-disabled={disabled}
         aria-label={ariaLabel}
-        tabIndex={open ? -1 : 0}
-        onClick={openDropdown}
+        tabIndex={disabled ? -1 : open ? -1 : 0}
+        onClick={disabled ? undefined : openDropdown}
         onKeyDown={handleKeyDown}
         className={cn(
           'flex h-8 min-w-0 w-full items-center gap-1.5 rounded-lg border px-2.5 py-1 text-sm cursor-pointer',
           'border-input bg-background hover:bg-muted/50 transition-colors',
           value !== null && 'bg-success/10 border-success/30',
+          disabled && 'cursor-not-allowed opacity-60 hover:bg-background',
           controlClassName,
         )}
       >
@@ -266,7 +280,7 @@ export function SearchableSelect<T extends string | number>({
             {value !== null ? selectedLabel : placeholder}
           </span>
         )}
-        {clearable && value !== null && (
+        {clearable && value !== null && !disabled && (
           <button
             type="button"
             onClick={handleClear}

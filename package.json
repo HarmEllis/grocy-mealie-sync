@@ -18,6 +18,7 @@
     "openapi:refresh": "node scripts/update-openapi.mjs",
     "test:playwright:history-search": "node scripts/test-history-search.mjs",
     "test:playwright:mapped-products-mobile": "node scripts/test-mapped-products-mobile.mjs",
+    "test:playwright:settings-dark-selects": "node scripts/test-settings-dark-selects.mjs",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
