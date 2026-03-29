@@ -166,6 +166,7 @@ export const config = {
   grocyApiKey: process.env.GROCY_API_KEY || '',
   mealieUrl: validateServiceUrl(process.env.MEALIE_URL, 'MEALIE_URL', MEALIE_DEFAULT_URL),
   mealieApiToken: process.env.MEALIE_API_TOKEN || '',
+  mcpEnabled: parseBooleanEnv(process.env.MCP_ENABLED, false, 'MCP_ENABLED'),
   mealieShoppingListId: process.env.MEALIE_SHOPPING_LIST_ID || '',
   pollIntervalSeconds: parseIntOrDefault(process.env.POLL_INTERVAL_SECONDS, 60),
   productSyncIntervalHours: parseIntOrDefault(process.env.PRODUCT_SYNC_INTERVAL_HOURS, 6),

@@ -49,6 +49,7 @@ Optional auth settings:
 
 - `AUTH_ENABLED=true` to require login for the web UI and auth for protected API routes
 - `AUTH_SECRET=...` as the shared secret for both the login form and `Authorization: Bearer <token>`
+- `MCP_ENABLED=true` to enable the MCP endpoint at `/api/mcp` (default: disabled)
 
 If `AUTH_ENABLED` is unset, auth turns on automatically when `AUTH_SECRET` is set. Set `AUTH_ENABLED=false` to disable auth explicitly.
 
@@ -202,13 +203,21 @@ Manual triggers are useful for testing. The scheduler runs these automatically.
 
 ## MCP Server
 
-The app also exposes a Streamable HTTP MCP endpoint at:
+The MCP endpoint is disabled by default. Enable it with:
+
+```text
+MCP_ENABLED=true
+```
+
+When enabled, the app exposes a Streamable HTTP MCP endpoint at:
 
 ```text
 http://localhost:3000/api/mcp
 ```
 
 Use the same app URL when running in Docker or on a remote server.
+
+On startup, the app logs whether the MCP server is enabled or disabled.
 
 When auth is enabled, connect with:
 

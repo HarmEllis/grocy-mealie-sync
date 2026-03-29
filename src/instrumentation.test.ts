@@ -8,6 +8,7 @@ const mockState = vi.hoisted(() => ({
     defaultUnitMappingId: null,
     mealieShoppingListId: null,
   })),
+  mcpEnabled: false,
   startScheduler: vi.fn(),
   stopScheduler: vi.fn(),
   logInfo: vi.fn(),
@@ -31,8 +32,15 @@ vi.mock('./lib/history-store', () => ({
 
 vi.mock('./lib/config', () => ({
   config: {
-    grocyDefaultUnitId: null,
-    mealieShoppingListId: null,
+    get grocyDefaultUnitId() {
+      return null;
+    },
+    get mealieShoppingListId() {
+      return null;
+    },
+    get mcpEnabled() {
+      return mockState.mcpEnabled;
+    },
   },
 }));
 
@@ -59,6 +67,7 @@ describe('instrumentation register', () => {
     mockState.initializeHistoryStorage.mockReset();
     mockState.initializeHistoryStorage.mockResolvedValue(undefined);
     mockState.getSettings.mockClear();
+    mockState.mcpEnabled = false;
     mockState.startScheduler.mockReset();
     mockState.stopScheduler.mockReset();
     mockState.logInfo.mockReset();
@@ -103,15 +112,29 @@ describe('instrumentation register', () => {
     onceSpy.mockRestore();
   });
 
-  it('logs the app version only once when instrumentation runs multiple times', async () => {
+  it('logs startup info only once when instrumentation runs multiple times', async () => {
     const { register } = await import('./instrumentation');
 
     await register();
     await register();
 
-    expect(mockState.logInfo).toHaveBeenCalledTimes(1);
-    expect(mockState.logInfo).toHaveBeenCalledWith(
+    expect(mockState.logInfo).toHaveBeenCalledTimes(2);
+    expect(mockState.logInfo).toHaveBeenNthCalledWith(
+      1,
       `[App] Starting ${packageMetadata.name} v${packageMetadata.version}`,
     );
+    expect(mockState.logInfo).toHaveBeenNthCalledWith(
+      2,
+      '[MCP] Server disabled. Set MCP_ENABLED=true to enable /api/mcp',
+    );
+  });
+
+  it('logs when the mcp server is enabled on startup', async () => {
+    mockState.mcpEnabled = true;
+    const { register } = await import('./instrumentation');
+
+    await register();
+
+    expect(mockState.logInfo).toHaveBeenCalledWith('[MCP] Server enabled at /api/mcp');
   });
 });

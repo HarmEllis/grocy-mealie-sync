@@ -1,7 +1,7 @@
 import packageMetadata from '../package.json';
 
 let shutdownHooksRegistered = false;
-let startupVersionLogged = false;
+let startupInfoLogged = false;
 
 function registerSchedulerShutdownHooks(stopScheduler: () => void) {
   if (shutdownHooksRegistered) {
@@ -41,9 +41,14 @@ export async function register() {
     // Log config warnings
     const { config } = await import('./lib/config');
     const { log } = await import('./lib/logger');
-    if (!startupVersionLogged) {
+    if (!startupInfoLogged) {
       log.info(`[App] Starting ${packageMetadata.name} v${packageMetadata.version}`);
-      startupVersionLogged = true;
+      log.info(
+        config.mcpEnabled
+          ? '[MCP] Server enabled at /api/mcp'
+          : '[MCP] Server disabled. Set MCP_ENABLED=true to enable /api/mcp',
+      );
+      startupInfoLogged = true;
     }
     const { getSettings } = await import('./lib/settings');
     const settings = await getSettings();
