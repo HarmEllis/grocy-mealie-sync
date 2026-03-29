@@ -17,8 +17,15 @@ When asked to prepare or create a new release tag, complete all of the steps bel
    - add or update the bottom comparison link so the new version compares `<previous-tag>...v<x.y.z>`
 3. Generate a fresh docs screenshot with `npm run docs:screenshot` and include the updated `docs/images/app-dashboard.png` in the release changes.
 4. Bump the app version in `package.json` to the new release version. Keep `package-lock.json` in sync if its mirrored version fields change.
-5. Verify the release-prep edits before tagging. At minimum, run `npm run typecheck` and any targeted tests needed for files touched during the release prep.
-6. Create the git tag only after the changelog, screenshot, and version bump are all committed-ready.
+5. Verify Drizzle migration completeness before tagging:
+   - run `npm run db:generate`
+   - if it generates new files or updates under `drizzle/`, review them, keep the generated migration artifacts, and do not tag until there are no missing schema migrations left to generate
+6. Verify the database upgrade path from `<previous-tag>` to the release candidate:
+   - create or migrate a database with the code at `<previous-tag>` in a temporary, non-destructive setup such as a separate git worktree
+   - run the current code against that same database and confirm the app's startup migrations complete successfully
+   - add or update targeted migration coverage when needed so release prep tests the specific upgrade path introduced since `<previous-tag>`
+7. Verify the release-prep edits before tagging. At minimum, run `npm run typecheck`, `npm test -- src/lib/db/__tests__/migrations.test.ts`, and any targeted tests needed for files touched during the release prep.
+8. Create the git tag only after the changelog, screenshot, version bump, and migration verification are all committed-ready.
 
 ## Version Format
 
