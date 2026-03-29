@@ -14,6 +14,7 @@ import { MappingWizard } from '@/components/mapping-wizard/MappingWizard';
 import { LogoutButton } from '@/components/auth/LogoutButton';
 import { ArrowLeftRight, Settings, Wand2, Activity, Database, Clock, Terminal, AlertTriangle, History as HistoryIcon } from 'lucide-react';
 import { ThemeSwitcher } from '@/components/theme/ThemeSwitcher';
+import { AppVersion } from '@/components/app/AppVersion';
 import { getAuthConfig } from '@/lib/auth';
 import { config } from '@/lib/config';
 import { formatDateTime } from '@/lib/date-time';
@@ -59,9 +60,12 @@ export default async function Home() {
       <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="mx-auto flex h-14 max-w-3xl items-center gap-3 px-4">
           <ArrowLeftRight className="size-5 text-primary" />
-          <div>
-            <h1 className="text-base font-semibold leading-tight">Grocy-Mealie Sync</h1>
-            <p className="text-xs text-muted-foreground">Bi-directional sync between Grocy and Mealie</p>
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <h1 className="truncate text-base font-semibold leading-tight">Grocy-Mealie Sync</h1>
+              <AppVersion />
+            </div>
+            <p className="truncate text-xs text-muted-foreground">Bi-directional sync between Grocy and Mealie</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
             {status && (
