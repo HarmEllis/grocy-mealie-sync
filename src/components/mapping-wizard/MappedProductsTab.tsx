@@ -15,16 +15,9 @@ interface MappedProductsTabProps {
   setProductSearch: (value: string) => void;
   showOnlyBelowMinimumStock: boolean;
   setShowOnlyBelowMinimumStock: (value: boolean) => void;
+  onUpdateCurrentStock: (grocyProductId: number, currentStock: number) => Promise<void>;
   onUpdateMinStock: (grocyProductId: number, minStockAmount: number) => Promise<void>;
   onUnmapProduct: (mappingId: string, productName: string) => void;
-}
-
-function formatAmount(value: number): string {
-  if (Number.isInteger(value)) {
-    return String(value);
-  }
-
-  return value.toFixed(2).replace(/\.?0+$/, '');
 }
 
 export function MappedProductsTab({
@@ -33,13 +26,21 @@ export function MappedProductsTab({
   setProductSearch,
   showOnlyBelowMinimumStock,
   setShowOnlyBelowMinimumStock,
+  onUpdateCurrentStock,
   onUpdateMinStock,
   onUnmapProduct,
 }: MappedProductsTabProps) {
+  const [draftCurrentStock, setDraftCurrentStock] = useState<Record<number, string>>({});
   const [draftMinStock, setDraftMinStock] = useState<Record<number, string>>({});
+  const [savingCurrentStockGrocyProductId, setSavingCurrentStockGrocyProductId] = useState<number | null>(null);
   const [savingGrocyProductId, setSavingGrocyProductId] = useState<number | null>(null);
 
   useEffect(() => {
+    setDraftCurrentStock(
+      Object.fromEntries(
+        data.mappedProducts.map(product => [product.grocyProductId, String(product.currentStock)]),
+      ),
+    );
     setDraftMinStock(
       Object.fromEntries(
         data.mappedProducts.map(product => [product.grocyProductId, String(product.minStockAmount)]),
@@ -84,6 +85,22 @@ export function MappedProductsTab({
     }
   }
 
+  async function saveCurrentStock(grocyProductId: number) {
+    const rawValue = draftCurrentStock[grocyProductId] ?? '0';
+    const nextValue = Number(rawValue);
+
+    if (!Number.isFinite(nextValue) || nextValue < 0) {
+      return;
+    }
+
+    setSavingCurrentStockGrocyProductId(grocyProductId);
+    try {
+      await onUpdateCurrentStock(grocyProductId, nextValue);
+    } finally {
+      setSavingCurrentStockGrocyProductId(current => (current === grocyProductId ? null : current));
+    }
+  }
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col space-y-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -103,12 +120,12 @@ export function MappedProductsTab({
       </div>
 
       <div className="min-h-0 min-w-0 flex-1 rounded-md border">
-        <Table className="min-w-[760px]" containerClassName="h-full min-w-0">
+        <Table className="min-w-[980px]" containerClassName="h-full min-w-0">
           <TableHeader>
             <TableRow>
               <TableHead>Product</TableHead>
               <TableHead>Unit</TableHead>
-              <TableHead className="w-[140px]">Current Stock</TableHead>
+              <TableHead className="w-[220px]">Current Stock</TableHead>
               <TableHead className="w-[220px]">Min Stock</TableHead>
               <TableHead className="w-[110px]">Actions</TableHead>
             </TableRow>
@@ -122,6 +139,11 @@ export function MappedProductsTab({
               </TableRow>
             )}
             {filteredProducts.map(product => {
+              const draftCurrentValue = draftCurrentStock[product.grocyProductId] ?? String(product.currentStock);
+              const parsedCurrentDraft = Number(draftCurrentValue);
+              const isCurrentInvalid = !Number.isFinite(parsedCurrentDraft) || parsedCurrentDraft < 0;
+              const isCurrentDirty = !isCurrentInvalid && parsedCurrentDraft !== product.currentStock;
+              const isSavingCurrentStock = savingCurrentStockGrocyProductId === product.grocyProductId;
               const draftValue = draftMinStock[product.grocyProductId] ?? String(product.minStockAmount);
               const parsedDraft = Number(draftValue);
               const isInvalid = !Number.isFinite(parsedDraft) || parsedDraft < 0;
@@ -132,7 +154,38 @@ export function MappedProductsTab({
                 <TableRow key={product.id}>
                   <TableCell className="font-medium">{product.name}</TableCell>
                   <TableCell className="text-muted-foreground">{product.unitName}</TableCell>
-                  <TableCell>{formatAmount(product.currentStock)}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={draftCurrentValue}
+                        onChange={event => {
+                          const value = event.target.value;
+                          setDraftCurrentStock(prev => ({ ...prev, [product.grocyProductId]: value }));
+                        }}
+                        onKeyDown={event => {
+                          if (event.key === 'Enter' && isCurrentDirty && !isSavingCurrentStock) {
+                            event.preventDefault();
+                            void saveCurrentStock(product.grocyProductId);
+                          }
+                        }}
+                        className="h-8 min-w-[11rem]"
+                      />
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => void saveCurrentStock(product.grocyProductId)}
+                        disabled={isSavingCurrentStock || !isCurrentDirty}
+                        aria-label={`Save current stock for ${product.name}`}
+                        title={`Save current stock for ${product.name}`}
+                        className="w-full sm:w-auto sm:shrink-0"
+                      >
+                        {isSavingCurrentStock ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                      </Button>
+                    </div>
+                  </TableCell>
                   <TableCell>
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                       <Input

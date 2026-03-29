@@ -252,7 +252,8 @@ async function main() {
       await page.getByRole('button', { name: 'Mapping Wizard' }).click();
       await page.getByRole('tab', { name: 'Mapped Products' }).click();
 
-      const input = page.locator('input[type="number"]').first();
+      const row = page.locator('tr', { hasText: 'Milk' }).first();
+      const input = row.locator('input[type="number"]').nth(1);
       await input.waitFor();
 
       const metrics = await input.evaluate((element) => {

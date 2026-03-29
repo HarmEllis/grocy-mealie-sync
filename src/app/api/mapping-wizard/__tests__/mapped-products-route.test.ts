@@ -9,6 +9,7 @@ const mockState = vi.hoisted(() => ({
   grocyUnits: [] as Array<Record<string, unknown>>,
   currentStock: [] as Array<Record<string, unknown>>,
   volatileStock: { missing_products: [] as Array<Record<string, unknown>> },
+  inventoryProductStock: vi.fn(),
   updateGrocyEntity: vi.fn(),
   resolveMappingWizardMinStockStep: vi.fn(async () => '1'),
   logError: vi.fn(),
@@ -46,6 +47,7 @@ vi.mock('@/lib/grocy/types', () => ({
   }),
   getCurrentStock: vi.fn(async () => mockState.currentStock),
   getVolatileStock: vi.fn(async () => mockState.volatileStock),
+  inventoryProductStock: mockState.inventoryProductStock,
   updateGrocyEntity: mockState.updateGrocyEntity,
 }));
 
@@ -69,6 +71,7 @@ describe('mapped products route', () => {
     mockState.grocyUnits = [];
     mockState.currentStock = [];
     mockState.volatileStock = { missing_products: [] };
+    mockState.inventoryProductStock.mockReset();
     mockState.updateGrocyEntity.mockReset();
     mockState.resolveMappingWizardMinStockStep.mockReset();
     mockState.resolveMappingWizardMinStockStep.mockResolvedValue('1');
@@ -230,6 +233,30 @@ describe('mapped products route', () => {
       status: 'ok',
       grocyProductId: 10,
       minStockAmount: 1.5,
+    });
+  });
+
+  it('updates the current Grocy stock amount', async () => {
+    const request = new Request('http://localhost/api/mapping-wizard/products/mapped', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grocyProductId: 10,
+        currentStock: 7.5,
+      }),
+    });
+
+    const response = await PATCH(request);
+    const body = await response.json();
+
+    expect(mockState.inventoryProductStock).toHaveBeenCalledWith(10, {
+      newAmount: 7.5,
+    });
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      status: 'ok',
+      grocyProductId: 10,
+      currentStock: 7.5,
     });
   });
 });

@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { productMappings, unitMappings } from '@/lib/db/schema';
-import { getCurrentStock, getGrocyEntities, getVolatileStock, updateGrocyEntity } from '@/lib/grocy/types';
+import { getCurrentStock, getGrocyEntities, getVolatileStock, inventoryProductStock, updateGrocyEntity } from '@/lib/grocy/types';
 import { log } from '@/lib/logger';
 import { resolveMappingWizardMinStockStep } from '@/lib/settings';
-import { mappedProductMinStockUpdateSchema } from '@/lib/validation';
+import { mappedProductStockUpdateSchema } from '@/lib/validation';
 
 export async function GET() {
   try {
@@ -72,7 +72,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const parsed = mappedProductMinStockUpdateSchema.safeParse(body);
+  const parsed = mappedProductStockUpdateSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: 'Invalid request body', details: parsed.error.issues },
@@ -81,17 +81,26 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    await updateGrocyEntity('products', parsed.data.grocyProductId, {
-      min_stock_amount: parsed.data.minStockAmount,
-    });
+    if (parsed.data.minStockAmount !== undefined) {
+      await updateGrocyEntity('products', parsed.data.grocyProductId, {
+        min_stock_amount: parsed.data.minStockAmount,
+      });
+    }
+
+    if (parsed.data.currentStock !== undefined) {
+      await inventoryProductStock(parsed.data.grocyProductId, {
+        newAmount: parsed.data.currentStock,
+      });
+    }
 
     return NextResponse.json({
       status: 'ok',
       grocyProductId: parsed.data.grocyProductId,
-      minStockAmount: parsed.data.minStockAmount,
+      ...(parsed.data.minStockAmount !== undefined ? { minStockAmount: parsed.data.minStockAmount } : {}),
+      ...(parsed.data.currentStock !== undefined ? { currentStock: parsed.data.currentStock } : {}),
     });
   } catch (error) {
-    log.error(`[MappingWizard] Failed to update min stock for Grocy product ${parsed.data.grocyProductId}:`, error);
-    return NextResponse.json({ error: 'Failed to update minimum stock' }, { status: 500 });
+    log.error(`[MappingWizard] Failed to update stock values for Grocy product ${parsed.data.grocyProductId}:`, error);
+    return NextResponse.json({ error: 'Failed to update Grocy stock values' }, { status: 500 });
   }
 }

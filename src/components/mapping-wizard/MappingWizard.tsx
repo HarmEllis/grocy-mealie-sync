@@ -1307,6 +1307,34 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
     toast.success('Minimum stock updated');
   }
 
+  async function updateMappedProductCurrentStock(grocyProductId: number, currentStock: number) {
+    const res = await fetch('/api/mapping-wizard/products/mapped', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ grocyProductId, currentStock }),
+    });
+    const result = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      throw new Error(result?.error || 'Failed to update current stock');
+    }
+
+    setMappedProductsData(prev => prev ? ({
+      minStockStep: prev.minStockStep,
+      mappedProducts: prev.mappedProducts.map(product =>
+        product.grocyProductId === grocyProductId
+          ? {
+            ...product,
+            currentStock,
+            isBelowMinimum: currentStock < product.minStockAmount,
+          }
+          : product,
+      ),
+    }) : prev);
+    markOtherLoadedTabsDirty('mapped-products');
+    toast.success('Current stock updated');
+  }
+
   async function unmapMappedProduct(mappingId: string, productName: string) {
     await runAction('unmapMappedProduct', async () => {
       const res = await fetch('/api/mapping-wizard/products/unmap', {
@@ -1439,6 +1467,7 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
             setProductSearch={setMappedProductSearch}
             showOnlyBelowMinimumStock={showOnlyMappedProductsBelowMinimum}
             setShowOnlyBelowMinimumStock={setShowOnlyMappedProductsBelowMinimum}
+            onUpdateCurrentStock={updateMappedProductCurrentStock}
             onUpdateMinStock={updateGrocyProductMinStock}
             onUnmapProduct={(mappingId, productName) => openConfirm(
               `unmapProduct_${mappingId}`,

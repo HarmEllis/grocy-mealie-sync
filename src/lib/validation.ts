@@ -28,11 +28,18 @@ export const productCreateMealieRequestSchema = z.object({
   unitSelections: z.record(z.string(), z.number().nullable()).optional(),
 });
 
-/** Schema for updating the Grocy minimum stock amount of a mapped product */
-export const mappedProductMinStockUpdateSchema = z.object({
+/** Schema for updating Grocy stock values from the mapped products tab */
+export const mappedProductStockUpdateSchema = z.object({
   grocyProductId: z.number(),
-  minStockAmount: z.number().min(0),
-});
+  minStockAmount: z.number().min(0).optional(),
+  currentStock: z.number().min(0).optional(),
+}).refine(
+  value => value.minStockAmount !== undefined || value.currentStock !== undefined,
+  {
+    message: 'At least one Grocy stock value must be provided.',
+    path: ['grocyProductId'],
+  },
+);
 
 // --- Mapping Wizard: Units ---
 
