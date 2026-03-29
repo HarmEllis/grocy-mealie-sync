@@ -134,7 +134,7 @@ export function MappedProductsTab({
                   <TableCell className="text-muted-foreground">{product.unitName}</TableCell>
                   <TableCell>{formatAmount(product.currentStock)}</TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                       <Input
                         type="number"
                         min="0"
@@ -150,7 +150,7 @@ export function MappedProductsTab({
                             void saveMinStock(product.grocyProductId);
                           }
                         }}
-                        className="h-8"
+                        className="h-8 min-w-[11rem]"
                       />
                       <Button
                         type="button"
@@ -159,6 +159,7 @@ export function MappedProductsTab({
                         disabled={isSaving || !isDirty}
                         aria-label={`Save minimum stock for ${product.name}`}
                         title={`Save minimum stock for ${product.name}`}
+                        className="w-full sm:w-auto sm:shrink-0"
                       >
                         {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
                       </Button>
