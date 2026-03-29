@@ -358,7 +358,7 @@ export async function listHistoryRuns(limit = 100, filters: HistoryRunListFilter
   })
     .from(historyRuns)
     .where(whereClauses.length > 0 ? and(...whereClauses) : undefined)
-    .orderBy(desc(historyRuns.startedAt), desc(historyRuns.id))
+    .orderBy(desc(historyRuns.finishedAt), desc(historyRuns.startedAt), desc(historyRuns.id))
     .limit(limit)
     .all();
 

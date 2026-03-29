@@ -162,6 +162,45 @@ describe('history store', () => {
     }
   });
 
+  it('lists history runs from newest completion to oldest', async () => {
+    const sqlite = new Database(':memory:');
+
+    try {
+      const historyStore = await loadHistoryStore(sqlite, {
+        historyEnabled: true,
+        historyRetentionDays: 7,
+      });
+
+      await historyStore.initializeHistoryStorage();
+
+      const slowerRunId = await historyStore.recordHistoryRun({
+        trigger: 'manual',
+        action: 'product_sync',
+        status: 'success',
+        message: 'Longer run completed later.',
+        startedAt: new Date('2026-03-28T10:00:00.000Z'),
+        finishedAt: new Date('2026-03-28T10:05:00.000Z'),
+        events: [{ level: 'info', category: 'sync', message: 'Longer run.' }],
+      });
+
+      const quickerRunId = await historyStore.recordHistoryRun({
+        trigger: 'manual',
+        action: 'product_sync',
+        status: 'success',
+        message: 'Quicker run started later but finished earlier.',
+        startedAt: new Date('2026-03-28T10:01:00.000Z'),
+        finishedAt: new Date('2026-03-28T10:02:00.000Z'),
+        events: [{ level: 'info', category: 'sync', message: 'Quicker run.' }],
+      });
+
+      const runs = await historyStore.listHistoryRuns();
+
+      expect(runs.map(run => run.id)).toEqual([slowerRunId, quickerRunId]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it('clears stored history when the feature is disabled', async () => {
     const sqlite = new Database(':memory:');
 
