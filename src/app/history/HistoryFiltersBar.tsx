@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { Input } from '@/components/ui/input';
@@ -18,6 +18,7 @@ const historyTriggerOptions: Array<{ value: HistoryRunTrigger; label: string }> 
   { value: 'manual', label: 'Manual' },
   { value: 'scheduler', label: 'Scheduler' },
 ];
+const HISTORY_SEARCH_DEBOUNCE_MS = 500;
 
 export function HistoryFiltersBar({ search, action, trigger }: HistoryFiltersBarProps) {
   const router = useRouter();
@@ -27,8 +28,14 @@ export function HistoryFiltersBar({ search, action, trigger }: HistoryFiltersBar
   const [searchValue, setSearchValue] = useState(search);
   const [actionValue, setActionValue] = useState<HistoryRunAction | null>(action);
   const [triggerValue, setTriggerValue] = useState<HistoryRunTrigger | null>(trigger);
+  const lastSubmittedSearchRef = useRef(search);
 
   useEffect(() => {
+    if (search === lastSubmittedSearchRef.current) {
+      return;
+    }
+
+    lastSubmittedSearchRef.current = search;
     setSearchValue(search);
   }, [search]);
 
@@ -45,8 +52,11 @@ export function HistoryFiltersBar({ search, action, trigger }: HistoryFiltersBar
     action: HistoryRunAction | null;
     trigger: HistoryRunTrigger | null;
   }) {
+    const normalizedSearch = nextValues.search.trim();
+    lastSubmittedSearchRef.current = normalizedSearch;
+
     const nextQuery = buildHistoryFilterSearchParams(new URLSearchParams(searchParams.toString()), {
-      search: nextValues.search,
+      search: normalizedSearch,
       action: nextValues.action,
       trigger: nextValues.trigger,
     });
@@ -58,7 +68,7 @@ export function HistoryFiltersBar({ search, action, trigger }: HistoryFiltersBar
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
-      if (searchValue === search) {
+      if (searchValue.trim() === search) {
         return;
       }
 
@@ -67,7 +77,7 @@ export function HistoryFiltersBar({ search, action, trigger }: HistoryFiltersBar
         action: actionValue,
         trigger: triggerValue,
       });
-    }, 250);
+    }, HISTORY_SEARCH_DEBOUNCE_MS);
 
     return () => window.clearTimeout(timeout);
   }, [actionValue, search, searchValue, triggerValue]);
