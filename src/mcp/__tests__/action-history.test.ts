@@ -147,6 +147,17 @@ describe('MCP action history wrappers', () => {
           display: null,
         },
       })),
+      updateShoppingListItem: vi.fn(async (): Promise<any> => ({
+        item: {
+          id: 'item-1',
+          foodName: 'Milk',
+          display: null,
+          quantity: 3,
+        },
+        updated: {
+          quantity: 3,
+        },
+      })),
       removeShoppingListItem: vi.fn(async (): Promise<any> => ({
         itemId: 'item-1',
       })),
@@ -188,6 +199,16 @@ describe('MCP action history wrappers', () => {
   function createBaseUnitServices(): UnitMcpServices {
     return {
       getUnitCatalog: vi.fn(),
+      createGrocyUnit: vi.fn(async (): Promise<any> => ({
+        created: true,
+        grocyUnitId: 10,
+        grocyUnitName: 'Gram',
+      })),
+      createMealieUnit: vi.fn(async (): Promise<any> => ({
+        created: false,
+        mealieUnitId: 'unit-1',
+        mealieUnitName: 'Cup',
+      })),
       compareUnits: vi.fn(),
       normalizeMappedUnits: vi.fn(async (): Promise<any> => ({
         normalizedMealie: 2,
@@ -408,6 +429,23 @@ describe('MCP action history wrappers', () => {
     }));
   });
 
+  it('records shopping item updates with quantity-specific messages', async () => {
+    const baseServices = createBaseShoppingServices();
+    const services = createHistoryWrappedShoppingServices(baseServices);
+
+    await services.updateShoppingListItem({
+      itemId: 'item-1',
+      quantity: 3,
+    } as any);
+
+    expect(info).toHaveBeenCalledWith('[MCP] Updated quantity for shopping list item "Milk" to 3.');
+    expect(recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'shopping_update_item',
+      status: 'success',
+      message: 'Updated quantity for shopping list item "Milk" to 3.',
+    }));
+  });
+
   it('records mapping upsert failures with a mealie id fallback when no mapping id exists', async () => {
     const baseServices = createBaseMappingServices();
     const failingError = new Error('Unit mismatch.');
@@ -471,6 +509,22 @@ describe('MCP action history wrappers', () => {
       action: 'mapping_unit_normalize',
       status: 'success',
       message: 'Normalized 2 Mealie and 1 Grocy unit name(s).',
+    }));
+  });
+
+  it('records skipped Mealie unit creations distinctly from successful mutations', async () => {
+    const baseServices = createBaseUnitServices();
+    const services = createHistoryWrappedUnitServices(baseServices);
+
+    const result = await services.createMealieUnit({
+      name: 'Cup',
+    } as any);
+
+    expect(result.created).toBe(false);
+    expect(recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'mapping_unit_create_mealie',
+      status: 'skipped',
+      message: 'Skipped Mealie unit creation for "Cup" because an exact duplicate already exists.',
     }));
   });
 

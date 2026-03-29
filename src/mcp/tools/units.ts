@@ -26,6 +26,89 @@ export function registerUnitTools(server: McpServer, services: UnitMcpServices) 
   );
 
   server.registerTool(
+    'units.create_grocy',
+    {
+      title: 'Create Grocy Unit',
+      description: 'Create a new Grocy unit and skip exact duplicate names',
+      inputSchema: {
+        name: z.string().trim().min(1),
+        pluralName: z.string().trim().min(1).nullable().optional(),
+        pluralForms: z.array(z.string().trim().min(1)).optional(),
+        description: z.string().trim().min(1).nullable().optional(),
+      },
+    },
+    async ({ name, pluralName, pluralForms, description }) => {
+      const data = await services.createGrocyUnit({
+        name,
+        pluralName,
+        pluralForms,
+        description,
+      });
+      const result = createOkResult(
+        data.created
+          ? 'Created the Grocy unit.'
+          : 'Skipped Grocy unit creation because an exact duplicate already exists.',
+        data,
+      );
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
+    'units.create_mealie',
+    {
+      title: 'Create Mealie Unit',
+      description: 'Create a new Mealie unit and skip exact duplicate names',
+      inputSchema: {
+        name: z.string().trim().min(1),
+        pluralName: z.string().trim().min(1).nullable().optional(),
+        abbreviation: z.string().trim().min(1).optional(),
+        pluralAbbreviation: z.string().trim().min(1).nullable().optional(),
+        aliases: z.array(z.string().trim().min(1)).optional(),
+        description: z.string().trim().min(1).nullable().optional(),
+        fraction: z.boolean().optional(),
+        useAbbreviation: z.boolean().optional(),
+      },
+    },
+    async ({
+      name,
+      pluralName,
+      abbreviation,
+      pluralAbbreviation,
+      aliases,
+      description,
+      fraction,
+      useAbbreviation,
+    }) => {
+      const data = await services.createMealieUnit({
+        name,
+        pluralName,
+        abbreviation,
+        pluralAbbreviation,
+        aliases,
+        description,
+        fraction,
+        useAbbreviation,
+      });
+      const result = createOkResult(
+        data.created
+          ? 'Created the Mealie unit.'
+          : 'Skipped Mealie unit creation because an exact duplicate already exists.',
+        data,
+      );
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
     'units.update_grocy',
     {
       title: 'Update Grocy Unit',

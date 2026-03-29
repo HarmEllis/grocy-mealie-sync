@@ -114,6 +114,53 @@ export function registerShoppingTools(server: McpServer, services: ShoppingMcpSe
   );
 
   server.registerTool(
+    'shopping.set_checked',
+    {
+      title: 'Set Shopping Item Checked State',
+      description: 'Mark one Mealie shopping list item as checked or unchecked',
+      inputSchema: {
+        itemId: z.string().trim().min(1),
+        checked: z.boolean(),
+      },
+    },
+    async ({ itemId, checked }) => {
+      const data = await services.updateShoppingListItem({ itemId, checked });
+      const result = createOkResult(
+        checked
+          ? 'Marked the shopping list item as checked.'
+          : 'Marked the shopping list item as unchecked.',
+        data,
+      );
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
+    'shopping.update_quantity',
+    {
+      title: 'Update Shopping Item Quantity',
+      description: 'Set the exact quantity for one Mealie shopping list item',
+      inputSchema: {
+        itemId: z.string().trim().min(1),
+        quantity: z.number().min(0),
+      },
+    },
+    async ({ itemId, quantity }) => {
+      const data = await services.updateShoppingListItem({ itemId, quantity });
+      const result = createOkResult('Updated the shopping list item quantity.', data);
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
     'shopping.merge_duplicates',
     {
       title: 'Merge Shopping Duplicates',

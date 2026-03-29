@@ -35,6 +35,7 @@ import type {
   MergeShoppingListDuplicatesResult,
   RemoveShoppingListItemResult,
   ShoppingListItemsResource,
+  UpdateShoppingListItemResult,
 } from '@/lib/use-cases/shopping/list';
 import { createMcpHttpHandler } from '../http';
 
@@ -296,6 +297,27 @@ describe('MCP streamable HTTP handler', () => {
     itemId: 'item-1',
   }));
 
+  const updateShoppingListItem = vi.fn(async (): Promise<UpdateShoppingListItemResult> => ({
+    item: {
+      id: 'item-1',
+      shoppingListId: 'list-1',
+      foodId: 'food-1',
+      foodName: 'Milk',
+      unitId: 'unit-1',
+      unitName: 'Liter',
+      quantity: 3,
+      checked: true,
+      note: null,
+      display: 'Milk',
+      createdAt: '2026-03-29T09:00:00.000Z',
+      updatedAt: '2026-03-29T10:20:00.000Z',
+    },
+    updated: {
+      checked: true,
+      quantity: 3,
+    },
+  }));
+
   const mergeShoppingListDuplicates = vi.fn(async (): Promise<MergeShoppingListDuplicatesResult> => ({
     merged: true,
     keptItemId: 'item-1',
@@ -478,6 +500,7 @@ describe('MCP streamable HTTP handler', () => {
         checkShoppingListProduct,
         addShoppingListItem,
         removeShoppingListItem,
+        updateShoppingListItem,
         mergeShoppingListDuplicates,
       },
       inventory: {
@@ -521,6 +544,8 @@ describe('MCP streamable HTTP handler', () => {
         'shopping.check_product',
         'shopping.add_item',
         'shopping.remove_item',
+        'shopping.set_checked',
+        'shopping.update_quantity',
         'shopping.merge_duplicates',
         'inventory.get_stock',
         'inventory.list_low_stock',
@@ -566,6 +591,16 @@ describe('MCP streamable HTTP handler', () => {
       const shoppingRemoveResult = await client.callTool({
         name: 'shopping.remove_item',
         arguments: { itemId: 'item-1' },
+      });
+
+      const shoppingCheckedResult = await client.callTool({
+        name: 'shopping.set_checked',
+        arguments: { itemId: 'item-1', checked: true },
+      });
+
+      const shoppingQuantityResult = await client.callTool({
+        name: 'shopping.update_quantity',
+        arguments: { itemId: 'item-1', quantity: 3 },
       });
 
       const shoppingMergeResult = await client.callTool({
@@ -736,6 +771,64 @@ describe('MCP streamable HTTP handler', () => {
         data: {
           removed: true,
           itemId: 'item-1',
+        },
+      });
+      expect(updateShoppingListItem).toHaveBeenNthCalledWith(1, {
+        itemId: 'item-1',
+        checked: true,
+      });
+      expect(shoppingCheckedResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Marked the shopping list item as checked.',
+        data: {
+          item: {
+            id: 'item-1',
+            shoppingListId: 'list-1',
+            foodId: 'food-1',
+            foodName: 'Milk',
+            unitId: 'unit-1',
+            unitName: 'Liter',
+            quantity: 3,
+            checked: true,
+            note: null,
+            display: 'Milk',
+            createdAt: '2026-03-29T09:00:00.000Z',
+            updatedAt: '2026-03-29T10:20:00.000Z',
+          },
+          updated: {
+            checked: true,
+            quantity: 3,
+          },
+        },
+      });
+      expect(updateShoppingListItem).toHaveBeenNthCalledWith(2, {
+        itemId: 'item-1',
+        quantity: 3,
+      });
+      expect(shoppingQuantityResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Updated the shopping list item quantity.',
+        data: {
+          item: {
+            id: 'item-1',
+            shoppingListId: 'list-1',
+            foodId: 'food-1',
+            foodName: 'Milk',
+            unitId: 'unit-1',
+            unitName: 'Liter',
+            quantity: 3,
+            checked: true,
+            note: null,
+            display: 'Milk',
+            createdAt: '2026-03-29T09:00:00.000Z',
+            updatedAt: '2026-03-29T10:20:00.000Z',
+          },
+          updated: {
+            checked: true,
+            quantity: 3,
+          },
         },
       });
       expect(mergeShoppingListDuplicates).toHaveBeenCalledWith({ foodId: 'food-1' });

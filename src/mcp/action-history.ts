@@ -590,6 +590,56 @@ export function createHistoryWrappedShoppingServices(services: ShoppingMcpServic
         ],
       }),
     }),
+    updateShoppingListItem: withMcpActionHistory(services.updateShoppingListItem, {
+      action: 'shopping_update_item',
+      historyErrorPrefix: '[History] Failed to record MCP shopping item update:',
+      buildSuccess: (result, params) => {
+        const label = toShoppingLabel(result.item);
+        const message = params.checked !== undefined
+          ? `Marked shopping list item "${label}" as ${params.checked ? 'checked' : 'unchecked'}.`
+          : `Updated quantity for shopping list item "${label}" to ${result.item.quantity}.`;
+
+        return {
+          logMessage: `[MCP] ${message}`,
+          message,
+          summary: result,
+          events: [
+            buildManualHistoryEvent({
+              level: 'info',
+              category: 'shopping',
+              entityKind: 'shopping_item',
+              entityRef: result.item.id,
+              message,
+              details: result,
+            }),
+          ],
+        };
+      },
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Update shopping item failed:',
+        message: `Updating a shopping list item failed: ${formatManualActionError(error)}`,
+        summary: {
+          itemId: params.itemId,
+          checked: params.checked,
+          quantity: params.quantity,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'shopping',
+            'shopping_item',
+            params.itemId,
+            'Updating a shopping list item failed.',
+            error,
+            {
+              itemId: params.itemId,
+              checked: params.checked,
+              quantity: params.quantity,
+            },
+          ),
+        ],
+      }),
+    }),
     removeShoppingListItem: withMcpActionHistory(services.removeShoppingListItem, {
       action: 'shopping_remove_item',
       historyErrorPrefix: '[History] Failed to record MCP shopping item removal:',
@@ -839,6 +889,100 @@ export function createHistoryWrappedMappingServices(services: MappingMcpServices
 export function createHistoryWrappedUnitServices(services: UnitMcpServices): UnitMcpServices {
   return {
     ...services,
+    createGrocyUnit: withMcpActionHistory(services.createGrocyUnit, {
+      action: 'mapping_unit_create',
+      historyErrorPrefix: '[History] Failed to record MCP Grocy unit creation:',
+      buildSuccess: (result, params) => {
+        const unitName = result.grocyUnitName ?? params.name;
+        const message = result.created
+          ? `Created Grocy unit "${unitName}".`
+          : `Skipped Grocy unit creation for "${params.name}" because an exact duplicate already exists.`;
+
+        return {
+          status: result.created ? 'success' : 'skipped',
+          logMessage: result.created
+            ? `[MCP] Created Grocy unit "${unitName}".`
+            : `[MCP] Skipped Grocy unit creation for "${params.name}" because an exact duplicate already exists.`,
+          message,
+          summary: result,
+          events: [
+            buildManualHistoryEvent({
+              level: 'info',
+              category: 'mapping',
+              entityKind: 'unit',
+              entityRef: result.grocyUnitId ? `grocy:${result.grocyUnitId}` : params.name,
+              message,
+              details: result,
+            }),
+          ],
+        };
+      },
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Create Grocy unit failed:',
+        message: `Grocy unit creation failed: ${formatManualActionError(error)}`,
+        summary: {
+          name: params.name,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'mapping',
+            'unit',
+            params.name,
+            'Grocy unit creation failed.',
+            error,
+            { name: params.name },
+          ),
+        ],
+      }),
+    }),
+    createMealieUnit: withMcpActionHistory(services.createMealieUnit, {
+      action: 'mapping_unit_create_mealie',
+      historyErrorPrefix: '[History] Failed to record MCP Mealie unit creation:',
+      buildSuccess: (result, params) => {
+        const unitName = result.mealieUnitName ?? params.name;
+        const message = result.created
+          ? `Created Mealie unit "${unitName}".`
+          : `Skipped Mealie unit creation for "${params.name}" because an exact duplicate already exists.`;
+
+        return {
+          status: result.created ? 'success' : 'skipped',
+          logMessage: result.created
+            ? `[MCP] Created Mealie unit "${unitName}".`
+            : `[MCP] Skipped Mealie unit creation for "${params.name}" because an exact duplicate already exists.`,
+          message,
+          summary: result,
+          events: [
+            buildManualHistoryEvent({
+              level: 'info',
+              category: 'mapping',
+              entityKind: 'unit',
+              entityRef: result.mealieUnitId ?? params.name,
+              message,
+              details: result,
+            }),
+          ],
+        };
+      },
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Create Mealie unit failed:',
+        message: `Mealie unit creation failed: ${formatManualActionError(error)}`,
+        summary: {
+          name: params.name,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'mapping',
+            'unit',
+            params.name,
+            'Mealie unit creation failed.',
+            error,
+            { name: params.name },
+          ),
+        ],
+      }),
+    }),
     normalizeMappedUnits: withMcpActionHistoryNoArgs(services.normalizeMappedUnits, {
       action: 'mapping_unit_normalize',
       historyErrorPrefix: '[History] Failed to record MCP unit normalization:',

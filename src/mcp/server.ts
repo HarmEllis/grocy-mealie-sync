@@ -48,9 +48,12 @@ import {
   getShoppingListItemsResource,
   mergeShoppingListDuplicates,
   removeShoppingListItem,
+  updateShoppingListItem,
 } from '@/lib/use-cases/shopping/list';
 import {
   compareUnits,
+  createGrocyUnit,
+  createMealieUnit,
   getUnitCatalog,
   normalizeMappedUnits,
   updateGrocyUnitMetadata,
@@ -100,6 +103,7 @@ export function createGrocyMealieSyncMcpServer(
     checkShoppingListProduct,
     addShoppingListItem,
     removeShoppingListItem,
+    updateShoppingListItem,
     mergeShoppingListDuplicates,
   });
 
@@ -127,6 +131,8 @@ export function createGrocyMealieSyncMcpServer(
 
   const defaultUnitServices = createHistoryWrappedUnitServices({
     getUnitCatalog,
+    createGrocyUnit,
+    createMealieUnit,
     compareUnits,
     normalizeMappedUnits,
     updateGrocyUnitMetadata,

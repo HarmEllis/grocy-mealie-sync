@@ -119,6 +119,8 @@ export interface CreateProductBody {
 export interface CreateQuantityUnitBody {
   name: string;
   name_plural?: string;
+  description?: string;
+  plural_forms?: string;
 }
 
 /** Fields accepted when updating a Grocy product (partial). */

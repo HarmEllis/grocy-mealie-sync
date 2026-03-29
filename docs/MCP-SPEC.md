@@ -82,7 +82,6 @@ A capability is not considered complete until:
 
 - sync-app settings management
 - sync triggering as a normal user workflow
-- unit creation
 - low-stock push-to-list logic that is already owned by the sync app
 - broad Grocy admin outside product-related workflows
 - bulk actions in the first core release
@@ -113,7 +112,7 @@ A capability is not considered complete until:
 
 ### Unit Management
 
-- Work only with existing units in v1.
+- Create new units in Grocy and/or Mealie when an exact match does not already exist.
 - Compare Grocy and Mealie units.
 - Update unit naming metadata in Grocy and/or Mealie.
 - Maintain plural forms and aliases so matching becomes more reliable.
@@ -145,6 +144,8 @@ A capability is not considered complete until:
 
 - Check whether a product already exists on the Mealie shopping list.
 - Add a product to the Mealie shopping list.
+- Mark a shopping list item as checked or unchecked.
+- Update the exact quantity on a shopping list item.
 - Remove a product from the Mealie shopping list without checking it off.
 - Search and inspect shopping list items for error correction.
 - Prevent or merge duplicates on the shopping list.
@@ -180,11 +181,12 @@ The first meaningful version should focus on:
 
 - product search and combined product overview
 - creating products in Grocy, Mealie, or both
+- creating units in Grocy or Mealie
 - product and unit mapping management
 - unit naming, plural, and alias management
 - stock mutation workflows
 - minimum stock and shelf-life related Grocy product settings
-- Mealie shopping-list add/check/remove flows
+- Mealie shopping-list add/check/update/remove flows
 - conflict and sync explanation
 
 Explicitly not part of the first delivery:
@@ -292,6 +294,8 @@ Resources should cover stable read-heavy operational context.
 | `mappings.remove_product` | Remove a product mapping |
 | `mappings.upsert_unit` | Create or update a unit mapping |
 | `mappings.remove_unit` | Remove a unit mapping |
+| `units.create_grocy` | Create a unit in Grocy |
+| `units.create_mealie` | Create a unit in Mealie |
 | `units.update_grocy` | Update Grocy unit metadata such as name or plural forms |
 | `units.update_mealie` | Update Mealie unit metadata such as name, plural name, plural abbreviation, and aliases |
 | `inventory.add_stock` | Add stock with quantity and optional best-before date |
@@ -299,6 +303,8 @@ Resources should cover stable read-heavy operational context.
 | `inventory.set_stock` | Correct stock to an exact value |
 | `inventory.mark_opened` | Mark stock as opened |
 | `shopping.add_item` | Add an item to the Mealie shopping list |
+| `shopping.set_checked` | Mark a shopping-list item as checked or unchecked |
+| `shopping.update_quantity` | Update the exact quantity on a shopping-list item |
 | `shopping.remove_item` | Remove an item from the Mealie shopping list |
 | `shopping.merge_duplicates` | Resolve duplicate shopping-list items |
 
@@ -416,10 +422,11 @@ This structure keeps the TDD boundary clean and makes contract tests much easier
 
 ### Units
 
+- Grocy unit creation with exact duplicate prevention
+- Mealie unit creation with exact duplicate prevention
 - Grocy unit rename/plural handling
 - Mealie unit rename/plural/alias handling
 - normalization behavior
-- no accidental unit creation in v1
 
 ### Inventory
 
@@ -434,6 +441,8 @@ This structure keeps the TDD boundary clean and makes contract tests much easier
 ### Shopping List
 
 - add item
+- set checked state
+- update quantity
 - remove item
 - duplicate detection
 - duplicate merge behavior
@@ -459,7 +468,8 @@ This structure keeps the TDD boundary clean and makes contract tests much easier
 
 - A user can manage products, mappings, unit metadata, stock, and shopping-list correction through MCP without touching sync-app settings.
 - A user can create a product in Grocy, Mealie, or both in one guided workflow.
+- A user can create a unit in Grocy or Mealie without accidentally duplicating an exact existing unit.
 - A user can update Grocy stock-related product defaults relevant to daily household use.
-- Shopping-list add/remove flows prevent or explain duplicates.
+- Shopping-list add/update/remove flows prevent or explain duplicates.
 - The MCP layer provides practical explanations when mappings or sync outcomes are confusing.
 - Every shipped capability is backed by TDD at the appropriate test layer.

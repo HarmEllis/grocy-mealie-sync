@@ -49,6 +49,8 @@ import type {
   RemoveShoppingListItemParams,
   RemoveShoppingListItemResult,
   ShoppingListItemsResource,
+  UpdateShoppingListItemParams,
+  UpdateShoppingListItemResult,
 } from '@/lib/use-cases/shopping/list';
 import type {
   RemoveProductMappingParams,
@@ -67,6 +69,10 @@ import type {
 import type {
   CompareUnitsParams,
   CompareUnitsResult,
+  CreateGrocyUnitParams,
+  CreateGrocyUnitResult,
+  CreateMealieUnitParams,
+  CreateMealieUnitResult,
   NormalizeMappedUnitsResult,
   UnitCatalogResource,
   UpdateGrocyUnitMetadataParams,
@@ -123,6 +129,7 @@ export interface ShoppingMcpServices {
   checkShoppingListProduct(params: CheckShoppingListProductParams): Promise<CheckShoppingListProductResult>;
   addShoppingListItem(params: AddShoppingListItemParams): Promise<AddShoppingListItemResult>;
   removeShoppingListItem(params: RemoveShoppingListItemParams): Promise<RemoveShoppingListItemResult>;
+  updateShoppingListItem(params: UpdateShoppingListItemParams): Promise<UpdateShoppingListItemResult>;
   mergeShoppingListDuplicates(params: MergeShoppingListDuplicatesParams): Promise<MergeShoppingListDuplicatesResult>;
 }
 
@@ -150,6 +157,8 @@ export interface MappingMcpServices {
 
 export interface UnitMcpServices {
   getUnitCatalog(): Promise<UnitCatalogResource>;
+  createGrocyUnit(params: CreateGrocyUnitParams): Promise<CreateGrocyUnitResult>;
+  createMealieUnit(params: CreateMealieUnitParams): Promise<CreateMealieUnitResult>;
   compareUnits(params: CompareUnitsParams): Promise<CompareUnitsResult>;
   normalizeMappedUnits(): Promise<NormalizeMappedUnitsResult>;
   updateGrocyUnitMetadata(params: UpdateGrocyUnitMetadataParams): Promise<UpdateGrocyUnitMetadataResult>;

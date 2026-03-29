@@ -1,7 +1,14 @@
 import { db } from '@/lib/db';
 import { unitMappings } from '@/lib/db/schema';
-import { getGrocyEntities, updateGrocyEntity, type QuantityUnit } from '@/lib/grocy/types';
+import {
+  createGrocyEntity,
+  getGrocyEntities,
+  updateGrocyEntity,
+  type CreateQuantityUnitBody,
+  type QuantityUnit,
+} from '@/lib/grocy/types';
 import { RecipesUnitsService } from '@/lib/mealie';
+import type { CreateIngredientUnit } from '@/lib/mealie/client/models/CreateIngredientUnit';
 import type { IngredientUnit_Output } from '@/lib/mealie/client/models/IngredientUnit_Output';
 import { extractUnits } from '@/lib/mealie/types';
 import { normalizeUnits as runUnitNormalization } from '@/lib/sync/normalize';
@@ -34,6 +41,44 @@ export interface UnitCatalogResource {
   };
   grocyUnits: UnitCatalogGrocyUnit[];
   mealieUnits: UnitCatalogMealieUnit[];
+}
+
+export interface CreateGrocyUnitParams {
+  name: string;
+  pluralName?: string | null;
+  pluralForms?: string[];
+  description?: string | null;
+}
+
+export interface CreateGrocyUnitResult {
+  created: boolean;
+  grocyUnitId: number | null;
+  grocyUnitName: string | null;
+  duplicateCheck: {
+    skipped: boolean;
+    exactGrocyMatches: number;
+  };
+}
+
+export interface CreateMealieUnitParams {
+  name: string;
+  pluralName?: string | null;
+  abbreviation?: string;
+  pluralAbbreviation?: string | null;
+  aliases?: string[];
+  description?: string | null;
+  fraction?: boolean;
+  useAbbreviation?: boolean;
+}
+
+export interface CreateMealieUnitResult {
+  created: boolean;
+  mealieUnitId: string | null;
+  mealieUnitName: string | null;
+  duplicateCheck: {
+    skipped: boolean;
+    exactMealieMatches: number;
+  };
 }
 
 export interface UpdateGrocyUnitMetadataParams {
@@ -100,6 +145,8 @@ export interface UnitManageDeps extends SyncLockDeps {
   listGrocyUnits(): Promise<QuantityUnit[]>;
   listMealieUnits(): Promise<IngredientUnit_Output[]>;
   listUnitMappings(): Promise<UnitMappingRecord[]>;
+  createGrocyUnit(body: CreateQuantityUnitBody): Promise<{ createdObjectId: number }>;
+  createMealieUnit(body: CreateIngredientUnit): Promise<IngredientUnit_Output>;
   getGrocyUnit(grocyUnitId: number): Promise<QuantityUnit>;
   updateGrocyUnit(grocyUnitId: number, body: Record<string, unknown>): Promise<void>;
   getMealieUnit(mealieUnitId: string): Promise<IngredientUnit_Output>;
@@ -119,6 +166,16 @@ function parsePluralForms(value: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
+function normalizeUnitName(value: string | null | undefined): string {
+  return (value ?? '').trim().toLowerCase();
+}
+
+function toUniqueTrimmedNames(values: string[] | undefined): string[] {
+  return Array.from(new Set((values ?? [])
+    .map(value => value.trim())
+    .filter(Boolean)));
+}
+
 const defaultDeps: UnitManageDeps = {
   ...defaultSyncLockDeps,
   listGrocyUnits: async () => getGrocyEntities('quantity_units'),
@@ -133,6 +190,17 @@ const defaultDeps: UnitManageDeps = {
     1000,
   )),
   listUnitMappings: async () => db.select().from(unitMappings),
+  createGrocyUnit: async body => {
+    const result = await createGrocyEntity('quantity_units', body);
+    const createdObjectId = Number(result.created_object_id ?? 0);
+
+    if (!createdObjectId) {
+      throw new Error('Grocy did not return a created unit id.');
+    }
+
+    return { createdObjectId };
+  },
+  createMealieUnit: body => RecipesUnitsService.createOneApiUnitsPost(body),
   getGrocyUnit: async grocyUnitId => {
     const unit = (await getGrocyEntities('quantity_units'))
       .find(entry => Number(entry.id) === grocyUnitId);
@@ -187,6 +255,102 @@ export async function getUnitCatalog(
       }))
       .sort((left, right) => left.name.localeCompare(right.name)),
   };
+}
+
+export async function createGrocyUnit(
+  params: CreateGrocyUnitParams,
+  deps: Pick<
+    UnitManageDeps,
+    'acquireSyncLock' | 'releaseSyncLock' | 'listGrocyUnits' | 'createGrocyUnit'
+  > = defaultDeps,
+): Promise<CreateGrocyUnitResult> {
+  return runWithSyncLock(deps, async () => {
+    const normalizedName = normalizeUnitName(params.name);
+    const exactMatches = (await deps.listGrocyUnits())
+      .filter(unit => normalizeUnitName(unit.name) === normalizedName);
+
+    if (exactMatches.length > 0) {
+      const existingUnit = exactMatches[0];
+      return {
+        created: false,
+        grocyUnitId: Number(existingUnit?.id ?? 0) || null,
+        grocyUnitName: existingUnit?.name || params.name,
+        duplicateCheck: {
+          skipped: true,
+          exactGrocyMatches: exactMatches.length,
+        },
+      };
+    }
+
+    const payload: CreateQuantityUnitBody = {
+      name: params.name,
+      name_plural: params.pluralName ?? params.name,
+      ...(params.description ? { description: params.description } : {}),
+      ...(params.pluralForms && params.pluralForms.length > 0
+        ? { plural_forms: toUniqueTrimmedNames(params.pluralForms).join('\n') }
+        : {}),
+    };
+    const { createdObjectId } = await deps.createGrocyUnit(payload);
+
+    return {
+      created: true,
+      grocyUnitId: createdObjectId,
+      grocyUnitName: params.name,
+      duplicateCheck: {
+        skipped: false,
+        exactGrocyMatches: 0,
+      },
+    };
+  });
+}
+
+export async function createMealieUnit(
+  params: CreateMealieUnitParams,
+  deps: Pick<
+    UnitManageDeps,
+    'acquireSyncLock' | 'releaseSyncLock' | 'listMealieUnits' | 'createMealieUnit'
+  > = defaultDeps,
+): Promise<CreateMealieUnitResult> {
+  return runWithSyncLock(deps, async () => {
+    const normalizedName = normalizeUnitName(params.name);
+    const exactMatches = (await deps.listMealieUnits())
+      .filter(unit => normalizeUnitName(unit.name) === normalizedName);
+
+    if (exactMatches.length > 0) {
+      const existingUnit = exactMatches[0];
+      return {
+        created: false,
+        mealieUnitId: existingUnit?.id ?? null,
+        mealieUnitName: existingUnit?.name || params.name,
+        duplicateCheck: {
+          skipped: true,
+          exactMealieMatches: exactMatches.length,
+        },
+      };
+    }
+
+    const aliases = toUniqueTrimmedNames(params.aliases);
+    const createdUnit = await deps.createMealieUnit({
+      name: params.name,
+      pluralName: params.pluralName ?? null,
+      ...(params.description ? { description: params.description } : {}),
+      ...(params.abbreviation ? { abbreviation: params.abbreviation } : {}),
+      pluralAbbreviation: params.pluralAbbreviation ?? null,
+      fraction: params.fraction,
+      useAbbreviation: params.useAbbreviation ?? Boolean(params.abbreviation),
+      aliases: aliases.map(name => ({ name })),
+    });
+
+    return {
+      created: true,
+      mealieUnitId: createdUnit.id,
+      mealieUnitName: createdUnit.name || params.name,
+      duplicateCheck: {
+        skipped: false,
+        exactMealieMatches: 0,
+      },
+    };
+  });
 }
 
 export async function updateGrocyUnitMetadata(

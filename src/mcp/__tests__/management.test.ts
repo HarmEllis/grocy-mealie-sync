@@ -19,6 +19,8 @@ import type {
 } from '@/lib/use-cases/resources/read-models';
 import type {
   CompareUnitsResult,
+  CreateGrocyUnitResult,
+  CreateMealieUnitResult,
   UnitCatalogResource,
   UpdateGrocyUnitMetadataResult,
   UpdateMealieUnitMetadataResult,
@@ -186,6 +188,26 @@ describe('MCP mapping and unit management', () => {
     },
   }));
 
+  const createGrocyUnit = vi.fn(async (): Promise<CreateGrocyUnitResult> => ({
+    created: true,
+    grocyUnitId: 30,
+    grocyUnitName: 'Can',
+    duplicateCheck: {
+      skipped: false,
+      exactGrocyMatches: 0,
+    },
+  }));
+
+  const createMealieUnit = vi.fn(async (): Promise<CreateMealieUnitResult> => ({
+    created: true,
+    mealieUnitId: 'unit-30',
+    mealieUnitName: 'Tablespoon',
+    duplicateCheck: {
+      skipped: false,
+      exactMealieMatches: 0,
+    },
+  }));
+
   const compareUnits = vi.fn(async (): Promise<CompareUnitsResult> => ({
     mealieUnitId: 'unit-1',
     grocyUnitId: 10,
@@ -246,6 +268,8 @@ describe('MCP mapping and unit management', () => {
       },
       units: {
         getUnitCatalog,
+        createGrocyUnit,
+        createMealieUnit,
         compareUnits,
         normalizeMappedUnits,
         updateGrocyUnitMetadata,
@@ -286,6 +310,8 @@ describe('MCP mapping and unit management', () => {
         'mappings.upsert_unit',
         'mappings.remove_unit',
         'units.list_catalog',
+        'units.create_grocy',
+        'units.create_mealie',
         'units.compare',
         'units.normalize',
         'units.update_grocy',
@@ -324,6 +350,23 @@ describe('MCP mapping and unit management', () => {
       const unitCatalogResult = await client.callTool({
         name: 'units.list_catalog',
         arguments: {},
+      });
+      const createGrocyUnitResult = await client.callTool({
+        name: 'units.create_grocy',
+        arguments: {
+          name: 'Can',
+          pluralName: 'Cans',
+          pluralForms: ['tin', 'tins'],
+        },
+      });
+      const createMealieUnitResult = await client.callTool({
+        name: 'units.create_mealie',
+        arguments: {
+          name: 'Tablespoon',
+          pluralName: 'Tablespoons',
+          abbreviation: 'tbsp',
+          aliases: ['eetlepel'],
+        },
       });
       const updateMealieUnitResult = await client.callTool({
         name: 'units.update_mealie',
@@ -473,6 +516,50 @@ describe('MCP mapping and unit management', () => {
               mappingId: 'unit-map-1',
             },
           ],
+        },
+      });
+      expect(createGrocyUnit).toHaveBeenCalledWith({
+        name: 'Can',
+        pluralName: 'Cans',
+        pluralForms: ['tin', 'tins'],
+        description: undefined,
+      });
+      expect(createGrocyUnitResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Created the Grocy unit.',
+        data: {
+          created: true,
+          grocyUnitId: 30,
+          grocyUnitName: 'Can',
+          duplicateCheck: {
+            skipped: false,
+            exactGrocyMatches: 0,
+          },
+        },
+      });
+      expect(createMealieUnit).toHaveBeenCalledWith({
+        name: 'Tablespoon',
+        pluralName: 'Tablespoons',
+        abbreviation: 'tbsp',
+        pluralAbbreviation: undefined,
+        aliases: ['eetlepel'],
+        description: undefined,
+        fraction: undefined,
+        useAbbreviation: undefined,
+      });
+      expect(createMealieUnitResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Created the Mealie unit.',
+        data: {
+          created: true,
+          mealieUnitId: 'unit-30',
+          mealieUnitName: 'Tablespoon',
+          duplicateCheck: {
+            skipped: false,
+            exactMealieMatches: 0,
+          },
         },
       });
       expect(updateMealieUnitMetadata).toHaveBeenCalledWith({

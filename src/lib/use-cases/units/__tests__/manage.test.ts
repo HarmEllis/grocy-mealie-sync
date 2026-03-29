@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   compareUnits,
+  createGrocyUnit,
+  createMealieUnit,
   getUnitCatalog,
   updateGrocyUnitMetadata,
   updateMealieUnitMetadata,
@@ -98,6 +100,73 @@ describe('unit management use-cases', () => {
     });
   });
 
+  it('creates a new Grocy unit and keeps plural metadata together', async () => {
+    const createGrocyUnitDep = vi.fn(async () => ({ createdObjectId: 12 }));
+
+    const result = await createGrocyUnit(
+      {
+        name: 'Can',
+        pluralName: 'Cans',
+        pluralForms: ['tin', 'tins', 'tins'],
+        description: 'Metal container',
+      },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        listGrocyUnits: vi.fn(async () => [
+          { id: 10, name: 'Bottle' },
+        ]),
+        createGrocyUnit: createGrocyUnitDep,
+      },
+    );
+
+    expect(createGrocyUnitDep).toHaveBeenCalledWith({
+      name: 'Can',
+      name_plural: 'Cans',
+      description: 'Metal container',
+      plural_forms: 'tin\ntins',
+    });
+    expect(result).toEqual({
+      created: true,
+      grocyUnitId: 12,
+      grocyUnitName: 'Can',
+      duplicateCheck: {
+        skipped: false,
+        exactGrocyMatches: 0,
+      },
+    });
+  });
+
+  it('skips Grocy unit creation when an exact unit name already exists', async () => {
+    const createGrocyUnitDep = vi.fn();
+
+    const result = await createGrocyUnit(
+      {
+        name: 'Can',
+      },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        listGrocyUnits: vi.fn(async () => [
+          { id: 10, name: 'can' },
+          { id: 11, name: 'Can' },
+        ]),
+        createGrocyUnit: createGrocyUnitDep,
+      },
+    );
+
+    expect(createGrocyUnitDep).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      created: false,
+      grocyUnitId: 10,
+      grocyUnitName: 'can',
+      duplicateCheck: {
+        skipped: true,
+        exactGrocyMatches: 2,
+      },
+    });
+  });
+
   it('updates Mealie unit metadata by merging onto the current Mealie unit payload', async () => {
     const updateMealieUnit = vi.fn(async () => undefined);
 
@@ -149,6 +218,81 @@ describe('unit management use-cases', () => {
         abbreviation: 'tbsp',
         pluralAbbreviation: 'tbsps',
         aliases: ['eetlepel'],
+      },
+    });
+  });
+
+  it('creates a new Mealie unit with aliases and abbreviation defaults', async () => {
+    const createMealieUnitDep = vi.fn(async () => ({
+      id: 'unit-9',
+      name: 'Tablespoon',
+    }));
+
+    const result = await createMealieUnit(
+      {
+        name: 'Tablespoon',
+        pluralName: 'Tablespoons',
+        abbreviation: 'tbsp',
+        pluralAbbreviation: 'tbsps',
+        aliases: ['eetlepel', ' tablespoon ', 'eetlepel'],
+        description: 'Volume unit',
+      },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        listMealieUnits: vi.fn(async () => [
+          { id: 'unit-1', name: 'Liter' },
+        ] as any),
+        createMealieUnit: createMealieUnitDep,
+      },
+    );
+
+    expect(createMealieUnitDep).toHaveBeenCalledWith({
+      name: 'Tablespoon',
+      pluralName: 'Tablespoons',
+      description: 'Volume unit',
+      abbreviation: 'tbsp',
+      pluralAbbreviation: 'tbsps',
+      fraction: undefined,
+      useAbbreviation: true,
+      aliases: [{ name: 'eetlepel' }, { name: 'tablespoon' }],
+    });
+    expect(result).toEqual({
+      created: true,
+      mealieUnitId: 'unit-9',
+      mealieUnitName: 'Tablespoon',
+      duplicateCheck: {
+        skipped: false,
+        exactMealieMatches: 0,
+      },
+    });
+  });
+
+  it('skips Mealie unit creation when an exact unit name already exists', async () => {
+    const createMealieUnitDep = vi.fn();
+
+    const result = await createMealieUnit(
+      {
+        name: 'Cup',
+      },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        listMealieUnits: vi.fn(async () => [
+          { id: 'unit-3', name: 'cup' },
+        ] as any),
+        createMealieUnit: createMealieUnitDep,
+      },
+    );
+
+    expect(createMealieUnitDep).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      created: false,
+      mealieUnitId: 'unit-3',
+      mealieUnitName: 'cup',
+      duplicateCheck: {
+        skipped: true,
+        exactMealieMatches: 1,
       },
     });
   });

@@ -74,6 +74,20 @@ export interface RemoveShoppingListItemResult {
   itemId: string;
 }
 
+export interface UpdateShoppingListItemParams {
+  itemId: string;
+  checked?: boolean;
+  quantity?: number;
+}
+
+export interface UpdateShoppingListItemResult {
+  item: ShoppingListItemSummary;
+  updated: {
+    checked?: boolean;
+    quantity?: number;
+  };
+}
+
 export interface MergeShoppingListDuplicatesParams {
   foodId: string;
 }
@@ -88,6 +102,7 @@ export interface MergeShoppingListDuplicatesResult {
 export interface ShoppingListDeps {
   resolveShoppingListId(): Promise<string | null>;
   fetchShoppingItems(shoppingListId: string): Promise<MealieShoppingItem[]>;
+  getShoppingItem(itemId: string): Promise<MealieShoppingItem>;
   createShoppingItem(body: ShoppingListItemCreate): Promise<ShoppingListItemsCollectionOut>;
   updateShoppingItem(itemId: string, body: ShoppingListItemUpdate): Promise<ShoppingListItemsCollectionOut>;
   deleteShoppingItem(itemId: string): Promise<unknown>;
@@ -96,6 +111,7 @@ export interface ShoppingListDeps {
 const defaultDeps: ShoppingListDeps = {
   resolveShoppingListId,
   fetchShoppingItems: fetchAllMealieShoppingItems,
+  getShoppingItem: itemId => HouseholdsShoppingListItemsService.getOneApiHouseholdsShoppingItemsItemIdGet(itemId),
   createShoppingItem: body => HouseholdsShoppingListItemsService.createOneApiHouseholdsShoppingItemsPost(body),
   updateShoppingItem: (itemId, body) => HouseholdsShoppingListItemsService.updateOneApiHouseholdsShoppingItemsItemIdPut(itemId, body),
   deleteShoppingItem: itemId => HouseholdsShoppingListItemsService.deleteOneApiHouseholdsShoppingItemsItemIdDelete(itemId),
@@ -320,6 +336,45 @@ export async function removeShoppingListItem(
   return {
     removed: true,
     itemId: params.itemId,
+  };
+}
+
+export async function updateShoppingListItem(
+  params: UpdateShoppingListItemParams,
+  deps: Pick<ShoppingListDeps, 'getShoppingItem' | 'updateShoppingItem'> = defaultDeps,
+): Promise<UpdateShoppingListItemResult> {
+  if (params.checked === undefined && params.quantity === undefined) {
+    throw new Error('At least one shopping list field must be provided to update.');
+  }
+
+  if (params.quantity !== undefined && params.quantity < 0) {
+    throw new Error('Quantity must be 0 or greater.');
+  }
+
+  const currentItem = await deps.getShoppingItem(params.itemId);
+  const currentSummary = toShoppingListItemSummary(currentItem);
+  const nextQuantity = params.quantity ?? currentSummary.quantity;
+  const nextChecked = params.checked ?? currentSummary.checked;
+
+  const collection = await deps.updateShoppingItem(params.itemId, {
+    shoppingListId: currentSummary.shoppingListId,
+    foodId: currentSummary.foodId ?? undefined,
+    unitId: currentSummary.unitId ?? undefined,
+    note: currentSummary.note ?? undefined,
+    quantity: nextQuantity,
+    checked: nextChecked,
+  });
+
+  return {
+    item: getUpdatedOrFallbackItem(collection, {
+      ...currentSummary,
+      quantity: nextQuantity,
+      checked: nextChecked,
+    }),
+    updated: {
+      checked: params.checked,
+      quantity: params.quantity,
+    },
   };
 }
 

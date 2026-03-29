@@ -6,38 +6,51 @@ import {
   getShoppingListItemsResource,
   mergeShoppingListDuplicates,
   removeShoppingListItem,
+  updateShoppingListItem,
   type ShoppingListDeps,
 } from '../list';
 
 function createDeps(overrides: Partial<ShoppingListDeps> = {}): ShoppingListDeps {
+  const defaultItems = [
+    mockMealieShoppingItem({
+      id: 'item-1',
+      shoppingListId: 'list-1',
+      foodId: 'food-1',
+      quantity: 2,
+      checked: false,
+      display: 'Milk',
+      food: { id: 'food-1', name: 'Milk' } as never,
+      unitId: 'unit-1',
+      unit: { id: 'unit-1', name: 'Liter', abbreviation: 'l' } as never,
+      createdAt: '2026-03-29T09:00:00.000Z',
+      updatedAt: '2026-03-29T09:05:00.000Z',
+    }),
+    mockMealieShoppingItem({
+      id: 'item-2',
+      shoppingListId: 'list-1',
+      foodId: 'food-2',
+      quantity: 1,
+      checked: true,
+      display: 'Bread',
+      food: { id: 'food-2', name: 'Bread' } as never,
+      createdAt: '2026-03-29T08:00:00.000Z',
+      updatedAt: '2026-03-29T08:30:00.000Z',
+    }),
+  ];
+
+  const fetchShoppingItems = overrides.fetchShoppingItems ?? (async () => defaultItems);
+
   return {
     resolveShoppingListId: async () => 'list-1',
-    fetchShoppingItems: async () => [
-      mockMealieShoppingItem({
-        id: 'item-1',
-        shoppingListId: 'list-1',
-        foodId: 'food-1',
-        quantity: 2,
-        checked: false,
-        display: 'Milk',
-        food: { id: 'food-1', name: 'Milk' } as never,
-        unitId: 'unit-1',
-        unit: { id: 'unit-1', name: 'Liter', abbreviation: 'l' } as never,
-        createdAt: '2026-03-29T09:00:00.000Z',
-        updatedAt: '2026-03-29T09:05:00.000Z',
-      }),
-      mockMealieShoppingItem({
-        id: 'item-2',
-        shoppingListId: 'list-1',
-        foodId: 'food-2',
-        quantity: 1,
-        checked: true,
-        display: 'Bread',
-        food: { id: 'food-2', name: 'Bread' } as never,
-        createdAt: '2026-03-29T08:00:00.000Z',
-        updatedAt: '2026-03-29T08:30:00.000Z',
-      }),
-    ],
+    fetchShoppingItems,
+    getShoppingItem: async itemId => {
+      const items = await fetchShoppingItems('list-1');
+      const item = items.find(entry => entry.id === itemId);
+      if (!item) {
+        throw new Error(`Shopping list item ${itemId} was not found.`);
+      }
+      return item;
+    },
     createShoppingItem: async body => ({
       createdItems: [
         mockMealieShoppingItem({
@@ -215,6 +228,69 @@ describe('shopping list use-cases', () => {
       removed: true,
       itemId: 'item-1',
     });
+  });
+
+  it('updates the checked state of an existing shopping list item', async () => {
+    const result = await updateShoppingListItem(
+      { itemId: 'item-1', checked: true },
+      createDeps(),
+    );
+
+    expect(result).toEqual({
+      item: {
+        id: 'item-1',
+        shoppingListId: 'list-1',
+        foodId: 'food-1',
+        foodName: 'Milk',
+        unitId: 'unit-1',
+        unitName: null,
+        quantity: 2,
+        checked: true,
+        note: null,
+        display: 'Milk',
+        createdAt: '2026-03-29T09:00:00.000Z',
+        updatedAt: '2026-03-29T10:10:00.000Z',
+      },
+      updated: {
+        checked: true,
+        quantity: undefined,
+      },
+    });
+  });
+
+  it('updates the quantity of an existing shopping list item', async () => {
+    const result = await updateShoppingListItem(
+      { itemId: 'item-1', quantity: 4 },
+      createDeps(),
+    );
+
+    expect(result).toEqual({
+      item: {
+        id: 'item-1',
+        shoppingListId: 'list-1',
+        foodId: 'food-1',
+        foodName: 'Milk',
+        unitId: 'unit-1',
+        unitName: null,
+        quantity: 4,
+        checked: false,
+        note: null,
+        display: 'Milk',
+        createdAt: '2026-03-29T09:00:00.000Z',
+        updatedAt: '2026-03-29T10:10:00.000Z',
+      },
+      updated: {
+        checked: undefined,
+        quantity: 4,
+      },
+    });
+  });
+
+  it('rejects shopping item updates that do not change any supported fields', async () => {
+    await expect(updateShoppingListItem(
+      { itemId: 'item-1' },
+      createDeps(),
+    )).rejects.toThrow('At least one shopping list field must be provided to update.');
   });
 
   it('merges duplicate unchecked shopping items for the same foodId', async () => {
