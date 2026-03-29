@@ -131,9 +131,8 @@ export async function POST(request: Request) {
       }
     }
 
-    log.info(`[MappingWizard] Units synced: ${synced}, renamed: ${renamed}`);
-    await history.record({
-      status: 'success',
+    await history.recordSuccess({
+      logMessage: `[MappingWizard] Units synced: ${synced}, renamed: ${renamed}`,
       message: `Mapped ${synced} unit(s); renamed ${renamed}.`,
       summary: {
         requested: mappings.length,
@@ -153,9 +152,9 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ synced, renamed });
   } catch (error) {
-    log.error('[MappingWizard] Unit sync failed:', error);
-    await history.record({
-      status: 'failure',
+    await history.recordFailure({
+      logMessage: '[MappingWizard] Unit sync failed:',
+      error,
       message: `Unit mapping sync failed: ${formatManualActionError(error)}`,
       summary: { error: formatManualActionError(error) },
       events: [

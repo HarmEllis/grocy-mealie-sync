@@ -161,8 +161,7 @@ export async function PUT(request: Request) {
       await saveSyncState(syncState);
     }
 
-    await history.record({
-      status: 'success',
+    await history.recordSuccess({
       message: `Updated ${updatedFields.length} setting(s).`,
       summary: {
         updatedFields,
@@ -191,9 +190,9 @@ export async function PUT(request: Request) {
 
     return NextResponse.json({ status: 'ok', ...settings });
   } catch (error) {
-    log.error('[Settings] Failed to update settings:', error);
-    await history.record({
-      status: 'failure',
+    await history.recordFailure({
+      logMessage: '[Settings] Failed to update settings:',
+      error,
       message: `Settings update failed: ${formatManualActionError(error)}`,
       summary: {
         updatedFields,

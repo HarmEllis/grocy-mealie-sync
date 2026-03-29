@@ -19,9 +19,8 @@ export async function POST() {
 
   try {
     const result = await normalizeUnits();
-    log.info(`[MappingWizard] Units normalized: Mealie ${result.normalizedMealie}, Grocy ${result.normalizedGrocy}`);
-    await history.record({
-      status: 'success',
+    await history.recordSuccess({
+      logMessage: `[MappingWizard] Units normalized: Mealie ${result.normalizedMealie}, Grocy ${result.normalizedGrocy}`,
       message: `Normalized ${result.normalizedMealie} Mealie and ${result.normalizedGrocy} Grocy unit name(s).`,
       summary: result,
       events: [
@@ -37,9 +36,9 @@ export async function POST() {
     });
     return NextResponse.json(result);
   } catch (error) {
-    log.error('[MappingWizard] Unit normalization failed:', error);
-    await history.record({
-      status: 'failure',
+    await history.recordFailure({
+      logMessage: '[MappingWizard] Unit normalization failed:',
+      error,
       message: `Unit normalization failed: ${formatManualActionError(error)}`,
       summary: { error: formatManualActionError(error) },
       events: [

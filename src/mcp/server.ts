@@ -58,6 +58,13 @@ import {
 } from '@/lib/use-cases/units/manage';
 import { explainProductState } from '@/lib/use-cases/diagnostics/explain';
 import type { GrocyMealieSyncMcpServiceOverrides, GrocyMealieSyncMcpServices } from './contracts';
+import {
+  createHistoryWrappedInventoryServices,
+  createHistoryWrappedMappingServices,
+  createHistoryWrappedProductServices,
+  createHistoryWrappedShoppingServices,
+  createHistoryWrappedUnitServices,
+} from './action-history';
 import { registerCorePrompts } from './prompts/core';
 import { registerCoreResources } from './resources/core';
 import { registerHistoryResources } from './resources/history';
@@ -77,16 +84,58 @@ import { registerUnitTools } from './tools/units';
 export function createGrocyMealieSyncMcpServer(
   overrides: GrocyMealieSyncMcpServiceOverrides = {},
 ): McpServer {
+  const defaultProductServices = createHistoryWrappedProductServices({
+    searchProducts,
+    getProductOverview,
+    checkProductDuplicates,
+    updateGrocyStockSettings,
+    createProductInGrocy,
+    createProductInMealie,
+    createProductInBoth,
+    updateBasicProduct,
+  });
+
+  const defaultShoppingServices = createHistoryWrappedShoppingServices({
+    getShoppingListItemsResource,
+    checkShoppingListProduct,
+    addShoppingListItem,
+    removeShoppingListItem,
+    mergeShoppingListDuplicates,
+  });
+
+  const defaultInventoryServices = createHistoryWrappedInventoryServices({
+    getInventoryStock,
+    listLowStockProductsResource,
+    addStock,
+    consumeStock,
+    setStock,
+    markStockOpened,
+  });
+
+  const defaultMappingServices = createHistoryWrappedMappingServices({
+    listProductMappingsResource,
+    listUnitMappingsResource,
+    listUnmappedProductsResource,
+    listUnmappedUnitsResource,
+    suggestProductMappings,
+    suggestUnitMappings,
+    upsertProductMapping,
+    removeProductMapping,
+    upsertUnitMapping,
+    removeUnitMapping,
+  });
+
+  const defaultUnitServices = createHistoryWrappedUnitServices({
+    getUnitCatalog,
+    compareUnits,
+    normalizeMappedUnits,
+    updateGrocyUnitMetadata,
+    updateMealieUnitMetadata,
+  });
+
   const services: GrocyMealieSyncMcpServices = {
     products: {
-      searchProducts,
-      getProductOverview,
-      checkProductDuplicates,
-      updateGrocyStockSettings,
-      createProductInGrocy,
-      createProductInMealie,
-      createProductInBoth,
-      updateBasicProduct,
+      ...defaultProductServices,
       ...overrides.products,
     },
     resources: {
@@ -104,41 +153,19 @@ export function createGrocyMealieSyncMcpServer(
       ...overrides.resources,
     },
     shopping: {
-      getShoppingListItemsResource,
-      checkShoppingListProduct,
-      addShoppingListItem,
-      removeShoppingListItem,
-      mergeShoppingListDuplicates,
+      ...defaultShoppingServices,
       ...overrides.shopping,
     },
     inventory: {
-      getInventoryStock,
-      listLowStockProductsResource,
-      addStock,
-      consumeStock,
-      setStock,
-      markStockOpened,
+      ...defaultInventoryServices,
       ...overrides.inventory,
     },
     mappings: {
-      listProductMappingsResource,
-      listUnitMappingsResource,
-      listUnmappedProductsResource,
-      listUnmappedUnitsResource,
-      suggestProductMappings,
-      suggestUnitMappings,
-      upsertProductMapping,
-      removeProductMapping,
-      upsertUnitMapping,
-      removeUnitMapping,
+      ...defaultMappingServices,
       ...overrides.mappings,
     },
     units: {
-      getUnitCatalog,
-      compareUnits,
-      normalizeMappedUnits,
-      updateGrocyUnitMetadata,
-      updateMealieUnitMetadata,
+      ...defaultUnitServices,
       ...overrides.units,
     },
     history: {

@@ -98,6 +98,8 @@ export function formatHistoryActionLabel(action: HistoryRunAction): string {
       return 'Create Grocy products';
     case 'mapping_product_create_mealie':
       return 'Create Mealie products';
+    case 'mapping_product_create_both':
+      return 'Create Grocy + Mealie products';
     case 'mapping_product_sync':
       return 'Map products';
     case 'mapping_product_unmap':
@@ -106,6 +108,10 @@ export function formatHistoryActionLabel(action: HistoryRunAction): string {
       return 'Normalize products';
     case 'mapping_product_delete_orphans':
       return 'Delete orphan products';
+    case 'product_update_basic':
+      return 'Update product metadata';
+    case 'product_update_stock_settings':
+      return 'Update Grocy stock settings';
     case 'mapping_unit_create':
       return 'Create Grocy units';
     case 'mapping_unit_sync':
@@ -116,6 +122,24 @@ export function formatHistoryActionLabel(action: HistoryRunAction): string {
       return 'Normalize units';
     case 'mapping_unit_delete_orphans':
       return 'Delete orphan units';
+    case 'unit_update_grocy':
+      return 'Update Grocy unit';
+    case 'unit_update_mealie':
+      return 'Update Mealie unit';
+    case 'inventory_add_stock':
+      return 'Add stock';
+    case 'inventory_consume_stock':
+      return 'Consume stock';
+    case 'inventory_set_stock':
+      return 'Set stock';
+    case 'inventory_mark_opened':
+      return 'Mark stock opened';
+    case 'shopping_add_item':
+      return 'Add shopping item';
+    case 'shopping_remove_item':
+      return 'Remove shopping item';
+    case 'shopping_merge_duplicates':
+      return 'Merge shopping duplicates';
     case 'conflict_remap':
       return 'Resolve conflict';
   }

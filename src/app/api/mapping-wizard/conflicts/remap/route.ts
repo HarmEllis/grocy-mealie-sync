@@ -318,8 +318,7 @@ export async function POST(request: Request) {
 
       await resolveConflictsForMapping('product', payload.mappingId);
 
-      await history.record({
-        status: 'success',
+      await history.recordSuccess({
         message: `Resolved product conflict for mapping ${payload.mappingId}.`,
         summary: {
           mappingKind: 'product',
@@ -430,8 +429,7 @@ export async function POST(request: Request) {
 
     await resolveConflictsForMapping('unit', payload.mappingId);
 
-    await history.record({
-      status: 'success',
+    await history.recordSuccess({
       message: `Resolved unit conflict for mapping ${payload.mappingId}.`,
       summary: {
         mappingKind: 'unit',
@@ -460,9 +458,9 @@ export async function POST(request: Request) {
       mappingId: payload.mappingId,
     });
   } catch (error) {
-    log.error('[MappingWizard] Conflict remap failed:', error);
-    await history.record({
-      status: 'failure',
+    await history.recordFailure({
+      logMessage: '[MappingWizard] Conflict remap failed:',
+      error,
       message: `Conflict remap failed: ${formatManualActionError(error)}`,
       summary: { error: formatManualActionError(error) },
       events: [

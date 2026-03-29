@@ -56,7 +56,7 @@ export default async function HistoryPage({
         <div className="flex items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold">History</h1>
-            <p className="text-sm text-muted-foreground">Operational audit trail for sync runs and recovery actions</p>
+            <p className="text-sm text-muted-foreground">Operational audit trail for sync runs and manual actions across the web UI and MCP server</p>
           </div>
           <Link href="/" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
             <ArrowLeft className="size-4" />
@@ -92,7 +92,7 @@ export default async function HistoryPage({
               <p className="text-sm text-muted-foreground">
                 {hasFilters
                   ? 'No history runs match the current filters.'
-                  : 'No sync or recovery actions have been recorded yet.'}
+                  : 'No sync or manual actions have been recorded yet.'}
               </p>
             ) : (
               <Table>

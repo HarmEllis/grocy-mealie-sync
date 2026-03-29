@@ -140,9 +140,8 @@ export async function POST(request: Request) {
       synced++;
     }
 
-    log.info(`[MappingWizard] Products synced: ${synced}, renamed: ${renamed}`);
-    await history.record({
-      status: 'success',
+    await history.recordSuccess({
+      logMessage: `[MappingWizard] Products synced: ${synced}, renamed: ${renamed}`,
       message: `Mapped ${synced} product(s); renamed ${renamed}.`,
       summary: {
         requested: mappings.length,
@@ -162,9 +161,9 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ synced, renamed });
   } catch (error) {
-    log.error('[MappingWizard] Product sync failed:', error);
-    await history.record({
-      status: 'failure',
+    await history.recordFailure({
+      logMessage: '[MappingWizard] Product sync failed:',
+      error,
       message: `Product mapping sync failed: ${formatManualActionError(error)}`,
       summary: { error: formatManualActionError(error) },
       events: [

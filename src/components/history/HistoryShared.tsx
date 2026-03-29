@@ -38,7 +38,7 @@ export function HistoryDisabledState() {
         <div className="flex items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold">History</h1>
-            <p className="text-sm text-muted-foreground">Operational audit trail for sync runs and recovery actions</p>
+            <p className="text-sm text-muted-foreground">Operational audit trail for sync runs and manual actions across the web UI and MCP server</p>
           </div>
           <Link href="/" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
             <ArrowLeft className="size-4" />

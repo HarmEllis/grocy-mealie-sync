@@ -91,9 +91,8 @@ export async function POST(request: Request) {
       }
     }
 
-    log.info(`[MappingWizard] Units created: ${created}, skipped: ${skipped}`);
-    await history.record({
-      status: 'success',
+    await history.recordSuccess({
+      logMessage: `[MappingWizard] Units created: ${created}, skipped: ${skipped}`,
       message: `Created ${created} Grocy unit mapping(s); skipped ${skipped}.`,
       summary: {
         requested: mealieUnitIds.length,
@@ -113,9 +112,9 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ created, skipped });
   } catch (error) {
-    log.error('[MappingWizard] Unit creation failed:', error);
-    await history.record({
-      status: 'failure',
+    await history.recordFailure({
+      logMessage: '[MappingWizard] Unit creation failed:',
+      error,
       message: `Grocy unit creation failed: ${formatManualActionError(error)}`,
       summary: { error: formatManualActionError(error) },
       events: [

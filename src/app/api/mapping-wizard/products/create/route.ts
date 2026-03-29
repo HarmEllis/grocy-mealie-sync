@@ -116,9 +116,8 @@ export async function POST(request: Request) {
       }
     }
 
-    log.info(`[MappingWizard] Products created: ${created}, skipped: ${skipped}`);
-    await history.record({
-      status: 'success',
+    await history.recordSuccess({
+      logMessage: `[MappingWizard] Products created: ${created}, skipped: ${skipped}`,
       message: `Created ${created} Grocy product mapping(s); skipped ${skipped}.`,
       summary: {
         requested: mealieFoodIds.length,
@@ -138,9 +137,9 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ created, skipped });
   } catch (error) {
-    log.error('[MappingWizard] Product creation failed:', error);
-    await history.record({
-      status: 'failure',
+    await history.recordFailure({
+      logMessage: '[MappingWizard] Product creation failed:',
+      error,
       message: `Grocy product creation failed: ${formatManualActionError(error)}`,
       summary: { error: formatManualActionError(error) },
       events: [

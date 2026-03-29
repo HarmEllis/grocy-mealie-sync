@@ -149,9 +149,8 @@ export async function POST(request: Request) {
       }
     }
 
-    log.info(`[MappingWizard] Orphan units deleted: ${deleted}/${validIds.length}`);
-    await history.record({
-      status: 'success',
+    await history.recordSuccess({
+      logMessage: `[MappingWizard] Orphan units deleted: ${deleted}/${validIds.length}`,
       message: `Deleted ${deleted} orphan Grocy unit(s) out of ${validIds.length} requested orphan(s).`,
       summary: {
         requested: ids.length,
@@ -171,9 +170,9 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ deleted, total: validIds.length });
   } catch (error) {
-    log.error('[MappingWizard] Orphan unit deletion failed:', error);
-    await history.record({
-      status: 'failure',
+    await history.recordFailure({
+      logMessage: '[MappingWizard] Orphan unit deletion failed:',
+      error,
       message: `Orphan unit deletion failed: ${formatManualActionError(error)}`,
       summary: { error: formatManualActionError(error) },
       events: [

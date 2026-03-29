@@ -53,8 +53,7 @@ export async function POST(request: Request) {
     await db.delete(unitMappings).where(eq(unitMappings.id, parsed.data.id));
     await resolveConflictsForMapping('unit', parsed.data.id);
 
-    await history.record({
-      status: 'success',
+    await history.recordSuccess({
       message: `Removed unit mapping ${parsed.data.id}.`,
       summary: { id: parsed.data.id },
       events: [
@@ -74,9 +73,9 @@ export async function POST(request: Request) {
       id: parsed.data.id,
     });
   } catch (error) {
-    log.error('[MappingWizard] Unit unmap failed:', error);
-    await history.record({
-      status: 'failure',
+    await history.recordFailure({
+      logMessage: '[MappingWizard] Unit unmap failed:',
+      error,
       message: `Unit unmap failed: ${formatManualActionError(error)}`,
       summary: { error: formatManualActionError(error) },
       events: [
