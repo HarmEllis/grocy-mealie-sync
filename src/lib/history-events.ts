@@ -373,14 +373,15 @@ export function buildConflictCheckHistoryOutcome(result: MappingConflictCheckRes
   const detectedBreakdown = formatConflictKindBreakdown(result.conflicts);
   const openedBreakdown = formatConflictKindBreakdown(result.openedConflicts);
   const resolvedBreakdown = formatConflictKindBreakdown(result.resolvedConflicts);
+  const hasOpenConflicts = result.summary.open > 0;
 
   return {
-    status: 'success',
+    status: hasOpenConflicts ? 'partial' : 'success',
     message: `Detected ${result.summary.detected} conflict(s) (${detectedBreakdown}); opened ${result.summary.opened} (${openedBreakdown}); resolved ${result.summary.resolved} (${resolvedBreakdown}); ${result.summary.open} still open.`,
     summary: result.summary,
     events: [
       {
-        level: result.summary.opened > 0 ? 'warning' : 'info',
+        level: hasOpenConflicts ? 'warning' : 'info',
         category: 'conflict',
         entityKind: 'conflict',
         entityRef: 'conflict-check',

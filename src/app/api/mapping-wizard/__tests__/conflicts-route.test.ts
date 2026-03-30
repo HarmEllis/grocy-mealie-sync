@@ -109,4 +109,48 @@ describe('mapping wizard conflicts route', () => {
     });
     expect(mockState.releaseSyncLock).toHaveBeenCalledTimes(1);
   });
+
+  it('records a partial history run when open conflicts remain after the check', async () => {
+    mockState.runMappingConflictCheck.mockResolvedValue({
+      conflicts: [
+        {
+          id: 'conflict-1',
+          conflictKey: 'missing_mealie_unit:unit:unit-map-1',
+          type: 'missing_mealie_unit',
+          status: 'open',
+          severity: 'error',
+          mappingKind: 'unit',
+          mappingId: 'unit-map-1',
+          sourceTab: 'units',
+          mealieId: 'unit-1',
+          mealieName: 'Bottle',
+          grocyId: 5,
+          grocyName: 'Bottle',
+          summary: 'Mapped Mealie unit "Bottle" no longer exists.',
+          occurrences: 1,
+          firstSeenAt: new Date('2026-03-27T10:00:00.000Z'),
+          lastSeenAt: new Date('2026-03-27T10:05:00.000Z'),
+          resolvedAt: null,
+        },
+      ],
+      openedConflicts: [],
+      resolvedConflicts: [],
+      summary: {
+        detected: 1,
+        opened: 0,
+        resolved: 0,
+        open: 1,
+      },
+    });
+
+    const response = await POST();
+
+    expect(response.status).toBe(200);
+    expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      trigger: 'manual',
+      action: 'conflict_check',
+      status: 'partial',
+      message: 'Detected 1 conflict(s) (1 unit); opened 0 (none); resolved 0 (none); 1 still open.',
+    }));
+  });
 });

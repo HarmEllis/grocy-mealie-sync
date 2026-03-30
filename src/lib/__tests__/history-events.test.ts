@@ -119,6 +119,46 @@ describe('history events', () => {
     expect(outcome.events[2]?.message).toContain('Resolved unit mapping conflict');
   });
 
+  it('marks conflict checks with open conflicts as partial', () => {
+    const outcome = buildConflictCheckHistoryOutcome({
+      conflicts: [
+        {
+          id: 'conflict-product-open',
+          conflictKey: 'product-open',
+          type: 'missing_grocy_product',
+          status: 'open',
+          severity: 'error',
+          mappingKind: 'product',
+          mappingId: 'product-map-1',
+          sourceTab: 'products',
+          mealieId: 'food-1',
+          mealieName: 'Tomaat',
+          grocyId: 10,
+          grocyName: 'Tomaat',
+          summary: 'Mapped Grocy product "Tomaat" no longer exists.',
+          occurrences: 1,
+          firstSeenAt: new Date('2026-03-28T08:00:00.000Z'),
+          lastSeenAt: new Date('2026-03-28T08:05:00.000Z'),
+          resolvedAt: null,
+        },
+      ],
+      openedConflicts: [],
+      resolvedConflicts: [],
+      summary: {
+        detected: 1,
+        opened: 0,
+        resolved: 0,
+        open: 1,
+      },
+    });
+
+    expect(outcome.status).toBe('partial');
+    expect(outcome.events[0]).toEqual(expect.objectContaining({
+      level: 'warning',
+      message: 'Completed. Open conflicts: 1 product.',
+    }));
+  });
+
   it('hides generic scheduler step markers when detailed step events exist', () => {
     const visibleEvents = getVisibleHistoryEvents([
       {

@@ -199,4 +199,57 @@ describe('scheduler startup lock', () => {
 
     expect(mockState.releaseSchedulerLock).toHaveBeenCalledTimes(1);
   });
+
+  it('marks scheduler notifications as partial when the conflict check leaves conflicts open', async () => {
+    mockState.acquireSchedulerLock.mockReturnValue(true);
+    mockState.runMappingConflictCheck.mockResolvedValue({
+      conflicts: [
+        {
+          id: 'conflict-1',
+          conflictKey: 'missing_grocy_product:product:product-map-1',
+          type: 'missing_grocy_product',
+          status: 'open',
+          severity: 'error',
+          mappingKind: 'product',
+          mappingId: 'product-map-1',
+          sourceTab: 'products',
+          mealieId: 'food-1',
+          mealieName: 'Milk',
+          grocyId: 101,
+          grocyName: 'Milk',
+          summary: 'Mapped Grocy product "Milk" no longer exists.',
+          occurrences: 1,
+          firstSeenAt: new Date('2026-03-28T10:00:00.000Z'),
+          lastSeenAt: new Date('2026-03-28T10:05:00.000Z'),
+          resolvedAt: null,
+        },
+      ],
+      openedConflicts: [],
+      resolvedConflicts: [],
+      summary: {
+        detected: 1,
+        opened: 0,
+        resolved: 0,
+        open: 1,
+      },
+    });
+
+    startScheduler();
+    await flushAsyncWork();
+
+    expect(mockState.sendSchedulerNotifications).toHaveBeenCalledWith(expect.objectContaining({
+      cycleType: 'initial',
+      status: 'partial',
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          name: 'conflict_check',
+          status: 'partial',
+        }),
+      ]),
+    }));
+    expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'scheduler_cycle',
+      status: 'partial',
+    }));
+  });
 });
