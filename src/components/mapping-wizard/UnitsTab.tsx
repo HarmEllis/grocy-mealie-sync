@@ -3,7 +3,6 @@
 import { useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { NativeSelect } from '@/components/ui/native-select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -14,6 +13,12 @@ import type { UnitsTabData, UnitMapping, SelectOption } from './types';
 import { sortByName } from './types';
 
 type UnitFilter = 'unmapped' | 'mapped' | 'all';
+
+const UNIT_FILTER_OPTIONS: SelectOption<UnitFilter>[] = [
+  { value: 'unmapped', label: 'Unmapped' },
+  { value: 'mapped', label: 'Mapped' },
+  { value: 'all', label: 'All' },
+];
 
 interface UnitsTabProps {
   data: UnitsTabData;
@@ -124,16 +129,14 @@ export function UnitsTab({
         <Button variant="outline" onClick={onNormalizeUnits} disabled={isRunning}>
           Normalize (lowercase)
         </Button>
-        <NativeSelect
+        <SearchableSelect
+          options={UNIT_FILTER_OPTIONS}
           value={unitFilter}
-          onChange={event => setUnitFilter(event.target.value as UnitFilter)}
-          containerClassName="w-auto"
-          className="w-[120px]"
-        >
-          <option value="unmapped">Unmapped</option>
-          <option value="mapped">Mapped</option>
-          <option value="all">All</option>
-        </NativeSelect>
+          onChange={value => value && setUnitFilter(value)}
+          ariaLabel="Filter units by mapping status"
+          className="w-[140px]"
+          clearable={false}
+        />
         <Input
           placeholder="Filter Mealie units..."
           value={unitSearch}
