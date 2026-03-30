@@ -94,6 +94,42 @@ export function registerShoppingTools(server: McpServer, services: ShoppingMcpSe
   );
 
   server.registerTool(
+    'shopping.add_item_by_name',
+    {
+      title: 'Add Shopping Item By Name',
+      description: 'Resolve an exact product name for the Mealie shopping list, optionally moving leading words into the note',
+      inputSchema: {
+        query: z.string().trim().min(1),
+        quantity: z.number().positive().optional(),
+        unitId: z.string().trim().min(1).nullable().optional(),
+        note: z.string().trim().min(1).nullable().optional(),
+        mergeIfExists: z.boolean().optional(),
+      },
+    },
+    async ({ query, quantity = 1, unitId, note, mergeIfExists = true }) => {
+      const data = await services.addShoppingListItemByName({
+        query,
+        quantity,
+        unitId,
+        note,
+        mergeIfExists,
+      });
+      const actionMessage = data.action === 'updated'
+        ? 'Merged into an existing shopping list item.'
+        : 'Added a new shopping list item.';
+      const resolutionMessage = data.resolved.resolution === 'suffix_note'
+        ? ` Resolved "${data.resolved.query}" to "${data.resolved.foodName}" and appended "${data.resolved.derivedNote}" to the note.`
+        : '';
+      const result = createOkResult(`${actionMessage}${resolutionMessage}`, data);
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
     'shopping.remove_item',
     {
       title: 'Remove Shopping Item',

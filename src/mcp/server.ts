@@ -43,6 +43,7 @@ import {
   listUnmappedUnitsResource,
 } from '@/lib/use-cases/resources/read-models';
 import {
+  addShoppingListItemByName,
   addShoppingListItem,
   checkShoppingListProduct,
   getShoppingListItemsResource,
@@ -102,6 +103,7 @@ export function createGrocyMealieSyncMcpServer(
     getShoppingListItemsResource,
     checkShoppingListProduct,
     addShoppingListItem,
+    addShoppingListItemByName,
     removeShoppingListItem,
     updateShoppingListItem,
     mergeShoppingListDuplicates,

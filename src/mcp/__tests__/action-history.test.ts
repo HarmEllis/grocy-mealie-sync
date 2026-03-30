@@ -148,6 +148,24 @@ describe('MCP action history wrappers', () => {
           display: null,
         },
       })),
+      addShoppingListItemByName: vi.fn(async (): Promise<any> => ({
+        action: 'created',
+        item: {
+          id: 'item-2',
+          foodName: 'Kwark',
+          display: null,
+        },
+        resolved: {
+          query: 'vanille kwark',
+          matchedQuery: 'kwark',
+          resolution: 'suffix_note',
+          productRef: 'mapping:kwark-map',
+          foodId: 'food-kwark',
+          foodName: 'Kwark',
+          derivedNote: 'vanille',
+          note: 'vanille',
+        },
+      })),
       updateShoppingListItem: vi.fn(async (): Promise<any> => ({
         item: {
           id: 'item-1',
@@ -407,6 +425,27 @@ describe('MCP action history wrappers', () => {
       events: [
         expect.objectContaining({
           entityRef: 'item-1',
+        }),
+      ],
+    }));
+  });
+
+  it('records shopping item adds-by-name with the resolved item label', async () => {
+    const baseServices = createBaseShoppingServices();
+    const services = createHistoryWrappedShoppingServices(baseServices);
+
+    await services.addShoppingListItemByName({
+      query: 'vanille kwark',
+      quantity: 1,
+    } as any);
+
+    expect(info).toHaveBeenCalledWith('[MCP] Added shopping list item for "Kwark".');
+    expect(recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'shopping_add_item',
+      message: 'Added a shopping list item for "Kwark".',
+      events: [
+        expect.objectContaining({
+          entityRef: 'item-2',
         }),
       ],
     }));

@@ -3,9 +3,10 @@ import type { ShoppingListItemCreate } from '@/lib/mealie/client/models/Shopping
 import type { ShoppingListItemsCollectionOut } from '@/lib/mealie/client/models/ShoppingListItemsCollectionOut';
 import type { ShoppingListItemUpdate } from '@/lib/mealie/client/models/ShoppingListItemUpdate';
 import type { MealieShoppingItem } from '@/lib/mealie/types';
-import { rankVariantMatches } from '@/lib/fuzzy-match';
+import { normalizeMatchText, rankVariantMatches } from '@/lib/fuzzy-match';
 import { resolveShoppingListId } from '@/lib/settings';
 import { fetchAllMealieShoppingItems } from '@/lib/sync/helpers';
+import { getProductOverview, type ProductOverview } from '@/lib/use-cases/products/catalog';
 
 export interface ShoppingListItemSummary {
   id: string;
@@ -65,6 +66,29 @@ export interface AddShoppingListItemResult {
   item: ShoppingListItemSummary;
 }
 
+export interface AddShoppingListItemByNameParams {
+  query: string;
+  quantity?: number;
+  unitId?: string | null;
+  note?: string | null;
+  mergeIfExists?: boolean;
+}
+
+export interface ShoppingListProductResolution {
+  query: string;
+  matchedQuery: string;
+  resolution: 'exact' | 'suffix_note';
+  productRef: string;
+  foodId: string;
+  foodName: string;
+  derivedNote: string | null;
+  note: string | null;
+}
+
+export interface AddShoppingListItemByNameResult extends AddShoppingListItemResult {
+  resolved: ShoppingListProductResolution;
+}
+
 export interface RemoveShoppingListItemParams {
   itemId: string;
 }
@@ -108,6 +132,10 @@ export interface ShoppingListDeps {
   deleteShoppingItem(itemId: string): Promise<unknown>;
 }
 
+interface ShoppingListByNameDeps extends ShoppingListDeps {
+  getProductOverview(params: { productRef: string }): Promise<ProductOverview>;
+}
+
 const defaultDeps: ShoppingListDeps = {
   resolveShoppingListId,
   fetchShoppingItems: fetchAllMealieShoppingItems,
@@ -115,6 +143,11 @@ const defaultDeps: ShoppingListDeps = {
   createShoppingItem: body => HouseholdsShoppingListItemsService.createOneApiHouseholdsShoppingItemsPost(body),
   updateShoppingItem: (itemId, body) => HouseholdsShoppingListItemsService.updateOneApiHouseholdsShoppingItemsItemIdPut(itemId, body),
   deleteShoppingItem: itemId => HouseholdsShoppingListItemsService.deleteOneApiHouseholdsShoppingItemsItemIdDelete(itemId),
+};
+
+const defaultByNameDeps: ShoppingListByNameDeps = {
+  ...defaultDeps,
+  getProductOverview,
 };
 
 function requireShoppingListId(shoppingListId: string | null): string {
@@ -183,6 +216,93 @@ function getCreatedOrThrowItem(collection: ShoppingListItemsCollectionOut): Shop
   }
 
   return toShoppingListItemSummary(created);
+}
+
+function splitShoppingNoteSegments(note: string | null | undefined): string[] {
+  return (note ?? '')
+    .split('|')
+    .map(segment => segment.trim())
+    .filter(Boolean);
+}
+
+function mergeShoppingNotes(...notes: Array<string | null | undefined>): string | null {
+  const segments: string[] = [];
+  const seen = new Set<string>();
+
+  for (const note of notes) {
+    for (const segment of splitShoppingNoteSegments(note)) {
+      const normalizedSegment = normalizeMatchText(segment);
+      if (!normalizedSegment || seen.has(normalizedSegment)) {
+        continue;
+      }
+
+      seen.add(normalizedSegment);
+      segments.push(segment);
+    }
+  }
+
+  return segments.length > 0 ? segments.join(' | ') : null;
+}
+
+function isUnknownProductRefError(error: unknown): error is Error {
+  return error instanceof Error && error.message.startsWith('Unknown product ref:');
+}
+
+async function resolveShoppingProductByName(
+  query: string,
+  deps: Pick<ShoppingListByNameDeps, 'getProductOverview'>,
+): Promise<Omit<ShoppingListProductResolution, 'query' | 'note'>> {
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery) {
+    throw new Error('Query must not be empty.');
+  }
+
+  const tokens = trimmedQuery.split(/\s+/);
+  const resolutionCandidates = [
+    {
+      matchedQuery: trimmedQuery,
+      resolution: 'exact' as const,
+      derivedNote: null,
+    },
+    ...tokens.slice(1).map((_, index) => {
+      const splitIndex = index + 1;
+      return {
+        matchedQuery: tokens.slice(splitIndex).join(' '),
+        resolution: 'suffix_note' as const,
+        derivedNote: tokens.slice(0, splitIndex).join(' '),
+      };
+    }),
+  ];
+
+  for (const candidate of resolutionCandidates) {
+    try {
+      const overview = await deps.getProductOverview({ productRef: candidate.matchedQuery });
+      if (!overview.mealieFood) {
+        throw new Error(
+          `Resolved "${candidate.matchedQuery}" to "${overview.productRef}", but it has no linked Mealie food to add to the shopping list.`,
+        );
+      }
+
+      return {
+        matchedQuery: candidate.matchedQuery,
+        resolution: candidate.resolution,
+        productRef: overview.productRef,
+        foodId: overview.mealieFood.id,
+        foodName: overview.mealieFood.name,
+        derivedNote: candidate.derivedNote,
+      };
+    } catch (error) {
+      if (isUnknownProductRefError(error)) {
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  throw new Error(
+    `Could not resolve "${trimmedQuery}" to an exact Mealie shopping product. Try an exact product name or create the product first.`,
+  );
 }
 
 export async function getShoppingListItemsResource(
@@ -289,11 +409,12 @@ export async function addShoppingListItem(
 
   if (existingItem) {
     const currentQuantity = Number(existingItem.quantity ?? 1);
+    const mergedNote = mergeShoppingNotes(existingItem.note, params.note);
     const collection = await deps.updateShoppingItem(existingItem.id, {
       shoppingListId,
       foodId: params.foodId,
       unitId: params.unitId ?? undefined,
-      note: params.note ?? undefined,
+      note: mergedNote ?? undefined,
       quantity: currentQuantity + quantity,
       checked: false,
     });
@@ -306,7 +427,7 @@ export async function addShoppingListItem(
         quantity: currentQuantity + quantity,
         unitId: params.unitId ?? existingItem.unitId ?? null,
         unitName: existingItem.unit?.name ?? null,
-        note: params.note ?? existingItem.note ?? null,
+        note: mergedNote,
       }),
     };
   }
@@ -324,6 +445,35 @@ export async function addShoppingListItem(
     action: 'created',
     merged: false,
     item: getCreatedOrThrowItem(collection),
+  };
+}
+
+export async function addShoppingListItemByName(
+  params: AddShoppingListItemByNameParams,
+  deps: ShoppingListByNameDeps = defaultByNameDeps,
+): Promise<AddShoppingListItemByNameResult> {
+  const resolved = await resolveShoppingProductByName(params.query, deps);
+  const note = mergeShoppingNotes(resolved.derivedNote, params.note);
+  const result = await addShoppingListItem({
+    foodId: resolved.foodId,
+    quantity: params.quantity,
+    unitId: params.unitId,
+    note,
+    mergeIfExists: params.mergeIfExists,
+  }, deps);
+
+  return {
+    ...result,
+    resolved: {
+      query: params.query.trim(),
+      matchedQuery: resolved.matchedQuery,
+      resolution: resolved.resolution,
+      productRef: resolved.productRef,
+      foodId: resolved.foodId,
+      foodName: resolved.foodName,
+      derivedNote: resolved.derivedNote,
+      note,
+    },
   };
 }
 
@@ -400,11 +550,12 @@ export async function mergeShoppingListDuplicates(
 
   const [keptItem, ...itemsToRemove] = duplicateItems;
   const quantity = duplicateItems.reduce((total, item) => total + Number(item.quantity ?? 1), 0);
+  const mergedNote = mergeShoppingNotes(...duplicateItems.map(item => item.note));
   const updated = await deps.updateShoppingItem(keptItem.id, {
     shoppingListId,
     foodId: keptItem.foodId ?? undefined,
     unitId: keptItem.unitId ?? undefined,
-    note: keptItem.note ?? undefined,
+    note: mergedNote ?? undefined,
     quantity,
     checked: false,
   });
@@ -418,6 +569,7 @@ export async function mergeShoppingListDuplicates(
     item: getUpdatedOrFallbackItem(updated, {
       ...toShoppingListItemSummary(keptItem),
       quantity,
+      note: mergedNote,
     }),
   };
 }

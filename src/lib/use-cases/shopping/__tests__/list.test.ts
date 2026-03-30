@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mockMealieShoppingItem } from '@/lib/sync/__tests__/helpers/mocks';
 import {
+  addShoppingListItemByName,
   addShoppingListItem,
   checkShoppingListProduct,
   getShoppingListItemsResource,
@@ -59,6 +60,7 @@ function createDeps(overrides: Partial<ShoppingListDeps> = {}): ShoppingListDeps
           foodId: body.foodId ?? null,
           quantity: body.quantity ?? 1,
           checked: false,
+          note: body.note ?? null,
           display: 'Eggs',
           food: body.foodId ? { id: body.foodId, name: 'Eggs' } as never : null,
           unitId: body.unitId ?? null,
@@ -75,6 +77,7 @@ function createDeps(overrides: Partial<ShoppingListDeps> = {}): ShoppingListDeps
           foodId: body.foodId ?? null,
           quantity: body.quantity ?? 1,
           checked: body.checked ?? false,
+          note: body.note ?? null,
           display: 'Milk',
           food: body.foodId ? { id: body.foodId, name: 'Milk' } as never : null,
           unitId: body.unitId ?? null,
@@ -218,6 +221,118 @@ describe('shopping list use-cases', () => {
     });
   });
 
+  it('joins notes when merging into an existing unchecked duplicate item', async () => {
+    const updateBodies: Array<{ itemId: string; note?: string; quantity?: number }> = [];
+
+    const result = await addShoppingListItem(
+      { foodId: 'food-1', quantity: 1, note: 'Vanille' },
+      createDeps({
+        fetchShoppingItems: async () => [
+          mockMealieShoppingItem({
+            id: 'item-1',
+            shoppingListId: 'list-1',
+            foodId: 'food-1',
+            quantity: 2,
+            checked: false,
+            note: 'Magere',
+            display: 'Milk',
+            food: { id: 'food-1', name: 'Milk' } as never,
+            createdAt: '2026-03-29T09:00:00.000Z',
+            updatedAt: '2026-03-29T09:05:00.000Z',
+          }),
+        ],
+        updateShoppingItem: async (itemId, body) => {
+          updateBodies.push({ itemId, note: body.note ?? undefined, quantity: body.quantity });
+          return {
+            updatedItems: [
+              mockMealieShoppingItem({
+                id: itemId,
+                shoppingListId: body.shoppingListId,
+                foodId: body.foodId ?? null,
+                quantity: body.quantity ?? 1,
+                checked: body.checked ?? false,
+                note: body.note ?? null,
+                display: 'Milk',
+                food: body.foodId ? { id: body.foodId, name: 'Milk' } as never : null,
+                createdAt: '2026-03-29T09:00:00.000Z',
+                updatedAt: '2026-03-29T10:10:00.000Z',
+              }),
+            ],
+          };
+        },
+      }),
+    );
+
+    expect(updateBodies).toEqual([{ itemId: 'item-1', note: 'Magere | Vanille', quantity: 3 }]);
+    expect(result.item.note).toBe('Magere | Vanille');
+  });
+
+  it('resolves leading query words into the note when adding an item by name', async () => {
+    const result = await addShoppingListItemByName(
+      { query: 'vanille kwark', quantity: 2, note: '500g' },
+      {
+        ...createDeps(),
+        getProductOverview: async ({ productRef }) => {
+          if (productRef === 'vanille kwark') {
+            throw new Error('Unknown product ref: vanille kwark');
+          }
+
+          if (productRef === 'kwark') {
+            return {
+              productRef: 'mapping:kwark-map',
+              mapping: {
+                id: 'kwark-map',
+                mealieFoodId: 'food-kwark',
+                mealieFoodName: 'Kwark',
+                grocyProductId: 301,
+                grocyProductName: 'Kwark',
+                unitMappingId: 'unit-map-1',
+              },
+              grocyProduct: null,
+              mealieFood: {
+                id: 'food-kwark',
+                name: 'Kwark',
+                pluralName: null,
+                aliases: [],
+              },
+            };
+          }
+
+          throw new Error(`Unexpected product ref lookup: ${productRef}`);
+        },
+      },
+    );
+
+    expect(result).toEqual({
+      action: 'created',
+      merged: false,
+      item: {
+        id: 'item-3',
+        shoppingListId: 'list-1',
+        foodId: 'food-kwark',
+        foodName: 'Eggs',
+        unitId: null,
+        unitName: null,
+        quantity: 2,
+        checked: false,
+        note: 'vanille | 500g',
+        display: 'Eggs',
+        createdAt: '2026-03-29T10:00:00.000Z',
+        updatedAt: '2026-03-29T10:00:00.000Z',
+      },
+      resolved: {
+        query: 'vanille kwark',
+        matchedQuery: 'kwark',
+        resolution: 'suffix_note',
+        productRef: 'mapping:kwark-map',
+        foodId: 'food-kwark',
+        foodName: 'Kwark',
+        derivedNote: 'vanille',
+        note: 'vanille | 500g',
+      },
+    });
+  });
+
   it('removes an item from the configured shopping list', async () => {
     const result = await removeShoppingListItem(
       { itemId: 'item-1' },
@@ -294,7 +409,7 @@ describe('shopping list use-cases', () => {
   });
 
   it('merges duplicate unchecked shopping items for the same foodId', async () => {
-    const updatedItems: Array<{ itemId: string; quantity?: number }> = [];
+    const updatedItems: Array<{ itemId: string; quantity?: number; note?: string }> = [];
     const deletedItems: string[] = [];
 
     const result = await mergeShoppingListDuplicates(
@@ -307,6 +422,7 @@ describe('shopping list use-cases', () => {
             foodId: 'food-1',
             quantity: 2,
             checked: false,
+            note: 'Vanille',
             display: 'Milk',
             food: { id: 'food-1', name: 'Milk' } as never,
             createdAt: '2026-03-29T09:00:00.000Z',
@@ -318,6 +434,7 @@ describe('shopping list use-cases', () => {
             foodId: 'food-1',
             quantity: 1,
             checked: false,
+            note: 'Magere | vanille',
             display: 'Milk',
             food: { id: 'food-1', name: 'Milk' } as never,
             createdAt: '2026-03-29T09:10:00.000Z',
@@ -325,7 +442,7 @@ describe('shopping list use-cases', () => {
           }),
         ],
         updateShoppingItem: async (itemId, body) => {
-          updatedItems.push({ itemId, quantity: body.quantity });
+          updatedItems.push({ itemId, quantity: body.quantity, note: body.note ?? undefined });
           return {
             updatedItems: [
               mockMealieShoppingItem({
@@ -334,6 +451,7 @@ describe('shopping list use-cases', () => {
                 foodId: body.foodId ?? null,
                 quantity: body.quantity ?? 1,
                 checked: false,
+                note: body.note ?? null,
                 display: 'Milk',
                 food: body.foodId ? { id: body.foodId, name: 'Milk' } as never : null,
                 createdAt: '2026-03-29T09:00:00.000Z',
@@ -349,7 +467,7 @@ describe('shopping list use-cases', () => {
       }),
     );
 
-    expect(updatedItems).toEqual([{ itemId: 'item-1', quantity: 3 }]);
+    expect(updatedItems).toEqual([{ itemId: 'item-1', quantity: 3, note: 'Vanille | Magere' }]);
     expect(deletedItems).toEqual(['item-3']);
     expect(result).toEqual({
       merged: true,
@@ -364,7 +482,7 @@ describe('shopping list use-cases', () => {
         unitName: null,
         quantity: 3,
         checked: false,
-        note: null,
+        note: 'Vanille | Magere',
         display: 'Milk',
         createdAt: '2026-03-29T09:00:00.000Z',
         updatedAt: '2026-03-29T10:10:00.000Z',

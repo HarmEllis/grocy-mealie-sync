@@ -569,35 +569,37 @@ export function createHistoryWrappedInventoryServices(services: InventoryMcpServ
 }
 
 export function createHistoryWrappedShoppingServices(services: ShoppingMcpServices): ShoppingMcpServices {
+  function buildShoppingAddSuccess(result: Awaited<ReturnType<ShoppingMcpServices['addShoppingListItem']>>) {
+    const label = toShoppingLabel(result.item);
+    const message = result.action === 'updated'
+      ? `Merged into an existing shopping list item for "${label}".`
+      : `Added a shopping list item for "${label}".`;
+
+    return {
+      logMessage: result.action === 'updated'
+        ? `[MCP] Merged shopping list item for "${label}".`
+        : `[MCP] Added shopping list item for "${label}".`,
+      message,
+      summary: result,
+      events: [
+        buildManualHistoryEvent({
+          level: 'info',
+          category: 'shopping',
+          entityKind: 'shopping_item',
+          entityRef: result.item.id,
+          message,
+          details: result,
+        }),
+      ],
+    };
+  }
+
   return {
     ...services,
     addShoppingListItem: withMcpActionHistory(services.addShoppingListItem, {
       action: 'shopping_add_item',
       historyErrorPrefix: '[History] Failed to record MCP shopping item add:',
-      buildSuccess: (result) => {
-        const label = toShoppingLabel(result.item);
-        const message = result.action === 'updated'
-          ? `Merged into an existing shopping list item for "${label}".`
-          : `Added a shopping list item for "${label}".`;
-
-        return {
-          logMessage: result.action === 'updated'
-            ? `[MCP] Merged shopping list item for "${label}".`
-            : `[MCP] Added shopping list item for "${label}".`,
-          message,
-          summary: result,
-          events: [
-            buildManualHistoryEvent({
-              level: 'info',
-              category: 'shopping',
-              entityKind: 'shopping_item',
-              entityRef: result.item.id,
-              message,
-              details: result,
-            }),
-          ],
-        };
-      },
+      buildSuccess: (result) => buildShoppingAddSuccess(result),
       buildFailure: (error, params) => ({
         logMessage: '[MCP] Add shopping item failed:',
         message: `Adding a shopping list item failed: ${formatManualActionError(error)}`,
@@ -614,6 +616,35 @@ export function createHistoryWrappedShoppingServices(services: ShoppingMcpServic
             'Adding a shopping list item failed.',
             error,
             { foodId: params.foodId, quantity: params.quantity ?? 1 },
+          ),
+        ],
+      }),
+    }),
+    addShoppingListItemByName: withMcpActionHistory(services.addShoppingListItemByName, {
+      action: 'shopping_add_item',
+      historyErrorPrefix: '[History] Failed to record MCP shopping item add by name:',
+      buildSuccess: (result) => buildShoppingAddSuccess(result),
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Add shopping item failed:',
+        message: `Adding a shopping list item failed: ${formatManualActionError(error)}`,
+        summary: {
+          query: params.query,
+          quantity: params.quantity ?? 1,
+          note: params.note ?? null,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'shopping',
+            'shopping_item',
+            params.query,
+            'Adding a shopping list item failed.',
+            error,
+            {
+              query: params.query,
+              quantity: params.quantity ?? 1,
+              note: params.note ?? null,
+            },
           ),
         ],
       }),

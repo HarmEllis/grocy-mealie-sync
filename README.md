@@ -231,7 +231,7 @@ This MCP surface is intended for daily operational workflows across Grocy, Meali
 - product creation in Grocy, Mealie, or both
 - product and unit mapping management, including mapping suggestions
 - stock updates and Grocy stock-related product defaults
-- Mealie shopping-list correction
+- Mealie shopping-list correction, including add-by-name flows that can turn phrases like `vanille kwark` into product `kwark` plus note `vanille`
 - conflict, history, and product-state diagnostics
 
 Examples:

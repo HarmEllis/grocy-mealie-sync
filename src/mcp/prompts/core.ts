@@ -98,7 +98,8 @@ Return a concise explanation of the active mapping, stock state, and any open co
 
 Start with shopping.list_items for current context.
 Then use shopping.check_product to verify whether the target item already exists and whether duplicates are present.
-Only use shopping.add_item, shopping.remove_item, or shopping.merge_duplicates after you can explain exactly why that action is correct.
+If the user gave a descriptive product phrase such as "vanille kwark", prefer shopping.add_item_by_name so the leading words can be moved into the note when that is the only exact-safe resolution.
+Only use shopping.add_item, shopping.add_item_by_name, shopping.remove_item, or shopping.merge_duplicates after you can explain exactly why that action is correct.
 Summarize the duplicate logic and the intended final shopping-list state before mutating.`,
       );
     },
