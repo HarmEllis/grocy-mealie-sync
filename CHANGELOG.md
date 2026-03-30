@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.5.0] - 2026-03-30
+
+### Changed
+
+- The `shopping.add_item` and `shopping.add_item_by_name` MCP tools are unified into a single `shopping.add_item` tool that accepts either a direct Mealie `foodId` or a `query` product name. The result now always includes a `resolved` field (`null` when using `foodId` directly, populated with resolution details when using `query`).
+
 ## [1.4.0] - 2026-03-30
 
 This minor release expands the MCP operational workflow with smarter shopping-list item resolution, richer inventory stock controls, and tighter unit-selector filtering.
@@ -130,6 +136,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.5.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.2.0...v1.2.1
