@@ -17,22 +17,46 @@ import {
 } from '@/lib/settings';
 import { db } from '@/lib/db';
 import { unitMappings } from '@/lib/db/schema';
-import { HouseholdsShoppingListsService } from '@/lib/mealie';
+import { getGrocyEntities } from '@/lib/grocy/types';
+import { HouseholdsShoppingListsService, RecipesUnitsService } from '@/lib/mealie';
+import { extractUnits } from '@/lib/mealie/types';
 import { log } from '@/lib/logger';
 import { buildManualHistoryEvent, createManualHistoryRecorder, formatManualActionError } from '@/lib/manual-action-history';
 import { settingsUpdateSchema } from '@/lib/validation';
 import { getSyncState, saveSyncState } from '@/lib/sync/state';
+import { filterActiveUnitMappings } from '@/lib/active-unit-mappings';
 
 export async function GET() {
   const settings = await getSettings();
   const units = await db.select().from(unitMappings);
+  let activeUnits = units;
   const locks = getSettingsLocks();
+
+  try {
+    const [mealieUnitsRes, grocyUnits] = await Promise.all([
+      RecipesUnitsService.getAllApiUnitsGet(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        1,
+        1000,
+      ),
+      getGrocyEntities('quantity_units'),
+    ]);
+
+    activeUnits = filterActiveUnitMappings(units, extractUnits(mealieUnitsRes), grocyUnits);
+  } catch (error) {
+    log.warn('[Settings] Could not filter stale unit mappings:', error);
+  }
 
   // Resolve effective values (env var > DB setting)
   const effectiveShoppingListId = await resolveShoppingListId();
   const effectiveDefaultUnitId = resolveDefaultUnitMappingId(
     settings.defaultUnitMappingId,
-    units.map(u => ({ id: u.id, grocyUnitId: u.grocyUnitId })),
+    activeUnits.map(u => ({ id: u.id, grocyUnitId: u.grocyUnitId })),
   );
   const autoCreateProducts = await resolveAutoCreateProducts();
   const autoCreateUnits = await resolveAutoCreateUnits();
@@ -66,9 +90,9 @@ export async function GET() {
     mappingWizardMinStockStep,
     stockOnlyMinStock,
     locks,
-    availableUnits: units.map(u => ({
+    availableUnits: activeUnits.map(u => ({
       id: u.id,
-      name: u.mealieUnitName,
+      name: u.grocyUnitName,
       abbreviation: u.mealieUnitAbbreviation,
       grocyUnitId: u.grocyUnitId,
       grocyUnitName: u.grocyUnitName,

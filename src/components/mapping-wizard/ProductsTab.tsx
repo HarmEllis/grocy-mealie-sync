@@ -73,7 +73,7 @@ export function ProductsTab({
   const productMappedCount = Object.values(productMaps).filter(m => m.grocyProductId !== null).length;
 
   const defaultUnitName = defaultCreateUnitId && data
-    ? data.existingUnitMappings.find(m => m.grocyUnitId === defaultCreateUnitId)?.mealieUnitName
+    ? data.existingUnitMappings.find(m => m.grocyUnitId === defaultCreateUnitId)?.grocyUnitName
     : undefined;
   const unitPlaceholder = defaultUnitName ? `Default: ${defaultUnitName}` : 'Unit...';
 

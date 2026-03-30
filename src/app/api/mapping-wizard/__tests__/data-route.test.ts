@@ -225,6 +225,48 @@ describe('mapping wizard data route', () => {
     });
   });
 
+  it('filters stale unit mappings out of the products tab default-unit data', async () => {
+    mockState.mealieUnits = [
+      { id: 'unit-2', name: 'Liter', abbreviation: 'l' },
+    ];
+    mockState.grocyUnits = [
+      { id: 20, name: 'Litre' },
+    ];
+    mockState.unitMappingsRows = [
+      {
+        id: 'unit-map-stale',
+        mealieUnitId: 'unit-removed',
+        mealieUnitAbbreviation: 'fl',
+        grocyUnitId: 10,
+        grocyUnitName: 'Bottle',
+        mealieUnitName: 'Fles',
+      },
+      {
+        id: 'unit-map-valid',
+        mealieUnitId: 'unit-2',
+        mealieUnitAbbreviation: 'l',
+        grocyUnitId: 20,
+        grocyUnitName: 'Litre',
+        mealieUnitName: 'Liter',
+      },
+    ];
+
+    const response = await GET(createRequest('http://localhost/api/mapping-wizard/data?tab=products'));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.existingUnitMappings).toEqual([
+      {
+        id: 'unit-map-valid',
+        mealieUnitId: 'unit-2',
+        mealieUnitAbbreviation: 'l',
+        grocyUnitId: 20,
+        grocyUnitName: 'Litre',
+        mealieUnitName: 'Liter',
+      },
+    ]);
+  });
+
   it('builds unit suggestions from plural names, abbreviations, and aliases', async () => {
     mockState.mealieUnits = [
       {

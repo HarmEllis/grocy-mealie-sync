@@ -354,7 +354,7 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
   const mappedUnitOptions = useMemo(() =>
     productsData
       ? sortByName(productsData.existingUnitMappings.map(mapping => ({
-        name: mapping.mealieUnitName,
+        name: mapping.grocyUnitName,
         id: mapping.grocyUnitId,
       }))).map(unit => ({ value: unit.id, label: unit.name }))
       : [],

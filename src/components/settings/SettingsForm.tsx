@@ -198,10 +198,10 @@ export function SettingsForm() {
     .map(list => ({ value: list.id, label: list.name }));
 
   const unitOptions = [...settings.availableUnits]
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .sort((a, b) => a.grocyUnitName.localeCompare(b.grocyUnitName))
     .map(unit => ({
       value: unit.id,
-      label: `${unit.name}${unit.abbreviation ? ` (${unit.abbreviation})` : ''}`,
+      label: unit.grocyUnitName,
     }));
 
   const minStockStepOptions = MIN_STOCK_STEP_VALUES.map(step => ({

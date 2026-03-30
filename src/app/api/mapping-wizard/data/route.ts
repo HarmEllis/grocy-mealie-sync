@@ -7,6 +7,7 @@ import { extractFoods, extractUnits } from '@/lib/mealie/types';
 import { findSuggestedMatch, type MatchVariant } from '@/lib/fuzzy-match';
 import { log } from '@/lib/logger';
 import { resolveMappingWizardMinStockStep } from '@/lib/settings';
+import { filterActiveUnitMappings } from '@/lib/active-unit-mappings';
 import type {
   GrocyMinStockProduct,
   GrocyMinStockTabData,
@@ -369,28 +370,31 @@ async function loadUnitsTabData(): Promise<UnitsTabData> {
     fetchGrocyUnits(),
     fetchExistingUnitMappings(),
   ]);
+  const activeUnitMappings = filterActiveUnitMappings(existingUnitMappings, mealieUnits, grocyUnits);
 
-  const unmappedMealieUnits = buildUnmappedMealieUnits(mealieUnits, existingUnitMappings);
+  const unmappedMealieUnits = buildUnmappedMealieUnits(mealieUnits, activeUnitMappings);
 
   return {
     mealieUnits: toPublicMealieUnits(mealieUnits),
     unmappedMealieUnits: toPublicMealieUnits(unmappedMealieUnits),
     grocyUnits: toPublicGrocyUnits(grocyUnits),
-    existingUnitMappings,
-    unitSuggestions: buildUnitSuggestions(unmappedMealieUnits, grocyUnits, existingUnitMappings),
-    orphanGrocyUnitCount: countOrphanGrocyUnits(mealieUnits, grocyUnits, existingUnitMappings),
+    existingUnitMappings: activeUnitMappings,
+    unitSuggestions: buildUnitSuggestions(unmappedMealieUnits, grocyUnits, activeUnitMappings),
+    orphanGrocyUnitCount: countOrphanGrocyUnits(mealieUnits, grocyUnits, activeUnitMappings),
   };
 }
 
 async function loadProductsTabData(): Promise<ProductsTabData> {
-  const [mealieFoods, grocyProducts, grocyUnits, existingProductMappings, existingUnitMappings] =
+  const [mealieFoods, mealieUnits, grocyProducts, grocyUnits, existingProductMappings, existingUnitMappings] =
     await Promise.all([
       fetchMealieFoods(),
+      fetchMealieUnits(),
       fetchGrocyProducts(),
       fetchGrocyUnits(),
       fetchExistingProductMappings(),
       fetchExistingUnitMappings(),
     ]);
+  const activeUnitMappings = filterActiveUnitMappings(existingUnitMappings, mealieUnits, grocyUnits);
 
   const unmappedMealieFoods = buildUnmappedMealieFoods(mealieFoods, existingProductMappings);
 
@@ -398,12 +402,12 @@ async function loadProductsTabData(): Promise<ProductsTabData> {
     unmappedMealieFoods: toPublicMealieFoods(unmappedMealieFoods),
     grocyProducts,
     grocyUnits: toPublicGrocyUnits(grocyUnits),
-    existingUnitMappings,
+    existingUnitMappings: activeUnitMappings,
     productSuggestions: buildProductSuggestions(
       unmappedMealieFoods,
       grocyProducts,
       existingProductMappings,
-      existingUnitMappings,
+      activeUnitMappings,
     ),
     orphanGrocyProductCount: countOrphanGrocyProducts(mealieFoods, grocyProducts, existingProductMappings),
   };
@@ -452,9 +456,10 @@ async function loadFullWizardData(): Promise<WizardData> {
       fetchGrocyCurrentStockByProductId(),
       fetchGrocyMissingProductIds(),
     ]);
+  const activeUnitMappings = filterActiveUnitMappings(existingUnitMappings, mealieUnits, grocyUnits);
 
   const unmappedMealieFoods = buildUnmappedMealieFoods(mealieFoods, existingProductMappings);
-  const unmappedMealieUnits = buildUnmappedMealieUnits(mealieUnits, existingUnitMappings);
+  const unmappedMealieUnits = buildUnmappedMealieUnits(mealieUnits, activeUnitMappings);
   const unmappedGrocyMinStockProducts = buildUnmappedGrocyMinStockProducts(
     grocyProducts,
     existingProductMappings,
@@ -469,20 +474,20 @@ async function loadFullWizardData(): Promise<WizardData> {
     unmappedGrocyMinStockProducts,
     grocyProducts,
     grocyUnits: toPublicGrocyUnits(grocyUnits),
-    existingUnitMappings,
+    existingUnitMappings: activeUnitMappings,
     productSuggestions: buildProductSuggestions(
       unmappedMealieFoods,
       grocyProducts,
       existingProductMappings,
-      existingUnitMappings,
+      activeUnitMappings,
     ),
     lowStockGrocyProductSuggestions: buildLowStockGrocyProductSuggestions(
       unmappedGrocyMinStockProducts,
       unmappedMealieFoods,
     ),
-    unitSuggestions: buildUnitSuggestions(unmappedMealieUnits, grocyUnits, existingUnitMappings),
+    unitSuggestions: buildUnitSuggestions(unmappedMealieUnits, grocyUnits, activeUnitMappings),
     orphanGrocyProductCount: countOrphanGrocyProducts(mealieFoods, grocyProducts, existingProductMappings),
-    orphanGrocyUnitCount: countOrphanGrocyUnits(mealieUnits, grocyUnits, existingUnitMappings),
+    orphanGrocyUnitCount: countOrphanGrocyUnits(mealieUnits, grocyUnits, activeUnitMappings),
   };
 }
 
