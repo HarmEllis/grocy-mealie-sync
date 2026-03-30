@@ -142,28 +142,12 @@ describe('MCP action history wrappers', () => {
       checkShoppingListProduct: vi.fn(),
       addShoppingListItem: vi.fn(async (): Promise<any> => ({
         action: 'created',
+        merged: false,
+        resolved: null,
         item: {
           id: 'item-1',
           foodName: 'Milk',
           display: null,
-        },
-      })),
-      addShoppingListItemByName: vi.fn(async (): Promise<any> => ({
-        action: 'created',
-        item: {
-          id: 'item-2',
-          foodName: 'Kwark',
-          display: null,
-        },
-        resolved: {
-          query: 'vanille kwark',
-          matchedQuery: 'kwark',
-          resolution: 'suffix_note',
-          productRef: 'mapping:kwark-map',
-          foodId: 'food-kwark',
-          foodName: 'Kwark',
-          derivedNote: 'vanille',
-          note: 'vanille',
         },
       })),
       updateShoppingListItem: vi.fn(async (): Promise<any> => ({
@@ -430,11 +414,30 @@ describe('MCP action history wrappers', () => {
     }));
   });
 
-  it('records shopping item adds-by-name with the resolved item label', async () => {
+  it('records shopping item adds-by-query with the resolved item label', async () => {
     const baseServices = createBaseShoppingServices();
+    baseServices.addShoppingListItem = vi.fn(async (): Promise<any> => ({
+      action: 'created',
+      merged: false,
+      resolved: {
+        query: 'vanille kwark',
+        matchedQuery: 'kwark',
+        resolution: 'suffix_note',
+        productRef: 'mapping:kwark-map',
+        foodId: 'food-kwark',
+        foodName: 'Kwark',
+        derivedNote: 'vanille',
+        note: 'vanille',
+      },
+      item: {
+        id: 'item-2',
+        foodName: 'Kwark',
+        display: null,
+      },
+    }));
     const services = createHistoryWrappedShoppingServices(baseServices);
 
-    await services.addShoppingListItemByName({
+    await services.addShoppingListItem({
       query: 'vanille kwark',
       quantity: 1,
     } as any);

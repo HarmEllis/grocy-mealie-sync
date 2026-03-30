@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mockMealieShoppingItem } from '@/lib/sync/__tests__/helpers/mocks';
 import {
-  addShoppingListItemByName,
   addShoppingListItem,
   checkShoppingListProduct,
   getShoppingListItemsResource,
@@ -90,6 +89,9 @@ function createDeps(overrides: Partial<ShoppingListDeps> = {}): ShoppingListDeps
       removed: true,
       itemId,
     }),
+    getProductOverview: async () => {
+      throw new Error('getProductOverview not configured in test deps');
+    },
     ...overrides,
   };
 }
@@ -178,6 +180,7 @@ describe('shopping list use-cases', () => {
     expect(result).toEqual({
       action: 'updated',
       merged: true,
+      resolved: null,
       item: {
         id: 'item-1',
         shoppingListId: 'list-1',
@@ -204,6 +207,7 @@ describe('shopping list use-cases', () => {
     expect(result).toEqual({
       action: 'created',
       merged: false,
+      resolved: null,
       item: {
         id: 'item-3',
         shoppingListId: 'list-1',
@@ -264,14 +268,14 @@ describe('shopping list use-cases', () => {
     );
 
     expect(updateBodies).toEqual([{ itemId: 'item-1', note: 'Magere | Vanille', quantity: 3 }]);
+    expect(result.resolved).toBeNull();
     expect(result.item.note).toBe('Magere | Vanille');
   });
 
-  it('resolves leading query words into the note when adding an item by name', async () => {
-    const result = await addShoppingListItemByName(
+  it('resolves leading query words into the note when adding an item by query', async () => {
+    const result = await addShoppingListItem(
       { query: 'vanille kwark', quantity: 2, note: '500g' },
-      {
-        ...createDeps(),
+      createDeps({
         getProductOverview: async ({ productRef }) => {
           if (productRef === 'vanille kwark') {
             throw new Error('Unknown product ref: vanille kwark');
@@ -300,12 +304,22 @@ describe('shopping list use-cases', () => {
 
           throw new Error(`Unexpected product ref lookup: ${productRef}`);
         },
-      },
+      }),
     );
 
     expect(result).toEqual({
       action: 'created',
       merged: false,
+      resolved: {
+        query: 'vanille kwark',
+        matchedQuery: 'kwark',
+        resolution: 'suffix_note',
+        productRef: 'mapping:kwark-map',
+        foodId: 'food-kwark',
+        foodName: 'Kwark',
+        derivedNote: 'vanille',
+        note: 'vanille | 500g',
+      },
       item: {
         id: 'item-3',
         shoppingListId: 'list-1',
@@ -320,17 +334,21 @@ describe('shopping list use-cases', () => {
         createdAt: '2026-03-29T10:00:00.000Z',
         updatedAt: '2026-03-29T10:00:00.000Z',
       },
-      resolved: {
-        query: 'vanille kwark',
-        matchedQuery: 'kwark',
-        resolution: 'suffix_note',
-        productRef: 'mapping:kwark-map',
-        foodId: 'food-kwark',
-        foodName: 'Kwark',
-        derivedNote: 'vanille',
-        note: 'vanille | 500g',
-      },
     });
+  });
+
+  it('rejects adding a shopping item when neither foodId nor query is provided', async () => {
+    await expect(addShoppingListItem(
+      { quantity: 1 },
+      createDeps(),
+    )).rejects.toThrow('Either foodId or query must be provided.');
+  });
+
+  it('rejects adding a shopping item when both foodId and query are provided', async () => {
+    await expect(addShoppingListItem(
+      { foodId: 'food-1', query: 'Milk', quantity: 1 },
+      createDeps(),
+    )).rejects.toThrow('Provide either foodId or query, not both.');
   });
 
   it('removes an item from the configured shopping list', async () => {

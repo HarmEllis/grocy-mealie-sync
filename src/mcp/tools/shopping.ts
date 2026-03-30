@@ -62,52 +62,21 @@ export function registerShoppingTools(server: McpServer, services: ShoppingMcpSe
     'shopping.add_item',
     {
       title: 'Add Shopping Item',
-      description: 'Add a product to the configured Mealie shopping list and merge duplicates by default',
+      description: 'Add a product to the configured Mealie shopping list by food id or product name, merging duplicates by default. When using query, leading words are moved into the note when only a suffix matches.',
       inputSchema: {
-        foodId: z.string().trim().min(1),
+        foodId: z.string().trim().min(1).optional()
+          .describe('Direct Mealie food id. Provide either foodId or query, not both.'),
+        query: z.string().trim().min(1).optional()
+          .describe('Product name to resolve. Leading words are moved to the note when only a suffix matches.'),
         quantity: z.number().positive().optional(),
         unitId: z.string().trim().min(1).nullable().optional(),
         note: z.string().trim().min(1).nullable().optional(),
         mergeIfExists: z.boolean().optional(),
       },
     },
-    async ({ foodId, quantity = 1, unitId, note, mergeIfExists = true }) => {
+    async ({ foodId, query, quantity = 1, unitId, note, mergeIfExists = true }) => {
       const data = await services.addShoppingListItem({
         foodId,
-        quantity,
-        unitId,
-        note,
-        mergeIfExists,
-      });
-      const result = createOkResult(
-        data.action === 'updated'
-          ? 'Merged into an existing shopping list item.'
-          : 'Added a new shopping list item.',
-        data,
-      );
-
-      return {
-        content: [createJsonTextContent(result)],
-        structuredContent: result,
-      };
-    },
-  );
-
-  server.registerTool(
-    'shopping.add_item_by_name',
-    {
-      title: 'Add Shopping Item By Name',
-      description: 'Resolve an exact product name for the Mealie shopping list, optionally moving leading words into the note',
-      inputSchema: {
-        query: z.string().trim().min(1),
-        quantity: z.number().positive().optional(),
-        unitId: z.string().trim().min(1).nullable().optional(),
-        note: z.string().trim().min(1).nullable().optional(),
-        mergeIfExists: z.boolean().optional(),
-      },
-    },
-    async ({ query, quantity = 1, unitId, note, mergeIfExists = true }) => {
-      const data = await services.addShoppingListItemByName({
         query,
         quantity,
         unitId,
@@ -117,7 +86,7 @@ export function registerShoppingTools(server: McpServer, services: ShoppingMcpSe
       const actionMessage = data.action === 'updated'
         ? 'Merged into an existing shopping list item.'
         : 'Added a new shopping list item.';
-      const resolutionMessage = data.resolved.resolution === 'suffix_note'
+      const resolutionMessage = data.resolved?.resolution === 'suffix_note'
         ? ` Resolved "${data.resolved.query}" to "${data.resolved.foodName}" and appended "${data.resolved.derivedNote}" to the note.`
         : '';
       const result = createOkResult(`${actionMessage}${resolutionMessage}`, data);

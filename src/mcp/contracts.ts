@@ -40,8 +40,6 @@ import type {
   UnmappedUnitsResource,
 } from '@/lib/use-cases/resources/read-models';
 import type {
-  AddShoppingListItemByNameParams,
-  AddShoppingListItemByNameResult,
   AddShoppingListItemParams,
   AddShoppingListItemResult,
   CheckShoppingListProductParams,
@@ -130,7 +128,6 @@ export interface ShoppingMcpServices {
   getShoppingListItemsResource(): Promise<ShoppingListItemsResource>;
   checkShoppingListProduct(params: CheckShoppingListProductParams): Promise<CheckShoppingListProductResult>;
   addShoppingListItem(params: AddShoppingListItemParams): Promise<AddShoppingListItemResult>;
-  addShoppingListItemByName(params: AddShoppingListItemByNameParams): Promise<AddShoppingListItemByNameResult>;
   removeShoppingListItem(params: RemoveShoppingListItemParams): Promise<RemoveShoppingListItemResult>;
   updateShoppingListItem(params: UpdateShoppingListItemParams): Promise<UpdateShoppingListItemResult>;
   mergeShoppingListDuplicates(params: MergeShoppingListDuplicatesParams): Promise<MergeShoppingListDuplicatesResult>;

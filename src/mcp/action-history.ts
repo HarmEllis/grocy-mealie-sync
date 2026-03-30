@@ -600,54 +600,35 @@ export function createHistoryWrappedShoppingServices(services: ShoppingMcpServic
       action: 'shopping_add_item',
       historyErrorPrefix: '[History] Failed to record MCP shopping item add:',
       buildSuccess: (result) => buildShoppingAddSuccess(result),
-      buildFailure: (error, params) => ({
-        logMessage: '[MCP] Add shopping item failed:',
-        message: `Adding a shopping list item failed: ${formatManualActionError(error)}`,
-        summary: {
-          foodId: params.foodId,
-          quantity: params.quantity ?? 1,
-          error: formatManualActionError(error),
-        },
-        events: [
-          buildMcpFailureEvent(
-            'shopping',
-            'shopping_item',
-            params.foodId,
-            'Adding a shopping list item failed.',
-            error,
-            { foodId: params.foodId, quantity: params.quantity ?? 1 },
-          ),
-        ],
-      }),
-    }),
-    addShoppingListItemByName: withMcpActionHistory(services.addShoppingListItemByName, {
-      action: 'shopping_add_item',
-      historyErrorPrefix: '[History] Failed to record MCP shopping item add by name:',
-      buildSuccess: (result) => buildShoppingAddSuccess(result),
-      buildFailure: (error, params) => ({
-        logMessage: '[MCP] Add shopping item failed:',
-        message: `Adding a shopping list item failed: ${formatManualActionError(error)}`,
-        summary: {
-          query: params.query,
-          quantity: params.quantity ?? 1,
-          note: params.note ?? null,
-          error: formatManualActionError(error),
-        },
-        events: [
-          buildMcpFailureEvent(
-            'shopping',
-            'shopping_item',
-            params.query,
-            'Adding a shopping list item failed.',
-            error,
-            {
-              query: params.query,
-              quantity: params.quantity ?? 1,
-              note: params.note ?? null,
-            },
-          ),
-        ],
-      }),
+      buildFailure: (error, params) => {
+        const ref = params.foodId ?? params.query ?? 'unknown';
+        return {
+          logMessage: '[MCP] Add shopping item failed:',
+          message: `Adding a shopping list item failed: ${formatManualActionError(error)}`,
+          summary: {
+            foodId: params.foodId ?? null,
+            query: params.query ?? null,
+            quantity: params.quantity ?? 1,
+            note: params.note ?? null,
+            error: formatManualActionError(error),
+          },
+          events: [
+            buildMcpFailureEvent(
+              'shopping',
+              'shopping_item',
+              ref,
+              'Adding a shopping list item failed.',
+              error,
+              {
+                foodId: params.foodId ?? null,
+                query: params.query ?? null,
+                quantity: params.quantity ?? 1,
+                note: params.note ?? null,
+              },
+            ),
+          ],
+        };
+      },
     }),
     updateShoppingListItem: withMcpActionHistory(services.updateShoppingListItem, {
       action: 'shopping_update_item',

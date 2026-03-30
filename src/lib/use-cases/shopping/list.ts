@@ -53,21 +53,8 @@ export interface CheckShoppingListProductResult {
 }
 
 export interface AddShoppingListItemParams {
-  foodId: string;
-  quantity?: number;
-  unitId?: string | null;
-  note?: string | null;
-  mergeIfExists?: boolean;
-}
-
-export interface AddShoppingListItemResult {
-  action: 'created' | 'updated';
-  merged: boolean;
-  item: ShoppingListItemSummary;
-}
-
-export interface AddShoppingListItemByNameParams {
-  query: string;
+  foodId?: string;
+  query?: string;
   quantity?: number;
   unitId?: string | null;
   note?: string | null;
@@ -85,8 +72,11 @@ export interface ShoppingListProductResolution {
   note: string | null;
 }
 
-export interface AddShoppingListItemByNameResult extends AddShoppingListItemResult {
-  resolved: ShoppingListProductResolution;
+export interface AddShoppingListItemResult {
+  action: 'created' | 'updated';
+  merged: boolean;
+  item: ShoppingListItemSummary;
+  resolved: ShoppingListProductResolution | null;
 }
 
 export interface RemoveShoppingListItemParams {
@@ -130,9 +120,6 @@ export interface ShoppingListDeps {
   createShoppingItem(body: ShoppingListItemCreate): Promise<ShoppingListItemsCollectionOut>;
   updateShoppingItem(itemId: string, body: ShoppingListItemUpdate): Promise<ShoppingListItemsCollectionOut>;
   deleteShoppingItem(itemId: string): Promise<unknown>;
-}
-
-interface ShoppingListByNameDeps extends ShoppingListDeps {
   getProductOverview(params: { productRef: string }): Promise<ProductOverview>;
 }
 
@@ -143,10 +130,6 @@ const defaultDeps: ShoppingListDeps = {
   createShoppingItem: body => HouseholdsShoppingListItemsService.createOneApiHouseholdsShoppingItemsPost(body),
   updateShoppingItem: (itemId, body) => HouseholdsShoppingListItemsService.updateOneApiHouseholdsShoppingItemsItemIdPut(itemId, body),
   deleteShoppingItem: itemId => HouseholdsShoppingListItemsService.deleteOneApiHouseholdsShoppingItemsItemIdDelete(itemId),
-};
-
-const defaultByNameDeps: ShoppingListByNameDeps = {
-  ...defaultDeps,
   getProductOverview,
 };
 
@@ -250,7 +233,7 @@ function isUnknownProductRefError(error: unknown): error is Error {
 
 async function resolveShoppingProductByName(
   query: string,
-  deps: Pick<ShoppingListByNameDeps, 'getProductOverview'>,
+  deps: Pick<ShoppingListDeps, 'getProductOverview'>,
 ): Promise<Omit<ShoppingListProductResolution, 'query' | 'note'>> {
   const trimmedQuery = query.trim();
   if (!trimmedQuery) {
@@ -395,6 +378,39 @@ export async function addShoppingListItem(
   params: AddShoppingListItemParams,
   deps: ShoppingListDeps = defaultDeps,
 ): Promise<AddShoppingListItemResult> {
+  const hasFoodId = params.foodId !== undefined && params.foodId !== '';
+  const hasQuery = params.query !== undefined && params.query !== '';
+
+  if (hasFoodId && hasQuery) {
+    throw new Error('Provide either foodId or query, not both.');
+  }
+
+  if (!hasFoodId && !hasQuery) {
+    throw new Error('Either foodId or query must be provided.');
+  }
+
+  let foodId: string;
+  let note = params.note ?? null;
+  let resolved: ShoppingListProductResolution | null = null;
+
+  if (hasQuery) {
+    const resolution = await resolveShoppingProductByName(params.query!, deps);
+    note = mergeShoppingNotes(resolution.derivedNote, params.note);
+    foodId = resolution.foodId;
+    resolved = {
+      query: params.query!.trim(),
+      matchedQuery: resolution.matchedQuery,
+      resolution: resolution.resolution,
+      productRef: resolution.productRef,
+      foodId: resolution.foodId,
+      foodName: resolution.foodName,
+      derivedNote: resolution.derivedNote,
+      note,
+    };
+  } else {
+    foodId = params.foodId!;
+  }
+
   const shoppingListId = requireShoppingListId(await deps.resolveShoppingListId());
   const quantity = params.quantity ?? 1;
   if (quantity <= 0) {
@@ -404,15 +420,15 @@ export async function addShoppingListItem(
   const mergeIfExists = params.mergeIfExists ?? true;
   const items = await deps.fetchShoppingItems(shoppingListId);
   const existingItem = mergeIfExists
-    ? items.find(item => item.foodId === params.foodId && !item.checked)
+    ? items.find(item => item.foodId === foodId && !item.checked)
     : undefined;
 
   if (existingItem) {
     const currentQuantity = Number(existingItem.quantity ?? 1);
-    const mergedNote = mergeShoppingNotes(existingItem.note, params.note);
+    const mergedNote = mergeShoppingNotes(existingItem.note, note);
     const collection = await deps.updateShoppingItem(existingItem.id, {
       shoppingListId,
-      foodId: params.foodId,
+      foodId,
       unitId: params.unitId ?? undefined,
       note: mergedNote ?? undefined,
       quantity: currentQuantity + quantity,
@@ -422,6 +438,7 @@ export async function addShoppingListItem(
     return {
       action: 'updated',
       merged: true,
+      resolved,
       item: getUpdatedOrFallbackItem(collection, {
         ...toShoppingListItemSummary(existingItem),
         quantity: currentQuantity + quantity,
@@ -434,9 +451,9 @@ export async function addShoppingListItem(
 
   const collection = await deps.createShoppingItem({
     shoppingListId,
-    foodId: params.foodId,
+    foodId,
     unitId: params.unitId ?? undefined,
-    note: params.note ?? undefined,
+    note: note ?? undefined,
     quantity,
     checked: false,
   });
@@ -444,36 +461,8 @@ export async function addShoppingListItem(
   return {
     action: 'created',
     merged: false,
+    resolved,
     item: getCreatedOrThrowItem(collection),
-  };
-}
-
-export async function addShoppingListItemByName(
-  params: AddShoppingListItemByNameParams,
-  deps: ShoppingListByNameDeps = defaultByNameDeps,
-): Promise<AddShoppingListItemByNameResult> {
-  const resolved = await resolveShoppingProductByName(params.query, deps);
-  const note = mergeShoppingNotes(resolved.derivedNote, params.note);
-  const result = await addShoppingListItem({
-    foodId: resolved.foodId,
-    quantity: params.quantity,
-    unitId: params.unitId,
-    note,
-    mergeIfExists: params.mergeIfExists,
-  }, deps);
-
-  return {
-    ...result,
-    resolved: {
-      query: params.query.trim(),
-      matchedQuery: resolved.matchedQuery,
-      resolution: resolved.resolution,
-      productRef: resolved.productRef,
-      foodId: resolved.foodId,
-      foodName: resolved.foodName,
-      derivedNote: resolved.derivedNote,
-      note,
-    },
   };
 }
 

@@ -30,7 +30,6 @@ import type {
   UnmappedUnitsResource,
 } from '@/lib/use-cases/resources/read-models';
 import type {
-  AddShoppingListItemByNameResult,
   AddShoppingListItemResult,
   CheckShoppingListProductResult,
   MergeShoppingListDuplicatesResult,
@@ -277,6 +276,7 @@ describe('MCP streamable HTTP handler', () => {
   const addShoppingListItem = vi.fn(async (): Promise<AddShoppingListItemResult> => ({
     action: 'created',
     merged: false,
+    resolved: null,
     item: {
       id: 'item-3',
       shoppingListId: 'list-1',
@@ -290,35 +290,6 @@ describe('MCP streamable HTTP handler', () => {
       display: 'Eggs',
       createdAt: '2026-03-29T10:00:00.000Z',
       updatedAt: '2026-03-29T10:00:00.000Z',
-    },
-  }));
-
-  const addShoppingListItemByName = vi.fn(async (): Promise<AddShoppingListItemByNameResult> => ({
-    action: 'created',
-    merged: false,
-    item: {
-      id: 'item-5',
-      shoppingListId: 'list-1',
-      foodId: 'food-kwark',
-      foodName: 'Kwark',
-      unitId: null,
-      unitName: null,
-      quantity: 1,
-      checked: false,
-      note: 'vanille',
-      display: 'Kwark',
-      createdAt: '2026-03-29T11:00:00.000Z',
-      updatedAt: '2026-03-29T11:00:00.000Z',
-    },
-    resolved: {
-      query: 'vanille kwark',
-      matchedQuery: 'kwark',
-      resolution: 'suffix_note',
-      productRef: 'mapping:kwark-map',
-      foodId: 'food-kwark',
-      foodName: 'Kwark',
-      derivedNote: 'vanille',
-      note: 'vanille',
     },
   }));
 
@@ -531,7 +502,6 @@ describe('MCP streamable HTTP handler', () => {
         getShoppingListItemsResource,
         checkShoppingListProduct,
         addShoppingListItem,
-        addShoppingListItemByName,
         removeShoppingListItem,
         updateShoppingListItem,
         mergeShoppingListDuplicates,
@@ -576,7 +546,6 @@ describe('MCP streamable HTTP handler', () => {
         'shopping.list_items',
         'shopping.check_product',
         'shopping.add_item',
-        'shopping.add_item_by_name',
         'shopping.remove_item',
         'shopping.set_checked',
         'shopping.update_quantity',
@@ -622,8 +591,8 @@ describe('MCP streamable HTTP handler', () => {
         arguments: { foodId: 'food-3', quantity: 2 },
       });
 
-      const shoppingAddByNameResult = await client.callTool({
-        name: 'shopping.add_item_by_name',
+      const shoppingAddByQueryResult = await client.callTool({
+        name: 'shopping.add_item',
         arguments: { query: 'vanille kwark' },
       });
 
@@ -783,8 +752,9 @@ describe('MCP streamable HTTP handler', () => {
           ],
         },
       });
-      expect(addShoppingListItem).toHaveBeenCalledWith({
+      expect(addShoppingListItem).toHaveBeenNthCalledWith(1, {
         foodId: 'food-3',
+        query: undefined,
         quantity: 2,
         unitId: undefined,
         note: undefined,
@@ -797,6 +767,7 @@ describe('MCP streamable HTTP handler', () => {
         data: {
           action: 'created',
           merged: false,
+          resolved: null,
           item: {
             id: 'item-3',
             shoppingListId: 'list-1',
@@ -813,43 +784,35 @@ describe('MCP streamable HTTP handler', () => {
           },
         },
       });
-      expect(addShoppingListItemByName).toHaveBeenCalledWith({
+      expect(addShoppingListItem).toHaveBeenNthCalledWith(2, {
+        foodId: undefined,
         query: 'vanille kwark',
         quantity: 1,
         unitId: undefined,
         note: undefined,
         mergeIfExists: true,
       });
-      expect(shoppingAddByNameResult.structuredContent).toEqual({
+      expect(shoppingAddByQueryResult.structuredContent).toEqual({
         ok: true,
         status: 'ok',
-        message: 'Added a new shopping list item. Resolved "vanille kwark" to "Kwark" and appended "vanille" to the note.',
+        message: 'Added a new shopping list item.',
         data: {
           action: 'created',
           merged: false,
+          resolved: null,
           item: {
-            id: 'item-5',
+            id: 'item-3',
             shoppingListId: 'list-1',
-            foodId: 'food-kwark',
-            foodName: 'Kwark',
+            foodId: 'food-3',
+            foodName: 'Eggs',
             unitId: null,
             unitName: null,
-            quantity: 1,
+            quantity: 2,
             checked: false,
-            note: 'vanille',
-            display: 'Kwark',
-            createdAt: '2026-03-29T11:00:00.000Z',
-            updatedAt: '2026-03-29T11:00:00.000Z',
-          },
-          resolved: {
-            query: 'vanille kwark',
-            matchedQuery: 'kwark',
-            resolution: 'suffix_note',
-            productRef: 'mapping:kwark-map',
-            foodId: 'food-kwark',
-            foodName: 'Kwark',
-            derivedNote: 'vanille',
-            note: 'vanille',
+            note: null,
+            display: 'Eggs',
+            createdAt: '2026-03-29T10:00:00.000Z',
+            updatedAt: '2026-03-29T10:00:00.000Z',
           },
         },
       });
