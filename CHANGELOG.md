@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.4.0] - 2026-03-30
+
+This minor release expands the MCP operational workflow with smarter shopping-list item resolution, richer inventory stock controls, and tighter unit-selector filtering.
+
+### Added
+
+- A `shopping.add_item_by_name` MCP tool that can resolve exact product names directly onto the configured Mealie shopping list and, for inputs like `vanille kwark`, safely fall back to `kwark` while moving the leading words into the item note.
+- MCP inventory add/set flows now accept opened-stock quantities, with matching action-history coverage and contract tests.
+
+### Changed
+
+- Shopping-list duplicate handling now preserves note context by joining note fragments with ` | ` instead of overwriting the existing note.
+- Mapping wizard unit selectors now filter out stale default-unit mappings more consistently, and the unit-wizard filter dropdown behavior is more uniform.
+
+### Fixed
+
+- Conflict checks that only partially complete are now recorded as partial outcomes instead of appearing fully successful.
+- Active unit-mapping lookups now guard settings and mapping-wizard flows more reliably when stale mappings are present.
+
 ## [1.3.0] - 2026-03-29
 
 This minor release adds an optional HTTP MCP server for operational workflows, expands mapping wizard inventory controls, and improves UI polish and release tooling resilience.
@@ -111,6 +130,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.4.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.1.0...v1.2.0
