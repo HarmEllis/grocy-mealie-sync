@@ -378,6 +378,7 @@ describe('MCP streamable HTTP handler', () => {
     grocyProductId: 101,
     name: 'Milk',
     amount: 2,
+    openedAmount: 1,
     bestBeforeDate: '2026-04-05',
     note: 'Weekly groceries',
   }));
@@ -396,6 +397,7 @@ describe('MCP streamable HTTP handler', () => {
     grocyProductId: 101,
     name: 'Milk',
     amount: 4,
+    openedAmount: 2,
     bestBeforeDate: null,
     note: 'Pantry count',
   }));
@@ -618,8 +620,19 @@ describe('MCP streamable HTTP handler', () => {
         arguments: {
           productRef: 'mapping:map-1',
           amount: 2,
+          openedAmount: 1,
           bestBeforeDate: '2026-04-05',
           note: 'Weekly groceries',
+        },
+      });
+
+      const inventorySetResult = await client.callTool({
+        name: 'inventory.set_stock',
+        arguments: {
+          productRef: 'mapping:map-1',
+          amount: 4,
+          openedAmount: 2,
+          note: 'Pantry count',
         },
       });
 
@@ -883,6 +896,7 @@ describe('MCP streamable HTTP handler', () => {
       expect(addStock).toHaveBeenCalledWith({
         productRef: 'mapping:map-1',
         amount: 2,
+        openedAmount: 1,
         bestBeforeDate: '2026-04-05',
         note: 'Weekly groceries',
       });
@@ -895,8 +909,30 @@ describe('MCP streamable HTTP handler', () => {
           grocyProductId: 101,
           name: 'Milk',
           amount: 2,
+          openedAmount: 1,
           bestBeforeDate: '2026-04-05',
           note: 'Weekly groceries',
+        },
+      });
+      expect(setStock).toHaveBeenCalledWith({
+        productRef: 'mapping:map-1',
+        amount: 4,
+        openedAmount: 2,
+        bestBeforeDate: undefined,
+        note: 'Pantry count',
+      });
+      expect(inventorySetResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Set the exact stock amount in Grocy.',
+        data: {
+          productRef: 'mapping:map-1',
+          grocyProductId: 101,
+          name: 'Milk',
+          amount: 4,
+          openedAmount: 2,
+          bestBeforeDate: null,
+          note: 'Pantry count',
         },
       });
       expect(updateGrocyStockSettings).toHaveBeenCalledWith({

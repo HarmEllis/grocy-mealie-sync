@@ -105,6 +105,7 @@ describe('MCP action history wrappers', () => {
         grocyProductId: 101,
         name: 'Milk',
         amount: 2,
+        openedAmount: 1,
         bestBeforeDate: '2026-04-01',
         note: null,
       })),
@@ -232,6 +233,7 @@ describe('MCP action history wrappers', () => {
     const result = await services.addStock({
       productRef: 'mapping:map-1',
       amount: 2,
+      openedAmount: 1,
       bestBeforeDate: '2026-04-01',
     });
 
@@ -239,18 +241,20 @@ describe('MCP action history wrappers', () => {
     expect(baseServices.addStock).toHaveBeenCalledWith({
       productRef: 'mapping:map-1',
       amount: 2,
+      openedAmount: 1,
       bestBeforeDate: '2026-04-01',
     });
-    expect(info).toHaveBeenCalledWith('[MCP] Added stock for "Milk": 2.');
+    expect(info).toHaveBeenCalledWith('[MCP] Added stock for "Milk": 2 (1 opened).');
     expect(recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
       action: 'inventory_add_stock',
       status: 'success',
-      message: 'Added 2 stock to Grocy product "Milk".',
+      message: 'Added 2 stock to Grocy product "Milk", with 1 marked opened.',
       summary: expect.objectContaining({
         productRef: 'mapping:map-1',
         grocyProductId: 101,
         name: 'Milk',
         amount: 2,
+        openedAmount: 1,
       }),
     }));
   });

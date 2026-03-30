@@ -35,6 +35,7 @@ export interface InventoryStockSnapshot {
 export interface AddStockParams {
   productRef: string;
   amount: number;
+  openedAmount?: number;
   bestBeforeDate?: string | null;
   note?: string | null;
 }
@@ -44,6 +45,7 @@ export interface AddStockResult {
   grocyProductId: number;
   name: string;
   amount: number;
+  openedAmount?: number;
   bestBeforeDate: string | null;
   note: string | null;
 }
@@ -67,6 +69,7 @@ export interface ConsumeStockResult {
 export interface SetStockParams {
   productRef: string;
   amount: number;
+  openedAmount?: number;
   bestBeforeDate?: string | null;
   note?: string | null;
 }
@@ -76,6 +79,7 @@ export interface SetStockResult {
   grocyProductId: number;
   name: string;
   amount: number;
+  openedAmount?: number;
   bestBeforeDate: string | null;
   note: string | null;
 }
@@ -151,6 +155,31 @@ function ensurePositiveAmount(amount: number, label = 'Amount') {
   }
 }
 
+function ensureNonNegativeAmount(amount: number, label = 'Amount') {
+  if (amount < 0) {
+    throw new Error(`${label} must be 0 or greater.`);
+  }
+}
+
+function ensureOpenedAmountWithinTotal(openedAmount: number | undefined, totalAmount: number) {
+  if (openedAmount === undefined) {
+    return;
+  }
+
+  ensureNonNegativeAmount(openedAmount, 'Opened amount');
+
+  if (openedAmount > totalAmount) {
+    throw new Error('Opened amount cannot be greater than the total stock amount.');
+  }
+}
+
+function getStockAmounts(details: ProductDetailsResponse, fallbackCurrentStock: number) {
+  return {
+    currentStock: Number(details.stock_amount ?? fallbackCurrentStock),
+    openedStock: Number(details.stock_amount_opened ?? 0),
+  };
+}
+
 function toInventoryStockSnapshot(
   overview: ProductOverview,
   details: ProductDetailsResponse,
@@ -193,10 +222,11 @@ export async function addStock(
   params: AddStockParams,
   deps: Pick<
     InventoryDeps,
-    'acquireSyncLock' | 'releaseSyncLock' | 'getProductOverview' | 'addProductStock'
+    'acquireSyncLock' | 'releaseSyncLock' | 'getProductOverview' | 'addProductStock' | 'openProductStock'
   > = defaultDeps,
 ): Promise<AddStockResult> {
   ensurePositiveAmount(params.amount);
+  ensureOpenedAmountWithinTotal(params.openedAmount, params.amount);
 
   return runWithSyncLock(deps, async () => {
     const overview = await deps.getProductOverview({ productRef: params.productRef });
@@ -208,11 +238,18 @@ export async function addStock(
       note: params.note ?? null,
     });
 
+    if ((params.openedAmount ?? 0) > 0) {
+      await deps.openProductStock(grocyProduct.id, {
+        amount: params.openedAmount!,
+      });
+    }
+
     return {
       productRef: overview.productRef,
       grocyProductId: grocyProduct.id,
       name: grocyProduct.name,
       amount: params.amount,
+      ...(params.openedAmount !== undefined ? { openedAmount: params.openedAmount } : {}),
       bestBeforeDate: params.bestBeforeDate ?? null,
       note: params.note ?? null,
     };
@@ -255,16 +292,37 @@ export async function setStock(
   params: SetStockParams,
   deps: Pick<
     InventoryDeps,
-    'acquireSyncLock' | 'releaseSyncLock' | 'getProductOverview' | 'inventoryProductStock'
+    | 'acquireSyncLock'
+    | 'releaseSyncLock'
+    | 'getProductOverview'
+    | 'getProductDetails'
+    | 'inventoryProductStock'
+    | 'openProductStock'
   > = defaultDeps,
 ): Promise<SetStockResult> {
-  if (params.amount < 0) {
-    throw new Error('Amount must be 0 or greater.');
-  }
+  ensureNonNegativeAmount(params.amount);
+  ensureOpenedAmountWithinTotal(params.openedAmount, params.amount);
 
   return runWithSyncLock(deps, async () => {
     const overview = await deps.getProductOverview({ productRef: params.productRef });
     const grocyProduct = requireGrocyProduct(overview);
+    const requestedOpenedAmount = params.openedAmount;
+
+    if (requestedOpenedAmount !== undefined) {
+      const detailsBeforeCorrection = await deps.getProductDetails(grocyProduct.id);
+      const { currentStock, openedStock } = getStockAmounts(
+        detailsBeforeCorrection,
+        grocyProduct.currentStock,
+      );
+      const removedAmount = Math.max(0, currentStock - params.amount);
+      const minimumPossibleOpenedStock = Math.max(0, openedStock - removedAmount);
+
+      if (requestedOpenedAmount < minimumPossibleOpenedStock) {
+        throw new Error(
+          `Opened amount ${requestedOpenedAmount} cannot be reached when setting total stock to ${params.amount}; at least ${minimumPossibleOpenedStock} opened stock would remain.`,
+        );
+      }
+    }
 
     await deps.inventoryProductStock(grocyProduct.id, {
       newAmount: params.amount,
@@ -272,11 +330,34 @@ export async function setStock(
       note: params.note ?? null,
     });
 
+    if (requestedOpenedAmount !== undefined) {
+      const detailsAfterCorrection = await deps.getProductDetails(grocyProduct.id);
+      const { openedStock: openedStockAfterCorrection } = getStockAmounts(
+        detailsAfterCorrection,
+        params.amount,
+      );
+
+      if (openedStockAfterCorrection > requestedOpenedAmount) {
+        throw new Error(
+          `Grocy kept ${openedStockAfterCorrection} opened stock after the correction, which is more than the requested ${requestedOpenedAmount}.`,
+        );
+      }
+
+      const amountToOpen = requestedOpenedAmount - openedStockAfterCorrection;
+
+      if (amountToOpen > 0) {
+        await deps.openProductStock(grocyProduct.id, {
+          amount: amountToOpen,
+        });
+      }
+    }
+
     return {
       productRef: overview.productRef,
       grocyProductId: grocyProduct.id,
       name: grocyProduct.name,
       amount: params.amount,
+      ...(requestedOpenedAmount !== undefined ? { openedAmount: requestedOpenedAmount } : {}),
       bestBeforeDate: params.bestBeforeDate ?? null,
       note: params.note ?? null,
     };

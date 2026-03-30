@@ -53,16 +53,17 @@ export function registerInventoryTools(server: McpServer, services: InventoryMcp
     'inventory.add_stock',
     {
       title: 'Add Stock',
-      description: 'Add stock in Grocy with an optional best-before date and note',
+      description: 'Add stock in Grocy with an optional best-before date, note, and opened amount',
       inputSchema: {
         productRef: productRefSchema,
         amount: z.number().positive(),
+        openedAmount: z.number().min(0).optional(),
         bestBeforeDate: z.string().trim().min(1).nullable().optional(),
         note: z.string().trim().min(1).nullable().optional(),
       },
     },
-    async ({ productRef, amount, bestBeforeDate, note }) => {
-      const data = await services.addStock({ productRef, amount, bestBeforeDate, note });
+    async ({ productRef, amount, openedAmount, bestBeforeDate, note }) => {
+      const data = await services.addStock({ productRef, amount, openedAmount, bestBeforeDate, note });
       const result = createOkResult('Added stock in Grocy.', data);
 
       return {
@@ -99,16 +100,17 @@ export function registerInventoryTools(server: McpServer, services: InventoryMcp
     'inventory.set_stock',
     {
       title: 'Set Stock',
-      description: 'Correct the Grocy stock amount to an exact target value',
+      description: 'Correct the Grocy stock amount to an exact target value and optionally target an opened amount',
       inputSchema: {
         productRef: productRefSchema,
         amount: z.number().min(0),
+        openedAmount: z.number().min(0).optional(),
         bestBeforeDate: z.string().trim().min(1).nullable().optional(),
         note: z.string().trim().min(1).nullable().optional(),
       },
     },
-    async ({ productRef, amount, bestBeforeDate, note }) => {
-      const data = await services.setStock({ productRef, amount, bestBeforeDate, note });
+    async ({ productRef, amount, openedAmount, bestBeforeDate, note }) => {
+      const data = await services.setStock({ productRef, amount, openedAmount, bestBeforeDate, note });
       const result = createOkResult('Set the exact stock amount in Grocy.', data);
 
       return {

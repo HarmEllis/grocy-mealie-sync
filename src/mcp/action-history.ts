@@ -381,27 +381,37 @@ export function createHistoryWrappedInventoryServices(services: InventoryMcpServ
     addStock: withMcpActionHistory(services.addStock, {
       action: 'inventory_add_stock',
       historyErrorPrefix: '[History] Failed to record MCP stock addition:',
-      buildSuccess: (result) => ({
-        logMessage: `[MCP] Added stock for "${result.name}": ${result.amount}.`,
-        message: `Added ${result.amount} stock to Grocy product "${result.name}".`,
-        summary: result,
-        events: [
-          buildManualHistoryEvent({
-            level: 'info',
-            category: 'inventory',
-            entityKind: 'product',
-            entityRef: `grocy:${result.grocyProductId}`,
-            message: `Added ${result.amount} stock to Grocy product "${result.name}".`,
-            details: result,
-          }),
-        ],
-      }),
+      buildSuccess: (result) => {
+        const openedSuffix = result.openedAmount !== undefined
+          ? ` (${result.openedAmount} opened)`
+          : '';
+        const messageSuffix = result.openedAmount !== undefined
+          ? `, with ${result.openedAmount} marked opened`
+          : '';
+
+        return {
+          logMessage: `[MCP] Added stock for "${result.name}": ${result.amount}${openedSuffix}.`,
+          message: `Added ${result.amount} stock to Grocy product "${result.name}"${messageSuffix}.`,
+          summary: result,
+          events: [
+            buildManualHistoryEvent({
+              level: 'info',
+              category: 'inventory',
+              entityKind: 'product',
+              entityRef: `grocy:${result.grocyProductId}`,
+              message: `Added ${result.amount} stock to Grocy product "${result.name}"${messageSuffix}.`,
+              details: result,
+            }),
+          ],
+        };
+      },
       buildFailure: (error, params) => ({
         logMessage: '[MCP] Add stock failed:',
         message: `Adding stock failed: ${formatManualActionError(error)}`,
         summary: {
           productRef: params.productRef,
           amount: params.amount,
+          ...(params.openedAmount !== undefined ? { openedAmount: params.openedAmount } : {}),
           error: formatManualActionError(error),
         },
         events: [
@@ -411,7 +421,11 @@ export function createHistoryWrappedInventoryServices(services: InventoryMcpServ
             params.productRef,
             'Adding stock failed.',
             error,
-            { productRef: params.productRef, amount: params.amount },
+            {
+              productRef: params.productRef,
+              amount: params.amount,
+              ...(params.openedAmount !== undefined ? { openedAmount: params.openedAmount } : {}),
+            },
           ),
         ],
       }),
@@ -464,27 +478,37 @@ export function createHistoryWrappedInventoryServices(services: InventoryMcpServ
     setStock: withMcpActionHistory(services.setStock, {
       action: 'inventory_set_stock',
       historyErrorPrefix: '[History] Failed to record MCP stock correction:',
-      buildSuccess: (result) => ({
-        logMessage: `[MCP] Set stock for "${result.name}" to ${result.amount}.`,
-        message: `Set Grocy product "${result.name}" stock to ${result.amount}.`,
-        summary: result,
-        events: [
-          buildManualHistoryEvent({
-            level: 'info',
-            category: 'inventory',
-            entityKind: 'product',
-            entityRef: `grocy:${result.grocyProductId}`,
-            message: `Set Grocy product "${result.name}" stock to ${result.amount}.`,
-            details: result,
-          }),
-        ],
-      }),
+      buildSuccess: (result) => {
+        const openedSuffix = result.openedAmount !== undefined
+          ? ` (${result.openedAmount} opened)`
+          : '';
+        const messageSuffix = result.openedAmount !== undefined
+          ? `, with ${result.openedAmount} opened`
+          : '';
+
+        return {
+          logMessage: `[MCP] Set stock for "${result.name}" to ${result.amount}${openedSuffix}.`,
+          message: `Set Grocy product "${result.name}" stock to ${result.amount}${messageSuffix}.`,
+          summary: result,
+          events: [
+            buildManualHistoryEvent({
+              level: 'info',
+              category: 'inventory',
+              entityKind: 'product',
+              entityRef: `grocy:${result.grocyProductId}`,
+              message: `Set Grocy product "${result.name}" stock to ${result.amount}${messageSuffix}.`,
+              details: result,
+            }),
+          ],
+        };
+      },
       buildFailure: (error, params) => ({
         logMessage: '[MCP] Set stock failed:',
         message: `Setting stock failed: ${formatManualActionError(error)}`,
         summary: {
           productRef: params.productRef,
           amount: params.amount,
+          ...(params.openedAmount !== undefined ? { openedAmount: params.openedAmount } : {}),
           error: formatManualActionError(error),
         },
         events: [
@@ -494,7 +518,11 @@ export function createHistoryWrappedInventoryServices(services: InventoryMcpServ
             params.productRef,
             'Setting stock failed.',
             error,
-            { productRef: params.productRef, amount: params.amount },
+            {
+              productRef: params.productRef,
+              amount: params.amount,
+              ...(params.openedAmount !== undefined ? { openedAmount: params.openedAmount } : {}),
+            },
           ),
         ],
       }),

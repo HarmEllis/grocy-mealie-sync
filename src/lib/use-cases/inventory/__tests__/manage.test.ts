@@ -81,11 +81,13 @@ describe('inventory use-cases', () => {
 
   it('adds stock with best-before date and note', async () => {
     const addProductStock = vi.fn(async () => undefined);
+    const openProductStock = vi.fn(async () => undefined);
 
     const result = await addStock(
       {
         productRef: 'mapping:map-1',
         amount: 2,
+        openedAmount: 1,
         bestBeforeDate: '2026-04-05',
         note: 'Weekly groceries',
       },
@@ -94,6 +96,7 @@ describe('inventory use-cases', () => {
         releaseSyncLock: vi.fn(),
         getProductOverview: vi.fn(async () => baseOverview),
         addProductStock,
+        openProductStock,
       },
     );
 
@@ -102,11 +105,15 @@ describe('inventory use-cases', () => {
       bestBeforeDate: '2026-04-05',
       note: 'Weekly groceries',
     });
+    expect(openProductStock).toHaveBeenCalledWith(101, {
+      amount: 1,
+    });
     expect(result).toEqual({
       productRef: 'mapping:map-1',
       grocyProductId: 101,
       name: 'Milk',
       amount: 2,
+      openedAmount: 1,
       bestBeforeDate: '2026-04-05',
       note: 'Weekly groceries',
     });
@@ -146,11 +153,23 @@ describe('inventory use-cases', () => {
 
   it('sets stock to an exact inventory amount', async () => {
     const inventoryProductStock = vi.fn(async () => undefined);
+    const getProductDetails = vi
+      .fn<() => Promise<ProductDetailsResponse>>()
+      .mockResolvedValueOnce({
+        stock_amount: 5,
+        stock_amount_opened: 1,
+      })
+      .mockResolvedValueOnce({
+        stock_amount: 9,
+        stock_amount_opened: 1,
+      });
+    const openProductStock = vi.fn(async () => undefined);
 
     const result = await setStock(
       {
         productRef: 'mapping:map-1',
         amount: 9,
+        openedAmount: 3,
         bestBeforeDate: '2026-04-10',
         note: 'Pantry count',
       },
@@ -158,7 +177,9 @@ describe('inventory use-cases', () => {
         acquireSyncLock: vi.fn(() => true),
         releaseSyncLock: vi.fn(),
         getProductOverview: vi.fn(async () => baseOverview),
+        getProductDetails,
         inventoryProductStock,
+        openProductStock,
       },
     );
 
@@ -167,14 +188,48 @@ describe('inventory use-cases', () => {
       bestBeforeDate: '2026-04-10',
       note: 'Pantry count',
     });
+    expect(openProductStock).toHaveBeenCalledWith(101, {
+      amount: 2,
+    });
     expect(result).toEqual({
       productRef: 'mapping:map-1',
       grocyProductId: 101,
       name: 'Milk',
       amount: 9,
+      openedAmount: 3,
       bestBeforeDate: '2026-04-10',
       note: 'Pantry count',
     });
+  });
+
+  it('rejects impossible opened stock targets before correcting stock', async () => {
+    const getProductDetails = vi.fn(async (): Promise<ProductDetailsResponse> => ({
+      stock_amount: 5,
+      stock_amount_opened: 4,
+    }));
+    const inventoryProductStock = vi.fn(async () => undefined);
+    const openProductStock = vi.fn(async () => undefined);
+
+    await expect(setStock(
+      {
+        productRef: 'mapping:map-1',
+        amount: 4,
+        openedAmount: 2,
+      },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        getProductOverview: vi.fn(async () => baseOverview),
+        getProductDetails,
+        inventoryProductStock,
+        openProductStock,
+      },
+    )).rejects.toThrow(
+      'Opened amount 2 cannot be reached when setting total stock to 4; at least 3 opened stock would remain.',
+    );
+
+    expect(inventoryProductStock).not.toHaveBeenCalled();
+    expect(openProductStock).not.toHaveBeenCalled();
   });
 
   it('marks stock as opened', async () => {
