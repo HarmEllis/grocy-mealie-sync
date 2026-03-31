@@ -4,7 +4,7 @@ import type { ProductMcpServices } from '../contracts';
 import { createJsonTextContent, createOkResult, formatCountMessage } from '../helpers';
 
 const productRefSchema = z.string().trim().min(1).describe(
-  'Accepts mapping:<id>, grocy:<id>, mealie:<id>, a raw Grocy numeric id, or an exact product name. Prefer the returned productRef from previous tool calls.',
+  'Accepts mapping:<id>, grocy:<id>, mealie:<id>, or a raw Grocy numeric id. Use products.search to find the productRef first.',
 );
 
 const verifiedGrocyUnitIdSchema = z.number().int().positive().describe(

@@ -153,16 +153,11 @@ describe('product catalog use-cases', () => {
     });
   });
 
-  it('resolves an exact product name to the canonical mapped product ref', async () => {
-    const overview = await getProductOverview(
+  it('rejects a plain product name and directs to products.search', async () => {
+    await expect(getProductOverview(
       { productRef: 'Milk' },
       createDeps(),
-    );
-
-    expect(overview.productRef).toBe('mapping:map-1');
-    expect(overview.mapping?.id).toBe('map-1');
-    expect(overview.grocyProduct?.id).toBe(101);
-    expect(overview.mealieFood?.id).toBe('food-1');
+    )).rejects.toThrow('Invalid product ref: Milk');
   });
 
   it('resolves a raw Grocy numeric id to the canonical Grocy product ref', async () => {

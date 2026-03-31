@@ -142,7 +142,7 @@ interface SearchCandidate {
 }
 
 interface ProductRefLookup {
-  kind: 'mapping' | 'grocy' | 'mealie' | 'search';
+  kind: 'mapping' | 'grocy' | 'mealie';
   id: string | number;
 }
 
@@ -265,7 +265,9 @@ function parseProductRef(productRef: string): ProductRefLookup {
     return { kind: 'grocy', id };
   }
 
-  return { kind: 'search', id: trimmedRef };
+  throw new Error(
+    `Invalid product ref: ${productRef}. Use mapping:<id>, grocy:<id>, mealie:<id>, or a raw Grocy numeric id. Search by name with products.search first.`,
+  );
 }
 
 function toCanonicalProductRef(ref: ProductRefLookup): string {
@@ -276,41 +278,7 @@ function toCanonicalProductRef(ref: ProductRefLookup): string {
       return `grocy:${ref.id}`;
     case 'mealie':
       return `mealie:${ref.id}`;
-    case 'search':
-      return String(ref.id);
   }
-}
-
-function formatRefCandidate(candidate: SearchCandidate): string {
-  return `${candidate.productRef} (${candidate.label})`;
-}
-
-function resolveExactProductRef(
-  rawRef: string,
-  mappings: ProductMappingRecord[],
-  grocyProducts: Product[],
-  mealieFoods: NormalizedMealieFood[],
-): ProductRefLookup {
-  const normalizedRef = normalizeMatchText(rawRef);
-  const exactMatches = buildSearchCandidates(mappings, grocyProducts, mealieFoods)
-    .filter(candidate => candidate.variants.some(variant =>
-      normalizeMatchText(variant.text) === normalizedRef,
-    ));
-  const uniqueMatches = [...new Map(exactMatches.map(candidate => [candidate.productRef, candidate])).values()];
-
-  if (uniqueMatches.length === 0) {
-    throw new Error(
-      `Unknown product ref: ${rawRef}. Use mapping:<id>, grocy:<id>, mealie:<id>, a raw Grocy numeric id, or an exact product name.`,
-    );
-  }
-
-  if (uniqueMatches.length > 1) {
-    throw new Error(
-      `Ambiguous product ref: ${rawRef}. Use one of ${uniqueMatches.map(formatRefCandidate).join(', ')}.`,
-    );
-  }
-
-  return parseProductRef(uniqueMatches[0].productRef);
 }
 
 function buildCurrentStockMap(currentStock: CurrentStockResponse[]): Map<number, number> {
@@ -529,30 +497,27 @@ export async function getProductOverview(
     deps.getVolatileStock(),
   ]);
   const normalizedMealieFoods = mealieFoods.map(normalizeMealieFoodRecord);
-  const ref = parsedRef.kind === 'search'
-    ? resolveExactProductRef(String(parsedRef.id), mappings, grocyProducts, normalizedMealieFoods)
-    : parsedRef;
-  const canonicalProductRef = toCanonicalProductRef(ref);
+  const canonicalProductRef = toCanonicalProductRef(parsedRef);
 
   let mapping: ProductMappingRecord | null = null;
 
-  switch (ref.kind) {
+  switch (parsedRef.kind) {
     case 'mapping':
-      mapping = mappings.find(candidate => candidate.id === ref.id) ?? null;
+      mapping = mappings.find(candidate => candidate.id === parsedRef.id) ?? null;
       break;
     case 'grocy':
-      mapping = mappings.find(candidate => candidate.grocyProductId === ref.id) ?? null;
+      mapping = mappings.find(candidate => candidate.grocyProductId === parsedRef.id) ?? null;
       break;
     case 'mealie':
-      mapping = mappings.find(candidate => candidate.mealieFoodId === ref.id) ?? null;
+      mapping = mappings.find(candidate => candidate.mealieFoodId === parsedRef.id) ?? null;
       break;
   }
 
-  const grocyProductId = ref.kind === 'grocy'
-    ? Number(ref.id)
+  const grocyProductId = parsedRef.kind === 'grocy'
+    ? Number(parsedRef.id)
     : mapping?.grocyProductId ?? null;
-  const mealieFoodId = ref.kind === 'mealie'
-    ? String(ref.id)
+  const mealieFoodId = parsedRef.kind === 'mealie'
+    ? String(parsedRef.id)
     : mapping?.mealieFoodId ?? null;
 
   const grocyProduct = grocyProductId === null
