@@ -202,6 +202,43 @@ describe('inventory use-cases', () => {
     });
   });
 
+  it('skips inventory correction when only the opened amount changes', async () => {
+    const inventoryProductStock = vi.fn(async () => undefined);
+    const getProductDetails = vi.fn(async (): Promise<ProductDetailsResponse> => ({
+      stock_amount: 5,
+      stock_amount_opened: 1,
+    }));
+    const openProductStock = vi.fn(async () => undefined);
+
+    const result = await setStock(
+      {
+        productRef: 'mapping:map-1',
+        amount: 5,
+        openedAmount: 3,
+      },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        getProductOverview: vi.fn(async () => baseOverview),
+        getProductDetails,
+        inventoryProductStock,
+        openProductStock,
+      },
+    );
+
+    expect(inventoryProductStock).not.toHaveBeenCalled();
+    expect(openProductStock).toHaveBeenCalledWith(101, { amount: 2 });
+    expect(result).toEqual({
+      productRef: 'mapping:map-1',
+      grocyProductId: 101,
+      name: 'Milk',
+      amount: 5,
+      openedAmount: 3,
+      bestBeforeDate: null,
+      note: null,
+    });
+  });
+
   it('rejects impossible opened stock targets before correcting stock', async () => {
     const getProductDetails = vi.fn(async (): Promise<ProductDetailsResponse> => ({
       stock_amount: 5,

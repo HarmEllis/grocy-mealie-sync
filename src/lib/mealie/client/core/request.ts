@@ -250,6 +250,29 @@ export const getResponseBody = async (response: Response): Promise<any> => {
     return undefined;
 };
 
+const extractErrorDetail = (body: unknown): string | null => {
+    if (!body) {
+        return null;
+    }
+
+    if (typeof body === 'string') {
+        return body;
+    }
+
+    if (typeof body === 'object') {
+        const obj = body as Record<string, unknown>;
+        if (typeof obj.detail === 'string' && obj.detail) {
+            return obj.detail;
+        }
+    }
+
+    try {
+        return JSON.stringify(body);
+    } catch {
+        return null;
+    }
+};
+
 export const catchErrorCodes = (options: ApiRequestOptions, result: ApiResult): void => {
     const errors: Record<number, string> = {
         400: 'Bad Request',
@@ -264,7 +287,8 @@ export const catchErrorCodes = (options: ApiRequestOptions, result: ApiResult): 
 
     const error = errors[result.status];
     if (error) {
-        throw new ApiError(options, result, error);
+        const bodyDetail = extractErrorDetail(result.body);
+        throw new ApiError(options, result, bodyDetail || error);
     }
 
     if (!result.ok) {

@@ -308,12 +308,10 @@ export async function setStock(
     const grocyProduct = requireGrocyProduct(overview);
     const requestedOpenedAmount = params.openedAmount;
 
+    const detailsBefore = await deps.getProductDetails(grocyProduct.id);
+    const { currentStock, openedStock } = getStockAmounts(detailsBefore, grocyProduct.currentStock);
+
     if (requestedOpenedAmount !== undefined) {
-      const detailsBeforeCorrection = await deps.getProductDetails(grocyProduct.id);
-      const { currentStock, openedStock } = getStockAmounts(
-        detailsBeforeCorrection,
-        grocyProduct.currentStock,
-      );
       const removedAmount = Math.max(0, currentStock - params.amount);
       const minimumPossibleOpenedStock = Math.max(0, openedStock - removedAmount);
 
@@ -324,18 +322,20 @@ export async function setStock(
       }
     }
 
-    await deps.inventoryProductStock(grocyProduct.id, {
-      newAmount: params.amount,
-      bestBeforeDate: params.bestBeforeDate ?? null,
-      note: params.note ?? null,
-    });
+    const amountChanged = params.amount !== currentStock;
+
+    if (amountChanged) {
+      await deps.inventoryProductStock(grocyProduct.id, {
+        newAmount: params.amount,
+        bestBeforeDate: params.bestBeforeDate ?? null,
+        note: params.note ?? null,
+      });
+    }
 
     if (requestedOpenedAmount !== undefined) {
-      const detailsAfterCorrection = await deps.getProductDetails(grocyProduct.id);
-      const { openedStock: openedStockAfterCorrection } = getStockAmounts(
-        detailsAfterCorrection,
-        params.amount,
-      );
+      const openedStockAfterCorrection = amountChanged
+        ? getStockAmounts(await deps.getProductDetails(grocyProduct.id), params.amount).openedStock
+        : openedStock;
 
       if (openedStockAfterCorrection > requestedOpenedAmount) {
         throw new Error(
