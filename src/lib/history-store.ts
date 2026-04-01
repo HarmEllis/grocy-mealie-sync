@@ -1,12 +1,14 @@
 import { randomUUID } from 'crypto';
-import { and, asc, count, desc, eq, inArray, like, lt, or, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, like, lte, lt, or, type SQL } from 'drizzle-orm';
 import { config } from './config';
 import { db } from './db';
 import { historyEvents, historyRuns } from './db/schema';
 import {
   historyRunActions,
+  historyRunStatuses,
   historyRunTriggers,
   isHistoryRunAction,
+  isHistoryRunStatus,
   isHistoryRunTrigger,
   type HistoryEventCategory,
   type HistoryEventEntityKind,
@@ -18,8 +20,10 @@ import {
 
 export {
   historyRunActions,
+  historyRunStatuses,
   historyRunTriggers,
   isHistoryRunAction,
+  isHistoryRunStatus,
   isHistoryRunTrigger,
 };
 export type {
@@ -85,6 +89,9 @@ export interface HistoryRunListFilters {
   search?: string;
   action?: HistoryRunAction | null;
   trigger?: HistoryRunTrigger | null;
+  status?: HistoryRunStatus | null;
+  dateFrom?: Date | null;
+  dateTo?: Date | null;
 }
 
 const stepMarkerSuffixes = [
@@ -344,6 +351,18 @@ export async function listHistoryRuns(limit = 100, filters: HistoryRunListFilter
 
   if (filters.trigger) {
     whereClauses.push(eq(historyRuns.trigger, filters.trigger));
+  }
+
+  if (filters.status) {
+    whereClauses.push(eq(historyRuns.status, filters.status));
+  }
+
+  if (filters.dateFrom) {
+    whereClauses.push(gte(historyRuns.startedAt, filters.dateFrom));
+  }
+
+  if (filters.dateTo) {
+    whereClauses.push(lte(historyRuns.startedAt, filters.dateTo));
   }
 
   const rows = db.select({

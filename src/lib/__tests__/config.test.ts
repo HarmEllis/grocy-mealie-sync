@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseBooleanEnv,
+  parseCleanupCheckedItemsAfterHoursEnv,
+  parseCleanupCheckedItemsModeEnv,
   parseHistoryRetentionDaysEnv,
   parseIntOrDefault,
   parseOptionalIntEnv,
@@ -156,6 +158,53 @@ describe('parseHistoryRetentionDaysEnv', () => {
   it('falls back to seven days for invalid values', () => {
     expect(parseHistoryRetentionDaysEnv('-2', 'HISTORY_RETENTION_DAYS')).toBe(7);
     expect(parseHistoryRetentionDaysEnv('abc', 'HISTORY_RETENTION_DAYS')).toBe(7);
+  });
+});
+
+describe('parseCleanupCheckedItemsAfterHoursEnv', () => {
+  it('defaults to -1 (disabled) when unset', () => {
+    expect(parseCleanupCheckedItemsAfterHoursEnv(undefined, 'TEST')).toBe(-1);
+    expect(parseCleanupCheckedItemsAfterHoursEnv('', 'TEST')).toBe(-1);
+    expect(parseCleanupCheckedItemsAfterHoursEnv('   ', 'TEST')).toBe(-1);
+  });
+
+  it('accepts -1 to disable and positive integers', () => {
+    expect(parseCleanupCheckedItemsAfterHoursEnv('-1', 'TEST')).toBe(-1);
+    expect(parseCleanupCheckedItemsAfterHoursEnv('1', 'TEST')).toBe(1);
+    expect(parseCleanupCheckedItemsAfterHoursEnv('24', 'TEST')).toBe(24);
+    expect(parseCleanupCheckedItemsAfterHoursEnv('48', 'TEST')).toBe(48);
+  });
+
+  it('trims whitespace', () => {
+    expect(parseCleanupCheckedItemsAfterHoursEnv(' 24 ', 'TEST')).toBe(24);
+  });
+
+  it('falls back to -1 for invalid values', () => {
+    expect(parseCleanupCheckedItemsAfterHoursEnv('abc', 'TEST')).toBe(-1);
+    expect(parseCleanupCheckedItemsAfterHoursEnv('0', 'TEST')).toBe(-1);
+    expect(parseCleanupCheckedItemsAfterHoursEnv('-2', 'TEST')).toBe(-1);
+  });
+});
+
+describe('parseCleanupCheckedItemsModeEnv', () => {
+  it('defaults to all when unset', () => {
+    expect(parseCleanupCheckedItemsModeEnv(undefined, 'TEST')).toBe('all');
+    expect(parseCleanupCheckedItemsModeEnv('', 'TEST')).toBe('all');
+  });
+
+  it('accepts valid mode values', () => {
+    expect(parseCleanupCheckedItemsModeEnv('all', 'TEST')).toBe('all');
+    expect(parseCleanupCheckedItemsModeEnv('synced_only', 'TEST')).toBe('synced_only');
+  });
+
+  it('is case-insensitive', () => {
+    expect(parseCleanupCheckedItemsModeEnv('ALL', 'TEST')).toBe('all');
+    expect(parseCleanupCheckedItemsModeEnv('Synced_Only', 'TEST')).toBe('synced_only');
+  });
+
+  it('falls back to all for invalid values', () => {
+    expect(parseCleanupCheckedItemsModeEnv('invalid', 'TEST')).toBe('all');
+    expect(parseCleanupCheckedItemsModeEnv('none', 'TEST')).toBe('all');
   });
 });
 

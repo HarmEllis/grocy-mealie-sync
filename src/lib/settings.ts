@@ -2,7 +2,7 @@ import { db } from './db';
 import { syncState } from './db/schema';
 import { eq } from 'drizzle-orm';
 import { log } from './logger';
-import { config } from './config';
+import { config, type CleanupCheckedItemsMode } from './config';
 import { normalizeMinStockStep, type MinStockStep } from './min-stock-step';
 
 export interface AppSettings {
@@ -15,6 +15,8 @@ export interface AppSettings {
   mealieInPossessionOnlyAboveMinStock: boolean;
   mappingWizardMinStockStep: MinStockStep;
   stockOnlyMinStock: boolean;
+  cleanupCheckedItemsAfterHours: number;
+  cleanupCheckedItemsMode: CleanupCheckedItemsMode;
 }
 
 export interface SettingsLocks {
@@ -27,6 +29,8 @@ export interface SettingsLocks {
   mealieInPossessionOnlyAboveMinStock: SettingLock;
   mappingWizardMinStockStep: SettingLock;
   stockOnlyMinStock: SettingLock;
+  cleanupCheckedItemsAfterHours: SettingLock;
+  cleanupCheckedItemsMode: SettingLock;
 }
 
 export interface SettingLock {
@@ -47,6 +51,8 @@ const SETTING_ENV_VARS: Record<SettingKey, string> = {
   mealieInPossessionOnlyAboveMinStock: 'MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK',
   mappingWizardMinStockStep: 'MAPPING_WIZARD_MIN_STOCK_STEP',
   stockOnlyMinStock: 'STOCK_ONLY_MIN_STOCK',
+  cleanupCheckedItemsAfterHours: 'CLEANUP_CHECKED_ITEMS_AFTER_HOURS',
+  cleanupCheckedItemsMode: 'CLEANUP_CHECKED_ITEMS_MODE',
 };
 
 const SETTINGS_ID = 'settings';
@@ -61,6 +67,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   mealieInPossessionOnlyAboveMinStock: false,
   mappingWizardMinStockStep: '1',
   stockOnlyMinStock: true,
+  cleanupCheckedItemsAfterHours: -1,
+  cleanupCheckedItemsMode: 'all' as CleanupCheckedItemsMode,
 };
 
 export async function getSettings(): Promise<AppSettings> {
@@ -101,6 +109,12 @@ export async function getSettings(): Promise<AppSettings> {
       '1',
     ),
     stockOnlyMinStock: (data.stockOnlyMinStock as boolean) ?? DEFAULT_SETTINGS.stockOnlyMinStock,
+    cleanupCheckedItemsAfterHours: typeof data.cleanupCheckedItemsAfterHours === 'number'
+      ? data.cleanupCheckedItemsAfterHours
+      : DEFAULT_SETTINGS.cleanupCheckedItemsAfterHours,
+    cleanupCheckedItemsMode: (data.cleanupCheckedItemsMode === 'all' || data.cleanupCheckedItemsMode === 'synced_only')
+      ? data.cleanupCheckedItemsMode
+      : DEFAULT_SETTINGS.cleanupCheckedItemsMode,
   };
 }
 
@@ -150,6 +164,16 @@ export function getSettingsLocks(): SettingsLocks {
       locked: config.envOverrides.stockOnlyMinStock,
       envVar: SETTING_ENV_VARS.stockOnlyMinStock,
       envValue: config.envRaw.stockOnlyMinStock,
+    },
+    cleanupCheckedItemsAfterHours: {
+      locked: config.envOverrides.cleanupCheckedItemsAfterHours,
+      envVar: SETTING_ENV_VARS.cleanupCheckedItemsAfterHours,
+      envValue: config.envRaw.cleanupCheckedItemsAfterHours,
+    },
+    cleanupCheckedItemsMode: {
+      locked: config.envOverrides.cleanupCheckedItemsMode,
+      envVar: SETTING_ENV_VARS.cleanupCheckedItemsMode,
+      envValue: config.envRaw.cleanupCheckedItemsMode,
     },
   };
 }
@@ -282,6 +306,24 @@ export async function resolveStockOnlyMinStock(): Promise<boolean> {
 
   const settings = await getSettings();
   return settings.stockOnlyMinStock;
+}
+
+export async function resolveCleanupCheckedItemsAfterHours(): Promise<number> {
+  if (config.envOverrides.cleanupCheckedItemsAfterHours) {
+    return config.cleanupCheckedItemsAfterHours;
+  }
+
+  const settings = await getSettings();
+  return settings.cleanupCheckedItemsAfterHours;
+}
+
+export async function resolveCleanupCheckedItemsMode(): Promise<CleanupCheckedItemsMode> {
+  if (config.envOverrides.cleanupCheckedItemsMode) {
+    return config.cleanupCheckedItemsMode;
+  }
+
+  const settings = await getSettings();
+  return settings.cleanupCheckedItemsMode;
 }
 
 export async function saveSettings(settings: AppSettings): Promise<void> {

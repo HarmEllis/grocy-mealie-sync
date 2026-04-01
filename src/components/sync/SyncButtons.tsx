@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { ArrowLeftRight, ArrowRight, RefreshCw, Loader2 } from 'lucide-react';
+import { ArrowLeftRight, ArrowRight, RefreshCw, Loader2, BrushCleaning } from 'lucide-react';
 import { toast } from 'sonner';
 import { openMappingWizard } from '@/components/mapping-wizard/events';
 import { getPartialToastConfig, hasSyncActionError, type SyncActionResponse } from './toast';
@@ -13,6 +13,7 @@ const syncActions = [
   { label: 'Ensure Low-Stock in Mealie', endpoint: '/api/sync/grocy-to-mealie/ensure', icon: RefreshCw },
   { label: 'Reconcile In Possession', endpoint: '/api/sync/grocy-to-mealie/in-possession', icon: RefreshCw },
   { label: 'Mealie \u2192 Grocy', endpoint: '/api/sync/mealie-to-grocy', icon: ArrowLeftRight },
+  { label: 'Shopping List Cleanup', endpoint: '/api/sync/shopping-cleanup', icon: BrushCleaning },
 ] as const;
 
 const UI_SYNC_TRIGGER_HEADERS = {

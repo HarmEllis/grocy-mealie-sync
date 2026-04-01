@@ -41,6 +41,8 @@ interface SettingsData {
   mealieInPossessionOnlyAboveMinStock: boolean;
   mappingWizardMinStockStep: MinStockStep;
   stockOnlyMinStock: boolean;
+  cleanupCheckedItemsAfterHours: number;
+  cleanupCheckedItemsMode: 'all' | 'synced_only';
   locks: {
     defaultUnitMappingId: SettingLock;
     mealieShoppingListId: SettingLock;
@@ -51,6 +53,8 @@ interface SettingsData {
     mealieInPossessionOnlyAboveMinStock: SettingLock;
     mappingWizardMinStockStep: SettingLock;
     stockOnlyMinStock: SettingLock;
+    cleanupCheckedItemsAfterHours: SettingLock;
+    cleanupCheckedItemsMode: SettingLock;
   };
   availableUnits: UnitOption[];
   availableShoppingLists: ShoppingListOption[];
@@ -193,6 +197,16 @@ export function SettingsForm() {
     if (ok) setSettings(s => s ? { ...s, mappingWizardMinStockStep: value } : s);
   }
 
+  async function handleCleanupAfterHoursChange(value: number) {
+    const ok = await saveSetting({ cleanupCheckedItemsAfterHours: value });
+    if (ok) setSettings(s => s ? { ...s, cleanupCheckedItemsAfterHours: value } : s);
+  }
+
+  async function handleCleanupModeChange(value: 'all' | 'synced_only') {
+    const ok = await saveSetting({ cleanupCheckedItemsMode: value });
+    if (ok) setSettings(s => s ? { ...s, cleanupCheckedItemsMode: value } : s);
+  }
+
   const shoppingListOptions = [...settings.availableShoppingLists]
     .sort((a, b) => a.name.localeCompare(b.name))
     .map(list => ({ value: list.id, label: list.name }));
@@ -208,6 +222,11 @@ export function SettingsForm() {
     value: step,
     label: MIN_STOCK_STEP_LABELS[step],
   }));
+
+  const cleanupModeOptions = [
+    { value: 'all', label: 'All checked items' },
+    { value: 'synced_only', label: 'Only items synced to Grocy' },
+  ];
 
   return (
     <TooltipProvider>
@@ -426,6 +445,68 @@ export function SettingsForm() {
           </div>
           <p className="pl-6 text-xs text-muted-foreground">
             When enabled, checking off a Mealie item only adds stock in Grocy when the mapped product has `min_stock_amount &gt; 0`.
+          </p>
+        </div>
+
+        <Separator />
+
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm font-medium">Shopping List Cleanup</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Automatically remove checked items from the Mealie shopping list after a configurable time. Runs once per day.
+            </p>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2 shrink-0">
+              <label htmlFor="cleanup-after-hours" className="text-sm font-medium">
+                Remove checked items after (hours)
+              </label>
+              <LockBadge lock={settings.locks.cleanupCheckedItemsAfterHours} />
+            </div>
+            <input
+              id="cleanup-after-hours"
+              type="number"
+              min={-1}
+              step={1}
+              value={settings.cleanupCheckedItemsAfterHours}
+              disabled={settings.locks.cleanupCheckedItemsAfterHours.locked}
+              onChange={e => {
+                const parsed = parseInt(e.target.value, 10);
+                if (!Number.isNaN(parsed) && (parsed === -1 || parsed >= 1)) {
+                  void handleCleanupAfterHoursChange(parsed);
+                }
+              }}
+              className="ml-auto w-24 rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+            />
+          </div>
+          <p className="pl-6 text-xs text-muted-foreground">
+            Set to <strong>-1</strong> to disable cleanup. Any positive integer enables cleanup after that many hours.
+          </p>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2 shrink-0">
+              <label htmlFor="cleanup-mode" className="text-sm font-medium">
+                Cleanup mode
+              </label>
+              <LockBadge lock={settings.locks.cleanupCheckedItemsMode} />
+            </div>
+            <SearchableSelect
+              options={cleanupModeOptions}
+              value={settings.cleanupCheckedItemsMode}
+              onChange={value => {
+                if (value === 'all' || value === 'synced_only') {
+                  void handleCleanupModeChange(value);
+                }
+              }}
+              disabled={settings.locks.cleanupCheckedItemsMode.locked}
+              ariaLabel="Cleanup mode"
+              searchPlaceholder="Search modes..."
+              className="ml-auto w-full max-w-xs"
+              clearable={false}
+            />
+          </div>
+          <p className="pl-6 text-xs text-muted-foreground">
+            <strong>All checked items</strong> removes any checked item past the threshold. <strong>Only items synced to Grocy</strong> only removes items that were successfully restocked in Grocy.
           </p>
         </div>
       </div>

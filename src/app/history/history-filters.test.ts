@@ -16,6 +16,9 @@ describe('history filters', () => {
       search: 'settings',
       action: 'settings_update',
       trigger: 'manual',
+      status: null,
+      dateFrom: null,
+      dateTo: null,
       hasFilters: true,
     });
   });
@@ -29,6 +32,9 @@ describe('history filters', () => {
       search: '',
       action: null,
       trigger: null,
+      status: null,
+      dateFrom: null,
+      dateTo: null,
       hasFilters: false,
     });
   });
@@ -40,6 +46,9 @@ describe('history filters', () => {
       search: '  stock  ',
       action: '',
       trigger: 'scheduler',
+      status: null,
+      dateFrom: null,
+      dateTo: null,
     })).toBe('page=2&q=stock&trigger=scheduler');
   });
 
@@ -50,6 +59,9 @@ describe('history filters', () => {
       search: '   ',
       action: '',
       trigger: '',
+      status: null,
+      dateFrom: null,
+      dateTo: null,
     })).toBe('page=2');
   });
 

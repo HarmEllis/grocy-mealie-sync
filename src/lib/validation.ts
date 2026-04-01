@@ -72,6 +72,8 @@ export const settingsUpdateSchema = z.object({
   mealieInPossessionOnlyAboveMinStock: z.boolean().optional(),
   mappingWizardMinStockStep: z.enum(MIN_STOCK_STEP_VALUES).optional(),
   stockOnlyMinStock: z.boolean().optional(),
+  cleanupCheckedItemsAfterHours: z.number().int().min(-1).optional(),
+  cleanupCheckedItemsMode: z.enum(['all', 'synced_only']).optional(),
 });
 
 // --- Orphan Deletion ---

@@ -62,12 +62,28 @@ export async function pollMealieForCheckedItems(): Promise<MealieToGrocyPollResu
       }
 
       if (isBootstrapPoll) {
+        // Record checkedAt for items that are already checked during bootstrap
+        if (checked && !state.mealieCheckedAt[item.id]) {
+          state.mealieCheckedAt[item.id] = new Date().toISOString();
+        }
         continue;
       }
 
       // Detect newly checked items (B3.1):
       // Was unchecked (or unknown) before, now checked
       const wasChecked = previousCheckedState[item.id];
+
+      // Track when items first become checked (for cleanup scheduler)
+      if (checked && wasChecked !== true) {
+        state.mealieCheckedAt[item.id] = new Date().toISOString();
+      }
+
+      // If unchecked, clear the checked-at and synced timestamps
+      if (!checked) {
+        delete state.mealieCheckedAt[item.id];
+        delete state.mealieItemsSyncedToGrocy[item.id];
+      }
+
       if (checked && wasChecked !== true) {
         try {
           const grocyProductId = await processCheckedItem(item);
@@ -75,6 +91,7 @@ export async function pollMealieForCheckedItems(): Promise<MealieToGrocyPollResu
             // Track that this product was restocked by sync, so Grocy→Mealie
             // won't remove it from the shopping list on the next poll
             state.syncRestockedProducts[String(grocyProductId)] = new Date().toISOString();
+            state.mealieItemsSyncedToGrocy[item.id] = new Date().toISOString();
             summary.restockedProducts++;
           }
         } catch (err) {
@@ -83,6 +100,8 @@ export async function pollMealieForCheckedItems(): Promise<MealieToGrocyPollResu
           // Remove from newCheckedState so ONLY this item retries next poll.
           // Other already-processed items are saved normally, preventing double-restocking.
           delete newCheckedState[item.id];
+          // Also remove checkedAt so it gets a fresh timestamp on retry
+          delete state.mealieCheckedAt[item.id];
         }
       }
       // B3 edge case: un-checking is ignored (Scenario 10)

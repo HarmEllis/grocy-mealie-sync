@@ -43,11 +43,14 @@ export default async function HistoryPage({
     return <HistoryDisabledState />;
   }
 
-  const { search, action, trigger, hasFilters } = resolveHistoryFilters(await searchParams);
+  const { search, action, trigger, status, dateFrom, dateTo, hasFilters } = resolveHistoryFilters(await searchParams);
   const runs = await listHistoryRuns(100, {
     search,
     action,
     trigger,
+    status,
+    dateFrom: dateFrom ? new Date(dateFrom + 'T00:00:00') : null,
+    dateTo: dateTo ? new Date(dateTo + 'T23:59:59.999') : null,
   });
 
   return (
@@ -86,7 +89,7 @@ export default async function HistoryPage({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <HistoryFiltersBar search={search} action={action} trigger={trigger} />
+            <HistoryFiltersBar search={search} action={action} trigger={trigger} status={status} dateFrom={dateFrom} dateTo={dateTo} />
 
             {runs.length === 0 ? (
               <p className="text-sm text-muted-foreground">

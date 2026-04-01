@@ -154,6 +154,44 @@ export function parseMinStockStepEnv(
   return normalized;
 }
 
+export type CleanupCheckedItemsMode = 'all' | 'synced_only';
+
+export function parseCleanupCheckedItemsAfterHoursEnv(
+  value: string | undefined,
+  name: string,
+): number {
+  if (!hasConfiguredValue(value)) {
+    return -1;
+  }
+
+  const parsed = parseInt(value!.trim(), 10);
+  if (isNaN(parsed) || (parsed < 1 && parsed !== -1)) {
+    log.warn(`[Config] ${name} must be -1 (disabled) or a positive integer (got "${value}"). Falling back to -1.`);
+    return -1;
+  }
+
+  return parsed;
+}
+
+export function parseCleanupCheckedItemsModeEnv(
+  value: string | undefined,
+  name: string,
+): CleanupCheckedItemsMode {
+  if (!hasConfiguredValue(value)) {
+    return 'all';
+  }
+
+  switch (value!.trim().toLowerCase()) {
+    case 'all':
+      return 'all';
+    case 'synced_only':
+      return 'synced_only';
+    default:
+      log.warn(`[Config] ${name} must be "all" or "synced_only" (got "${value}"). Falling back to all.`);
+      return 'all';
+  }
+}
+
 const configuredTimeZone = parseTimeZoneEnv(process.env.TZ, 'TZ');
 const configuredLocale = resolveLocaleForConfiguredTimeZone(configuredTimeZone);
 const configuredHistoryRetentionDays = parseHistoryRetentionDaysEnv(
@@ -194,6 +232,14 @@ export const config = {
     'MAPPING_WIZARD_MIN_STOCK_STEP',
   ),
   stockOnlyMinStock: parseBooleanEnv(process.env.STOCK_ONLY_MIN_STOCK, false, 'STOCK_ONLY_MIN_STOCK'),
+  cleanupCheckedItemsAfterHours: parseCleanupCheckedItemsAfterHoursEnv(
+    process.env.CLEANUP_CHECKED_ITEMS_AFTER_HOURS,
+    'CLEANUP_CHECKED_ITEMS_AFTER_HOURS',
+  ),
+  cleanupCheckedItemsMode: parseCleanupCheckedItemsModeEnv(
+    process.env.CLEANUP_CHECKED_ITEMS_MODE,
+    'CLEANUP_CHECKED_ITEMS_MODE',
+  ),
   healthchecksPingUrl: parseOptionalUrlEnv(process.env.HEALTHCHECKS_PING_URL, 'HEALTHCHECKS_PING_URL'),
   allowInsecureTls: parseBooleanEnv(
     process.env.ALLOW_INSECURE_TLS,
@@ -217,6 +263,8 @@ export const config = {
     mealieInPossessionOnlyAboveMinStock: hasConfiguredValue(process.env.MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK),
     mappingWizardMinStockStep: hasConfiguredValue(process.env.MAPPING_WIZARD_MIN_STOCK_STEP),
     stockOnlyMinStock: hasConfiguredValue(process.env.STOCK_ONLY_MIN_STOCK),
+    cleanupCheckedItemsAfterHours: hasConfiguredValue(process.env.CLEANUP_CHECKED_ITEMS_AFTER_HOURS),
+    cleanupCheckedItemsMode: hasConfiguredValue(process.env.CLEANUP_CHECKED_ITEMS_MODE),
   },
   envRaw: {
     mealieShoppingListId: process.env.MEALIE_SHOPPING_LIST_ID?.trim() || null,
@@ -228,5 +276,7 @@ export const config = {
     mealieInPossessionOnlyAboveMinStock: process.env.MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK?.trim() || null,
     mappingWizardMinStockStep: process.env.MAPPING_WIZARD_MIN_STOCK_STEP?.trim() || null,
     stockOnlyMinStock: process.env.STOCK_ONLY_MIN_STOCK?.trim() || null,
+    cleanupCheckedItemsAfterHours: process.env.CLEANUP_CHECKED_ITEMS_AFTER_HOURS?.trim() || null,
+    cleanupCheckedItemsMode: process.env.CLEANUP_CHECKED_ITEMS_MODE?.trim() || null,
   },
 };

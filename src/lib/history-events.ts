@@ -6,6 +6,7 @@ import type { GrocyMissingStockPollResult } from './sync/grocy-to-mealie';
 import type { MealieInPossessionSyncResult } from './sync/mealie-in-possession';
 import type { MealieToGrocyPollResult } from './sync/mealie-to-grocy';
 import type { FullProductSyncResult } from './sync/product-sync';
+import type { ShoppingCleanupResult } from './sync/shopping-cleanup';
 
 export interface HistoryOutcome {
   status: HistoryRunStatus;
@@ -144,6 +145,8 @@ export function formatHistoryActionLabel(action: HistoryRunAction): string {
       return 'Remove shopping item';
     case 'shopping_merge_duplicates':
       return 'Merge shopping duplicates';
+    case 'shopping_cleanup':
+      return 'Shopping list cleanup';
     case 'conflict_remap':
       return 'Resolve conflict';
   }
@@ -163,6 +166,8 @@ export function formatSchedulerStepNameLabel(stepName: SchedulerStepName): strin
       return 'Grocy to Mealie';
     case 'conflict_check':
       return 'Conflict check';
+    case 'shopping_cleanup':
+      return 'Shopping cleanup';
   }
 }
 
@@ -397,6 +402,37 @@ export function buildConflictCheckHistoryOutcome(result: MappingConflictCheckRes
       },
       ...result.openedConflicts.map(conflict => buildConflictDetailEvent(conflict, 'opened')),
       ...result.resolvedConflicts.map(conflict => buildConflictDetailEvent(conflict, 'resolved')),
+    ],
+  };
+}
+
+export function buildShoppingCleanupHistoryOutcome(result: ShoppingCleanupResult): HistoryOutcome {
+  return {
+    status: toHistoryStatus(result.status),
+    message: result.status === 'skipped'
+      ? `Cleanup skipped: ${result.reason ?? 'unknown'}.`
+      : `Eligible ${result.summary.eligibleItems} item(s); removed ${result.summary.removedItems}; skipped ${result.summary.skippedItems}; failed ${result.summary.failedItems}.`,
+    summary: {
+      reason: result.reason ?? null,
+      ...result.summary,
+    },
+    events: [
+      {
+        level: result.status === 'error' ? 'error'
+          : result.status === 'partial' || result.status === 'skipped' ? 'warning'
+            : 'info',
+        category: 'shopping',
+        entityKind: 'shopping_item',
+        entityRef: 'shopping-cleanup',
+        message: result.status === 'error' ? 'Cleanup failed.'
+          : result.status === 'skipped' ? `Cleanup skipped: ${result.reason ?? 'unknown'}.`
+            : result.status === 'partial' ? 'Cleanup partially completed.'
+              : 'Cleanup completed.',
+        details: {
+          reason: result.reason ?? null,
+          summary: result.summary,
+        },
+      },
     ],
   };
 }

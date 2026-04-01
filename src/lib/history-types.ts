@@ -36,11 +36,13 @@ export const historyRunActions = [
   'shopping_update_item',
   'shopping_remove_item',
   'shopping_merge_duplicates',
+  'shopping_cleanup',
   'conflict_remap',
 ] as const;
 export type HistoryRunAction = (typeof historyRunActions)[number];
 
-export type HistoryRunStatus = 'success' | 'partial' | 'failure' | 'skipped';
+export const historyRunStatuses = ['success', 'partial', 'failure', 'skipped'] as const;
+export type HistoryRunStatus = (typeof historyRunStatuses)[number];
 export type HistoryEventLevel = 'info' | 'warning' | 'error';
 export type HistoryEventCategory =
   | 'sync'
@@ -67,4 +69,8 @@ export function isHistoryRunAction(value: string): value is HistoryRunAction {
 
 export function isHistoryRunTrigger(value: string): value is HistoryRunTrigger {
   return historyRunTriggers.includes(value as HistoryRunTrigger);
+}
+
+export function isHistoryRunStatus(value: string): value is HistoryRunStatus {
+  return historyRunStatuses.includes(value as HistoryRunStatus);
 }

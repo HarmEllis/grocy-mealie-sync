@@ -509,4 +509,95 @@ describe('pollMealieForCheckedItems', () => {
     expect(savedState.lastMealiePoll).toBeInstanceOf(Date);
     expect(savedState.lastMealiePoll!.getTime()).toBeGreaterThanOrEqual(before.getTime());
   });
+
+  // -------------------------------------------------------------------------
+  // Cleanup timestamp tracking
+  // -------------------------------------------------------------------------
+
+  it('records mealieCheckedAt timestamp when item transitions from unchecked to checked', async () => {
+    const before = new Date();
+    const item = mockMealieShoppingItem({ id: 'item-ts', checked: true, foodId: 'food-1' });
+    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 101 });
+
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mapping]);
+    mockedGetGrocyEntities.mockResolvedValue([]);
+
+    await pollMealieForCheckedItems();
+
+    const savedState = mockedSaveSyncState.mock.calls[0][0];
+    expect(savedState.mealieCheckedAt).toHaveProperty('item-ts');
+    expect(new Date(savedState.mealieCheckedAt['item-ts']).getTime()).toBeGreaterThanOrEqual(before.getTime());
+  });
+
+  it('records mealieItemsSyncedToGrocy when processCheckedItem succeeds', async () => {
+    const before = new Date();
+    const item = mockMealieShoppingItem({ id: 'item-synced', checked: true, foodId: 'food-1' });
+    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 101 });
+
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mapping]);
+    mockedGetGrocyEntities.mockResolvedValue([]);
+
+    await pollMealieForCheckedItems();
+
+    const savedState = mockedSaveSyncState.mock.calls[0][0];
+    expect(savedState.mealieItemsSyncedToGrocy).toHaveProperty('item-synced');
+    expect(new Date(savedState.mealieItemsSyncedToGrocy['item-synced']).getTime()).toBeGreaterThanOrEqual(before.getTime());
+  });
+
+  it('clears mealieCheckedAt and mealieItemsSyncedToGrocy when item becomes unchecked', async () => {
+    mockedGetSyncState.mockResolvedValue(
+      mockSyncState({
+        lastMealiePoll: new Date(),
+        mealieCheckedItems: { 'item-1': true },
+        mealieCheckedAt: { 'item-1': '2026-03-20T10:00:00.000Z' },
+        mealieItemsSyncedToGrocy: { 'item-1': '2026-03-20T10:01:00.000Z' },
+      }),
+    );
+
+    const item = mockMealieShoppingItem({ id: 'item-1', checked: false, foodId: 'food-1' });
+    mockedFetchAll.mockResolvedValue([item]);
+
+    await pollMealieForCheckedItems();
+
+    const savedState = mockedSaveSyncState.mock.calls[0][0];
+    expect(savedState.mealieCheckedAt).not.toHaveProperty('item-1');
+    expect(savedState.mealieItemsSyncedToGrocy).not.toHaveProperty('item-1');
+  });
+
+  it('preserves existing mealieCheckedAt timestamp for items that remain checked', async () => {
+    const originalTimestamp = '2026-03-20T10:00:00.000Z';
+    mockedGetSyncState.mockResolvedValue(
+      mockSyncState({
+        lastMealiePoll: new Date(),
+        mealieCheckedItems: { 'item-1': true },
+        mealieCheckedAt: { 'item-1': originalTimestamp },
+      }),
+    );
+
+    const item = mockMealieShoppingItem({ id: 'item-1', checked: true, foodId: 'food-1' });
+    mockedFetchAll.mockResolvedValue([item]);
+
+    await pollMealieForCheckedItems();
+
+    const savedState = mockedSaveSyncState.mock.calls[0][0];
+    // Timestamp should be preserved, not overwritten
+    expect(savedState.mealieCheckedAt['item-1']).toBe(originalTimestamp);
+  });
+
+  it('clears mealieCheckedAt on failed processCheckedItem so retry gets fresh timestamp', async () => {
+    const item = mockMealieShoppingItem({ id: 'fail-item', checked: true, foodId: 'food-1' });
+    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 101 });
+
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mapping]);
+    mockedAddProductStock.mockRejectedValue(new Error('Grocy down'));
+
+    await pollMealieForCheckedItems();
+
+    const savedState = mockedSaveSyncState.mock.calls[0][0];
+    expect(savedState.mealieCheckedAt).not.toHaveProperty('fail-item');
+    expect(savedState.mealieItemsSyncedToGrocy).not.toHaveProperty('fail-item');
+  });
 });

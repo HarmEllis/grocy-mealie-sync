@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { getSyncState } from '@/lib/sync/state';
+import { getNextCleanupRun } from '@/lib/sync/scheduler';
 import { db } from '@/lib/db';
 import { productMappings, unitMappings } from '@/lib/db/schema';
 import { count } from 'drizzle-orm';
@@ -27,6 +28,7 @@ interface SyncStatus {
   mealieTrackedItemsCount: number;
   productMappings: number;
   unitMappings: number;
+  nextCleanupRun: string | Date | null;
 }
 
 async function getStatus(): Promise<SyncStatus | null> {
@@ -35,6 +37,8 @@ async function getStatus(): Promise<SyncStatus | null> {
     const [productCount] = await db.select({ count: count() }).from(productMappings);
     const [unitCount] = await db.select({ count: count() }).from(unitMappings);
 
+    const nextCleanup = await getNextCleanupRun();
+
     return {
       lastGrocyPoll: state.lastGrocyPoll,
       lastMealiePoll: state.lastMealiePoll,
@@ -42,6 +46,7 @@ async function getStatus(): Promise<SyncStatus | null> {
       mealieTrackedItemsCount: Object.keys(state.mealieCheckedItems).length,
       productMappings: productCount.count,
       unitMappings: unitCount.count,
+      nextCleanupRun: nextCleanup,
     };
   } catch {
     return null;
@@ -120,6 +125,13 @@ export default async function Home() {
                 <div className="space-y-0.5">
                   <p className="text-muted-foreground">Mealie tracked items</p>
                   <p className="font-medium">{status.mealieTrackedItemsCount} items</p>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-muted-foreground flex items-center gap-1.5">
+                    <Clock className="size-3" />
+                    Next cleanup run
+                  </p>
+                  <p className="font-medium">{formatDateTime(status.nextCleanupRun, { fallback: 'Unknown', timeZone: config.timeZone, locale: config.timeZoneLocale })}</p>
                 </div>
               </div>
             ) : (
@@ -241,6 +253,7 @@ export default async function Home() {
                 ['POST', '/api/sync/grocy-to-mealie/ensure', 'Ensure below-min items exist on Mealie list'],
                 ['POST', '/api/sync/grocy-to-mealie/in-possession', 'Fully reconcile Mealie "In possession" from Grocy stock'],
                 ['POST', '/api/sync/mealie-to-grocy', 'Trigger Mealie\u2192Grocy check'],
+                ['POST', '/api/sync/shopping-cleanup', 'Trigger shopping list cleanup'],
                 ['POST', '/api/sync/unlock', 'Clear persisted scheduler and sync locks'],
               ].map(([method, path, desc]) => (
                 <div key={path} className="flex items-center gap-2">

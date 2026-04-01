@@ -392,4 +392,172 @@ describe('history store', () => {
       sqlite.close();
     }
   });
+
+  it('filters runs by status', async () => {
+    const sqlite = new Database(':memory:');
+
+    try {
+      const historyStore = await loadHistoryStore(sqlite, {
+        historyEnabled: true,
+        historyRetentionDays: 7,
+      });
+
+      await historyStore.initializeHistoryStorage();
+
+      await historyStore.recordHistoryRun({
+        trigger: 'scheduler',
+        action: 'scheduler_cycle',
+        status: 'success',
+        startedAt: new Date('2026-03-28T10:00:00.000Z'),
+        finishedAt: new Date('2026-03-28T10:00:30.000Z'),
+      });
+
+      await historyStore.recordHistoryRun({
+        trigger: 'scheduler',
+        action: 'scheduler_cycle',
+        status: 'failure',
+        message: 'Sync failed.',
+        startedAt: new Date('2026-03-28T11:00:00.000Z'),
+        finishedAt: new Date('2026-03-28T11:00:30.000Z'),
+      });
+
+      await historyStore.recordHistoryRun({
+        trigger: 'manual',
+        action: 'product_sync',
+        status: 'partial',
+        startedAt: new Date('2026-03-28T12:00:00.000Z'),
+        finishedAt: new Date('2026-03-28T12:00:30.000Z'),
+      });
+
+      const failureRuns = await historyStore.listHistoryRuns(100, { status: 'failure' });
+      expect(failureRuns).toHaveLength(1);
+      expect(failureRuns[0]).toEqual(expect.objectContaining({ status: 'failure' }));
+
+      const successRuns = await historyStore.listHistoryRuns(100, { status: 'success' });
+      expect(successRuns).toHaveLength(1);
+      expect(successRuns[0]).toEqual(expect.objectContaining({ status: 'success' }));
+
+      const skippedRuns = await historyStore.listHistoryRuns(100, { status: 'skipped' });
+      expect(skippedRuns).toHaveLength(0);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it('filters runs by date range', async () => {
+    const sqlite = new Database(':memory:');
+
+    try {
+      const historyStore = await loadHistoryStore(sqlite, {
+        historyEnabled: true,
+        historyRetentionDays: 30,
+      });
+
+      await historyStore.initializeHistoryStorage();
+
+      await historyStore.recordHistoryRun({
+        trigger: 'scheduler',
+        action: 'scheduler_cycle',
+        status: 'success',
+        message: 'March 20 run.',
+        startedAt: new Date('2026-03-20T10:00:00.000Z'),
+        finishedAt: new Date('2026-03-20T10:00:30.000Z'),
+      });
+
+      await historyStore.recordHistoryRun({
+        trigger: 'scheduler',
+        action: 'scheduler_cycle',
+        status: 'success',
+        message: 'March 25 run.',
+        startedAt: new Date('2026-03-25T10:00:00.000Z'),
+        finishedAt: new Date('2026-03-25T10:00:30.000Z'),
+      });
+
+      await historyStore.recordHistoryRun({
+        trigger: 'scheduler',
+        action: 'scheduler_cycle',
+        status: 'success',
+        message: 'March 28 run.',
+        startedAt: new Date('2026-03-28T10:00:00.000Z'),
+        finishedAt: new Date('2026-03-28T10:00:30.000Z'),
+      });
+
+      // dateFrom only
+      const fromRuns = await historyStore.listHistoryRuns(100, {
+        dateFrom: new Date('2026-03-25T00:00:00.000Z'),
+      });
+      expect(fromRuns).toHaveLength(2);
+      expect(fromRuns.map(r => r.message)).toEqual(['March 28 run.', 'March 25 run.']);
+
+      // dateTo only
+      const toRuns = await historyStore.listHistoryRuns(100, {
+        dateTo: new Date('2026-03-25T23:59:59.999Z'),
+      });
+      expect(toRuns).toHaveLength(2);
+      expect(toRuns.map(r => r.message)).toEqual(['March 25 run.', 'March 20 run.']);
+
+      // dateFrom + dateTo
+      const rangeRuns = await historyStore.listHistoryRuns(100, {
+        dateFrom: new Date('2026-03-24T00:00:00.000Z'),
+        dateTo: new Date('2026-03-26T23:59:59.999Z'),
+      });
+      expect(rangeRuns).toHaveLength(1);
+      expect(rangeRuns[0]?.message).toBe('March 25 run.');
+
+      // No matches
+      const emptyRuns = await historyStore.listHistoryRuns(100, {
+        dateFrom: new Date('2026-04-01T00:00:00.000Z'),
+      });
+      expect(emptyRuns).toHaveLength(0);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it('combines status and date range filters', async () => {
+    const sqlite = new Database(':memory:');
+
+    try {
+      const historyStore = await loadHistoryStore(sqlite, {
+        historyEnabled: true,
+        historyRetentionDays: 30,
+      });
+
+      await historyStore.initializeHistoryStorage();
+
+      await historyStore.recordHistoryRun({
+        trigger: 'scheduler',
+        action: 'scheduler_cycle',
+        status: 'success',
+        startedAt: new Date('2026-03-25T10:00:00.000Z'),
+        finishedAt: new Date('2026-03-25T10:00:30.000Z'),
+      });
+
+      await historyStore.recordHistoryRun({
+        trigger: 'scheduler',
+        action: 'scheduler_cycle',
+        status: 'failure',
+        startedAt: new Date('2026-03-25T11:00:00.000Z'),
+        finishedAt: new Date('2026-03-25T11:00:30.000Z'),
+      });
+
+      await historyStore.recordHistoryRun({
+        trigger: 'scheduler',
+        action: 'scheduler_cycle',
+        status: 'failure',
+        startedAt: new Date('2026-03-28T10:00:00.000Z'),
+        finishedAt: new Date('2026-03-28T10:00:30.000Z'),
+      });
+
+      const runs = await historyStore.listHistoryRuns(100, {
+        status: 'failure',
+        dateFrom: new Date('2026-03-25T00:00:00.000Z'),
+        dateTo: new Date('2026-03-25T23:59:59.999Z'),
+      });
+      expect(runs).toHaveLength(1);
+      expect(runs[0]).toEqual(expect.objectContaining({ status: 'failure' }));
+    } finally {
+      sqlite.close();
+    }
+  });
 });

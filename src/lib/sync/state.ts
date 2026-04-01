@@ -14,6 +14,14 @@ export interface SyncStateData {
    *  restocked automatically rather than manually by the user.
    *  Keys are strings because JSON serialization converts number keys to strings. */
   syncRestockedProducts: Record<string, string>;
+  /** Timestamp when each Mealie item was first detected as checked (itemId → ISO timestamp).
+   *  Used by the cleanup scheduler to know how long an item has been checked. */
+  mealieCheckedAt: Record<string, string>;
+  /** Mealie items that were successfully synced to Grocy (itemId → ISO timestamp).
+   *  Used by the cleanup scheduler in 'synced_only' mode. */
+  mealieItemsSyncedToGrocy: Record<string, string>;
+  /** ISO timestamp of the last cleanup run. Used to prevent re-running within the same day. */
+  lastCleanupRun: string | null;
 }
 
 const STATE_ID = 'singleton';
@@ -25,6 +33,9 @@ const DEFAULT_STATE: SyncStateData = {
   mealieCheckedItems: {},
   mealieInPossessionByGrocyProduct: {},
   syncRestockedProducts: {},
+  mealieCheckedAt: {},
+  mealieItemsSyncedToGrocy: {},
+  lastCleanupRun: null,
 };
 
 export async function getSyncState(): Promise<SyncStateData> {
@@ -48,6 +59,9 @@ export async function getSyncState(): Promise<SyncStateData> {
     mealieCheckedItems: (state.mealieCheckedItems as Record<string, boolean>) || {},
     mealieInPossessionByGrocyProduct: (state.mealieInPossessionByGrocyProduct as Record<string, boolean>) || {},
     syncRestockedProducts: (state.syncRestockedProducts as Record<string, string>) || {},
+    mealieCheckedAt: (state.mealieCheckedAt as Record<string, string>) || {},
+    mealieItemsSyncedToGrocy: (state.mealieItemsSyncedToGrocy as Record<string, string>) || {},
+    lastCleanupRun: (state.lastCleanupRun as string) || null,
   };
 }
 
@@ -59,6 +73,9 @@ export async function saveSyncState(state: SyncStateData) {
     mealieCheckedItems: state.mealieCheckedItems,
     mealieInPossessionByGrocyProduct: state.mealieInPossessionByGrocyProduct,
     syncRestockedProducts: state.syncRestockedProducts,
+    mealieCheckedAt: state.mealieCheckedAt,
+    mealieItemsSyncedToGrocy: state.mealieItemsSyncedToGrocy,
+    lastCleanupRun: state.lastCleanupRun,
   });
 
   await db.insert(syncState)

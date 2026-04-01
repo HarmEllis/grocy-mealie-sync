@@ -1,6 +1,6 @@
 import { config } from '../config';
 import { log } from '../logger';
-import { buildConflictCheckHistoryOutcome, buildGrocyToMealieHistoryOutcome, buildMealieToGrocyHistoryOutcome, buildProductSyncHistoryOutcome, prefixHistoryEvents } from '../history-events';
+import { buildConflictCheckHistoryOutcome, buildGrocyToMealieHistoryOutcome, buildMealieToGrocyHistoryOutcome, buildProductSyncHistoryOutcome, buildShoppingCleanupHistoryOutcome, prefixHistoryEvents } from '../history-events';
 import { recordHistoryRun, type HistoryEventInput } from '../history-store';
 import {
   sendSchedulerNotifications,
@@ -20,11 +20,14 @@ import {
   releaseSchedulerLock,
   releaseSyncLock,
 } from './mutex';
+import { runShoppingCleanup } from './shopping-cleanup';
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let productSyncTimer: ReturnType<typeof setInterval> | null = null;
+let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 let started = false;
 let schedulerLockHeld = false;
+let nextCleanupRun: Date | null = null;
 
 interface SchedulerStepExecutionResult {
   status?: SchedulerStepStatus;
@@ -60,7 +63,9 @@ function getSchedulerStepEventLevel(status: SchedulerStepStatus): 'info' | 'warn
 }
 
 function getSchedulerStepCategory(name: SchedulerStepName): HistoryEventInput['category'] {
-  return name === 'conflict_check' ? 'conflict' : 'sync';
+  if (name === 'conflict_check') return 'conflict';
+  if (name === 'shopping_cleanup') return 'shopping';
+  return 'sync';
 }
 
 function getSchedulerStepLabel(name: SchedulerStepName): string {
@@ -73,6 +78,8 @@ function getSchedulerStepLabel(name: SchedulerStepName): string {
       return 'Grocy to Mealie';
     case 'conflict_check':
       return 'Conflict check';
+    case 'shopping_cleanup':
+      return 'Shopping cleanup';
   }
 }
 
@@ -308,6 +315,32 @@ function startTimers(): void {
     }
   }, productSyncMs);
 
+  // Daily cleanup of checked shopping list items
+  const cleanupMs = 24 * 60 * 60 * 1000;
+  nextCleanupRun = new Date(Date.now() + cleanupMs);
+  cleanupTimer = setInterval(async () => {
+    if (!acquireSyncLock()) {
+      log.warn('[Scheduler] Skipping cleanup — previous sync still running');
+      return;
+    }
+
+    try {
+      await runSchedulerCycle('cleanup', [
+        {
+          name: 'shopping_cleanup',
+          failureLogPrefix: '[Scheduler] Shopping cleanup error:',
+          run: async () => {
+            const result = await runShoppingCleanup();
+            return buildShoppingCleanupHistoryOutcome(result);
+          },
+        },
+      ]);
+    } finally {
+      releaseSyncLock();
+    }
+    nextCleanupRun = new Date(Date.now() + cleanupMs);
+  }, cleanupMs);
+
   log.info('[Scheduler] Poll timers started');
 }
 
@@ -321,9 +354,23 @@ export function stopScheduler(): void {
     clearInterval(productSyncTimer);
     productSyncTimer = null;
   }
+  if (cleanupTimer) {
+    clearInterval(cleanupTimer);
+    cleanupTimer = null;
+  }
   if (schedulerLockHeld) {
     releaseSchedulerLock();
     schedulerLockHeld = false;
   }
   log.info('[Scheduler] Stopped');
+}
+
+export async function getNextCleanupRun(): Promise<Date | null> {
+  if (nextCleanupRun) return nextCleanupRun;
+  const { getSyncState } = await import('./state');
+  const state = await getSyncState();
+  if (state.lastCleanupRun) {
+    return new Date(new Date(state.lastCleanupRun).getTime() + 24 * 60 * 60 * 1000);
+  }
+  return null;
 }

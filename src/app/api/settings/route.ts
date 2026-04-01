@@ -12,6 +12,8 @@ import {
   resolveMealieInPossessionOnlyAboveMinStock,
   resolveShoppingListId,
   resolveSyncMealieInPossession,
+  resolveCleanupCheckedItemsAfterHours,
+  resolveCleanupCheckedItemsMode,
   resolveStockOnlyMinStock,
   saveSettings,
 } from '@/lib/settings';
@@ -65,6 +67,8 @@ export async function GET() {
   const mealieInPossessionOnlyAboveMinStock = await resolveMealieInPossessionOnlyAboveMinStock();
   const mappingWizardMinStockStep = await resolveMappingWizardMinStockStep();
   const stockOnlyMinStock = await resolveStockOnlyMinStock();
+  const cleanupCheckedItemsAfterHours = await resolveCleanupCheckedItemsAfterHours();
+  const cleanupCheckedItemsMode = await resolveCleanupCheckedItemsMode();
 
   let availableShoppingLists: { id: string; name: string }[] = [];
   try {
@@ -89,6 +93,8 @@ export async function GET() {
     mealieInPossessionOnlyAboveMinStock,
     mappingWizardMinStockStep,
     stockOnlyMinStock,
+    cleanupCheckedItemsAfterHours,
+    cleanupCheckedItemsMode,
     locks,
     availableUnits: activeUnits.map(u => ({
       id: u.id,
@@ -175,6 +181,14 @@ export async function PUT(request: Request) {
 
     if (data.stockOnlyMinStock !== undefined) {
       settings.stockOnlyMinStock = data.stockOnlyMinStock;
+    }
+
+    if (data.cleanupCheckedItemsAfterHours !== undefined) {
+      settings.cleanupCheckedItemsAfterHours = data.cleanupCheckedItemsAfterHours;
+    }
+
+    if (data.cleanupCheckedItemsMode !== undefined) {
+      settings.cleanupCheckedItemsMode = data.cleanupCheckedItemsMode;
     }
 
     await saveSettings(settings);

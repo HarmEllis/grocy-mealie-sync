@@ -56,6 +56,9 @@ export function mockSyncState(overrides: Partial<SyncStateData> = {}): SyncState
     mealieCheckedItems: {},
     mealieInPossessionByGrocyProduct: {},
     syncRestockedProducts: {},
+    mealieCheckedAt: {},
+    mealieItemsSyncedToGrocy: {},
+    lastCleanupRun: null,
     ...overrides,
   };
 }

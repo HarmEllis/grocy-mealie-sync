@@ -154,6 +154,9 @@ describe('mealie in-possession sync', () => {
       mealieCheckedItems: {},
       mealieInPossessionByGrocyProduct: { '101': true },
       syncRestockedProducts: {},
+      mealieCheckedAt: {},
+      mealieItemsSyncedToGrocy: {},
+      lastCleanupRun: null,
     };
 
     const result = await syncMealieInPossessionFromGrocy(state);
@@ -182,6 +185,9 @@ describe('mealie in-possession sync', () => {
       mealieCheckedItems: {},
       mealieInPossessionByGrocyProduct: { '101': false },
       syncRestockedProducts: {},
+      mealieCheckedAt: {},
+      mealieItemsSyncedToGrocy: {},
+      lastCleanupRun: null,
     };
 
     const result = await syncMealieInPossessionFromGrocy(state);
@@ -214,6 +220,9 @@ describe('mealie in-possession sync', () => {
       mealieCheckedItems: {},
       mealieInPossessionByGrocyProduct: { '101': true },
       syncRestockedProducts: {},
+      mealieCheckedAt: {},
+      mealieItemsSyncedToGrocy: {},
+      lastCleanupRun: null,
     });
 
     const result = await reconcileMealieInPossessionFromGrocy();
@@ -253,6 +262,9 @@ describe('mealie in-possession sync', () => {
       mealieCheckedItems: {},
       mealieInPossessionByGrocyProduct: { '101': true },
       syncRestockedProducts: {},
+      mealieCheckedAt: {},
+      mealieItemsSyncedToGrocy: {},
+      lastCleanupRun: null,
     };
 
     const result = await syncMealieInPossessionFromGrocy(state);

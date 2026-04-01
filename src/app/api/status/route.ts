@@ -3,6 +3,7 @@ import { getSyncState } from '@/lib/sync/state';
 import { db } from '@/lib/db';
 import { productMappings, unitMappings } from '@/lib/db/schema';
 import { count } from 'drizzle-orm';
+import { getNextCleanupRun } from '@/lib/sync/scheduler';
 
 export async function GET() {
   const state = await getSyncState();
@@ -16,5 +17,6 @@ export async function GET() {
     mealieTrackedItemsCount: Object.keys(state.mealieCheckedItems).length,
     productMappings: productCount.count,
     unitMappings: unitCount.count,
+    nextCleanupRun: getNextCleanupRun(),
   });
 }

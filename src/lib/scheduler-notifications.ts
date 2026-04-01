@@ -2,9 +2,9 @@ import { config } from './config';
 import { log } from './logger';
 import { buildServerFetchInit } from './server-fetch';
 
-export type SchedulerCycleType = 'initial' | 'poll' | 'product_sync';
+export type SchedulerCycleType = 'initial' | 'poll' | 'product_sync' | 'cleanup';
 export type SchedulerCycleStatus = 'success' | 'partial' | 'failure';
-export type SchedulerStepName = 'product_sync' | 'mealie_to_grocy' | 'grocy_to_mealie' | 'conflict_check';
+export type SchedulerStepName = 'product_sync' | 'mealie_to_grocy' | 'grocy_to_mealie' | 'conflict_check' | 'shopping_cleanup';
 export type SchedulerStepStatus = 'success' | 'partial' | 'skipped' | 'failure';
 
 export interface SchedulerStepResult {
