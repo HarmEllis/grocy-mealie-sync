@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.6.0] - 2026-04-01
+
+This minor release adds shopping list cleanup automation, unit conversion and product management MCP tools, improved error visibility, and a project license.
+
+### Added
+
+- Shopping list cleanup with a manual trigger and daily scheduled job to remove resolved items from Mealie shopping lists.
+- MCP tools for unit conversion management, product deletion, and unit lifecycle management.
+- Product overview now enriches entries with relevant unit conversions for easier inspection.
+- ISC license file added to the project.
+
+### Changed
+
+- History filters improved with better date range handling and more consistent filtering behavior.
+- Product reference tools streamlined by removing redundant name-based lookup.
+- Dashboard now displays the app version in the header for easier identification.
+
+### Fixed
+
+- Mealie API errors now surface actual error messages instead of generic descriptions, and redundant inventory correction steps are skipped.
+- Grocy API errors now show real error responses instead of static OpenAPI descriptions.
+
 ## [1.5.0] - 2026-03-30
 
 ### Changed
@@ -136,6 +158,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.6.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.2.1...v1.3.0
