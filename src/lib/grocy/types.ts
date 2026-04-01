@@ -14,6 +14,7 @@ import './init';
 import { GenericEntityInteractionsService, StockService } from './client';
 import type { Product } from './client/models/Product';
 import type { QuantityUnit } from './client/models/QuantityUnit';
+import type { QuantityUnitConversion } from './client/models/QuantityUnitConversion';
 import type { Location } from './client/models/Location';
 import type { ShoppingListItem } from './client/models/ShoppingListItem';
 import type { CurrentVolatilStockResponse } from './client/models/CurrentVolatilStockResponse';
@@ -29,6 +30,7 @@ import { StockTransactionType } from './client/models/StockTransactionType';
 export type GrocyListableEntity =
   | 'products'
   | 'quantity_units'
+  | 'quantity_unit_conversions'
   | 'locations'
   | 'shopping_list';
 
@@ -36,6 +38,7 @@ export type GrocyListableEntity =
 export type GrocyEditableEntity =
   | 'products'
   | 'quantity_units'
+  | 'quantity_unit_conversions'
   | 'locations'
   | 'shopping_list';
 
@@ -43,6 +46,7 @@ export type GrocyEditableEntity =
 export type GrocyDeletableEntity =
   | 'products'
   | 'quantity_units'
+  | 'quantity_unit_conversions'
   | 'locations'
   | 'shopping_list';
 
@@ -54,6 +58,7 @@ export type GrocyDeletableEntity =
 interface GrocyEntityTypeMap {
   products: Product;
   quantity_units: QuantityUnit;
+  quantity_unit_conversions: QuantityUnitConversion;
   locations: Location;
   shopping_list: ShoppingListItem;
 }
@@ -90,6 +95,12 @@ const EDITABLE_ENTITY_FIELDS = {
     'description',
     'plural_forms',
   ],
+  quantity_unit_conversions: [
+    'from_qu_id',
+    'to_qu_id',
+    'factor',
+    'product_id',
+  ],
   locations: [
     'name',
     'description',
@@ -121,6 +132,14 @@ export interface CreateQuantityUnitBody {
   name_plural?: string;
   description?: string;
   plural_forms?: string;
+}
+
+/** Fields accepted when creating a Grocy quantity unit conversion. */
+export interface CreateQuantityUnitConversionBody {
+  from_qu_id: number;
+  to_qu_id: number;
+  factor: number;
+  product_id?: number | null;
 }
 
 /** Fields accepted when updating a Grocy product (partial). */
@@ -178,12 +197,16 @@ export async function createGrocyEntity(
   body: CreateQuantityUnitBody,
 ): Promise<{ created_object_id?: number }>;
 export async function createGrocyEntity(
+  entity: 'quantity_unit_conversions',
+  body: CreateQuantityUnitConversionBody,
+): Promise<{ created_object_id?: number }>;
+export async function createGrocyEntity(
   entity: GrocyEditableEntity,
   body: Record<string, unknown>,
 ): Promise<{ created_object_id?: number }>;
 export async function createGrocyEntity(
   entity: GrocyEditableEntity,
-  body: CreateProductBody | CreateQuantityUnitBody | Record<string, unknown>,
+  body: CreateProductBody | CreateQuantityUnitBody | CreateQuantityUnitConversionBody | Record<string, unknown>,
 ): Promise<{ created_object_id?: number }> {
   return GenericEntityInteractionsService.postObjects(entity as any, body as any);
 }
@@ -367,4 +390,4 @@ export async function openProductStock(
 }
 
 // Re-export model types that are commonly used in application code
-export type { Product, QuantityUnit, Location, ShoppingListItem, ProductDetailsResponse, CurrentStockResponse };
+export type { Product, QuantityUnit, QuantityUnitConversion, Location, ShoppingListItem, ProductDetailsResponse, CurrentStockResponse };

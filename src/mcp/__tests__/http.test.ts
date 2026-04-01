@@ -89,6 +89,7 @@ describe('MCP streamable HTTP handler', () => {
       pluralName: 'Whole Milks',
       aliases: ['Milk'],
     },
+    conversions: [],
   }));
 
   const checkProductDuplicates = vi.fn(async (): Promise<ProductDuplicateCheckResult> => ({
@@ -1134,6 +1135,7 @@ describe('MCP streamable HTTP handler', () => {
           pluralName: 'Whole Milks',
           aliases: ['Milk'],
         },
+        conversions: [],
       });
 
       const statusResource = await client.readResource({ uri: 'gms://status' });

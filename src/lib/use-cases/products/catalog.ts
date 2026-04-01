@@ -7,6 +7,8 @@ import {
   type CurrentStockResponse,
   type GrocyMissingProduct,
   type Product,
+  type QuantityUnit,
+  type QuantityUnitConversion,
 } from '@/lib/grocy/types';
 import {
   RecipesFoodsService,
@@ -93,11 +95,22 @@ export interface MealieFoodOverview {
   aliases: string[];
 }
 
+export interface ProductConversion {
+  id: number;
+  fromUnitId: number;
+  fromUnitName: string;
+  toUnitId: number;
+  toUnitName: string;
+  factor: number;
+  grocyProductId: number | null;
+}
+
 export interface ProductOverview {
   productRef: string;
   mapping: ProductOverviewMapping | null;
   grocyProduct: GrocyProductOverview | null;
   mealieFood: MealieFoodOverview | null;
+  conversions: ProductConversion[];
 }
 
 export interface ProductDuplicateMatch<TId extends string | number> {
@@ -150,6 +163,8 @@ export interface ProductCatalogDeps {
   listProductMappings(): Promise<ProductMappingRecord[]>;
   listGrocyProducts(): Promise<Product[]>;
   listMealieFoods(): Promise<MealieFoodInput[]>;
+  listGrocyConversions(): Promise<QuantityUnitConversion[]>;
+  listGrocyUnits(): Promise<QuantityUnit[]>;
   getCurrentStock(): Promise<CurrentStockResponse[]>;
   getVolatileStock(): Promise<{ missing_products?: GrocyMissingProduct[] }>;
 }
@@ -206,6 +221,8 @@ const defaultDeps: ProductCatalogDeps = {
       10000,
     )),
   ),
+  listGrocyConversions: async () => getGrocyEntities('quantity_unit_conversions'),
+  listGrocyUnits: async () => getGrocyEntities('quantity_units'),
   getCurrentStock,
   getVolatileStock,
 };
@@ -359,6 +376,54 @@ function toMealieFoodOverview(food: NormalizedMealieFood | undefined): MealieFoo
   };
 }
 
+function buildProductConversions(
+  grocyProductId: number,
+  grocyProduct: Product | undefined,
+  conversions: QuantityUnitConversion[],
+  units: QuantityUnit[],
+): ProductConversion[] {
+  const unitNameMap = new Map(
+    units.map(unit => [Number(unit.id ?? 0), unit.name || 'Unknown']),
+  );
+
+  const quIdPurchase = grocyProduct?.qu_id_purchase ?? null;
+  const quIdStock = grocyProduct?.qu_id_stock ?? null;
+  const relevantUnitIds = new Set<number>();
+  if (quIdPurchase) relevantUnitIds.add(quIdPurchase);
+  if (quIdStock) relevantUnitIds.add(quIdStock);
+
+  const relevant = conversions.filter(c => {
+    const fromId = Number(c.from_qu_id ?? 0);
+    const toId = Number(c.to_qu_id ?? 0);
+    const productId = c.product_id != null ? Number(c.product_id) : null;
+
+    if (productId === grocyProductId) {
+      return true;
+    }
+
+    if (productId !== null) {
+      return false;
+    }
+
+    return relevantUnitIds.has(fromId) || relevantUnitIds.has(toId);
+  });
+
+  return relevant.map(c => {
+    const fromUnitId = Number(c.from_qu_id ?? 0);
+    const toUnitId = Number(c.to_qu_id ?? 0);
+
+    return {
+      id: Number(c.id ?? 0),
+      fromUnitId,
+      fromUnitName: unitNameMap.get(fromUnitId) ?? 'Unknown',
+      toUnitId,
+      toUnitName: unitNameMap.get(toUnitId) ?? 'Unknown',
+      factor: Number(c.factor ?? 0),
+      grocyProductId: c.product_id != null ? Number(c.product_id) : null,
+    };
+  });
+}
+
 function getExactVariantMatch(query: string, candidateVariants: MatchVariant[]): string | null {
   const normalizedQuery = normalizeMatchText(query);
 
@@ -489,12 +554,14 @@ export async function getProductOverview(
   deps: ProductCatalogDeps = defaultDeps,
 ): Promise<ProductOverview> {
   const parsedRef = parseProductRef(params.productRef);
-  const [mappings, grocyProducts, mealieFoods, currentStock, volatileStock] = await Promise.all([
+  const [mappings, grocyProducts, mealieFoods, currentStock, volatileStock, conversions, units] = await Promise.all([
     deps.listProductMappings(),
     deps.listGrocyProducts(),
     deps.listMealieFoods(),
     deps.getCurrentStock(),
     deps.getVolatileStock(),
+    deps.listGrocyConversions(),
+    deps.listGrocyUnits(),
   ]);
   const normalizedMealieFoods = mealieFoods.map(normalizeMealieFoodRecord);
   const canonicalProductRef = toCanonicalProductRef(parsedRef);
@@ -531,6 +598,10 @@ export async function getProductOverview(
     throw new Error(`Unknown product ref: ${params.productRef}`);
   }
 
+  const relevantConversions = grocyProductId === null
+    ? []
+    : buildProductConversions(grocyProductId, grocyProduct, conversions, units);
+
   return {
     productRef: canonicalProductRef,
     mapping: toProductOverviewMapping(mapping),
@@ -540,6 +611,7 @@ export async function getProductOverview(
       buildBelowMinimumSet(volatileStock.missing_products),
     ),
     mealieFood: toMealieFoodOverview(mealieFood),
+    conversions: relevantConversions,
   };
 }
 

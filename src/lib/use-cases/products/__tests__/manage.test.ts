@@ -42,6 +42,7 @@ const mappedOverview: ProductOverview = {
     pluralName: 'Milks',
     aliases: ['Whole milk'],
   },
+  conversions: [],
 };
 
 describe('product management use-cases', () => {
@@ -344,6 +345,7 @@ describe('product management use-cases', () => {
         shouldNotBeFrozen: false,
       },
       mealieFood: null,
+      conversions: [],
     };
 
     const result = await deleteProduct(
@@ -378,6 +380,7 @@ describe('product management use-cases', () => {
         pluralName: null,
         aliases: [],
       },
+      conversions: [],
     };
 
     const result = await deleteProduct(
@@ -446,6 +449,7 @@ describe('product management use-cases', () => {
       mapping: null,
       grocyProduct: null,
       mealieFood: null,
+      conversions: [],
     };
 
     await expect(deleteProduct(
@@ -467,6 +471,7 @@ describe('product management use-cases', () => {
       mapping: null,
       grocyProduct: null,
       mealieFood: null,
+      conversions: [],
     };
 
     await expect(deleteProduct(
@@ -504,6 +509,7 @@ describe('product management use-cases', () => {
         shouldNotBeFrozen: false,
       },
       mealieFood: null,
+      conversions: [],
     };
 
     const result = await updateProductUnits(
@@ -552,6 +558,7 @@ describe('product management use-cases', () => {
         shouldNotBeFrozen: false,
       },
       mealieFood: null,
+      conversions: [],
     };
 
     const result = await updateProductUnits(
@@ -583,6 +590,7 @@ describe('product management use-cases', () => {
         pluralName: null,
         aliases: [],
       },
+      conversions: [],
     };
 
     await expect(updateProductUnits(
@@ -617,6 +625,7 @@ describe('product management use-cases', () => {
         shouldNotBeFrozen: false,
       },
       mealieFood: null,
+      conversions: [],
     };
 
     await expect(updateProductUnits(

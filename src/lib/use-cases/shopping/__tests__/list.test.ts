@@ -300,6 +300,7 @@ describe('shopping list use-cases', () => {
                 pluralName: null,
                 aliases: [],
               },
+              conversions: [],
             };
           }
 

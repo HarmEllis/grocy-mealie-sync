@@ -86,6 +86,15 @@ function createDeps(overrides: Partial<ProductCatalogDeps> = {}): ProductCatalog
         },
       ],
     }),
+    listGrocyConversions: async () => [
+      { id: 1, from_qu_id: 10, to_qu_id: 11, factor: 1, product_id: null },
+      { id: 2, from_qu_id: 10, to_qu_id: 12, factor: 0.5, product_id: 101 },
+    ],
+    listGrocyUnits: async () => [
+      { id: 10, name: 'Litre' },
+      { id: 11, name: 'Millilitre' },
+      { id: 12, name: 'Glas' },
+    ],
     ...overrides,
   };
 }
@@ -150,6 +159,26 @@ describe('product catalog use-cases', () => {
         pluralName: 'Whole Milks',
         aliases: ['Milk'],
       },
+      conversions: [
+        {
+          id: 1,
+          fromUnitId: 10,
+          fromUnitName: 'Litre',
+          toUnitId: 11,
+          toUnitName: 'Millilitre',
+          factor: 1,
+          grocyProductId: null,
+        },
+        {
+          id: 2,
+          fromUnitId: 10,
+          fromUnitName: 'Litre',
+          toUnitId: 12,
+          toUnitName: 'Glas',
+          factor: 0.5,
+          grocyProductId: 101,
+        },
+      ],
     });
   });
 
@@ -186,6 +215,17 @@ describe('product catalog use-cases', () => {
         shouldNotBeFrozen: true,
       },
       mealieFood: null,
+      conversions: [
+        {
+          id: 1,
+          fromUnitId: 10,
+          fromUnitName: 'Litre',
+          toUnitId: 11,
+          toUnitName: 'Millilitre',
+          factor: 1,
+          grocyProductId: null,
+        },
+      ],
     });
   });
 

@@ -59,6 +59,13 @@ import type {
   UpdateShoppingItemUnitResult,
 } from '@/lib/use-cases/shopping/list';
 import type {
+  CreateUnitConversionParams,
+  CreateUnitConversionResult,
+  DeleteUnitConversionParams,
+  DeleteUnitConversionResult,
+  ListConversionsResult,
+} from '@/lib/use-cases/conversions/manage';
+import type {
   RemoveProductMappingParams,
   RemoveProductMappingResult,
   RemoveUnitMappingParams,
@@ -174,6 +181,12 @@ export interface UnitMcpServices {
   updateMealieUnitMetadata(params: UpdateMealieUnitMetadataParams): Promise<UpdateMealieUnitMetadataResult>;
 }
 
+export interface ConversionMcpServices {
+  listConversions(): Promise<ListConversionsResult>;
+  createUnitConversion(params: CreateUnitConversionParams): Promise<CreateUnitConversionResult>;
+  deleteUnitConversion(params: DeleteUnitConversionParams): Promise<DeleteUnitConversionResult>;
+}
+
 export interface HistoryMcpServices {
   listRecentHistoryResource(params?: ListRecentHistoryParams): Promise<RecentHistoryResource>;
   getHistoryRunResource(params: GetHistoryRunParams): Promise<HistoryRunResource>;
@@ -194,6 +207,7 @@ export interface GrocyMealieSyncMcpServices {
   inventory: InventoryMcpServices;
   mappings: MappingMcpServices;
   units: UnitMcpServices;
+  conversions: ConversionMcpServices;
   history: HistoryMcpServices;
   conflicts: ConflictMcpServices;
   diagnostics: DiagnosticsMcpServices;
@@ -206,6 +220,7 @@ export interface GrocyMealieSyncMcpServiceOverrides {
   inventory?: Partial<InventoryMcpServices>;
   mappings?: Partial<MappingMcpServices>;
   units?: Partial<UnitMcpServices>;
+  conversions?: Partial<ConversionMcpServices>;
   history?: Partial<HistoryMcpServices>;
   conflicts?: Partial<ConflictMcpServices>;
   diagnostics?: Partial<DiagnosticsMcpServices>;

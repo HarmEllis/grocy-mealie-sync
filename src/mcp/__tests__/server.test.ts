@@ -58,6 +58,7 @@ describe('MCP server contract', () => {
       pluralName: 'Whole Milks',
       aliases: ['Milk'],
     },
+    conversions: [],
   }));
 
   const checkProductDuplicates = vi.fn(async (): Promise<ProductDuplicateCheckResult> => ({
@@ -174,6 +175,7 @@ describe('MCP server contract', () => {
           pluralName: 'Whole Milks',
           aliases: ['Milk'],
         },
+        conversions: [],
       });
     } finally {
       await Promise.all([client.close(), server.close()]);

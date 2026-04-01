@@ -62,6 +62,11 @@ import {
   updateGrocyUnitMetadata,
   updateMealieUnitMetadata,
 } from '@/lib/use-cases/units/manage';
+import {
+  createUnitConversion,
+  deleteUnitConversion,
+  listConversions,
+} from '@/lib/use-cases/conversions/manage';
 import { explainProductState } from '@/lib/use-cases/diagnostics/explain';
 import type { GrocyMealieSyncMcpServiceOverrides, GrocyMealieSyncMcpServices } from './contracts';
 import {
@@ -79,6 +84,7 @@ import { registerProductResources } from './resources/products';
 import { registerShoppingResources } from './resources/shopping';
 import { registerUnitResources } from './resources/units';
 import { registerConflictTools } from './tools/conflicts';
+import { registerConversionTools } from './tools/conversions';
 import { registerDiagnosticTools } from './tools/diagnostics';
 import { registerHistoryTools } from './tools/history';
 import { registerInventoryTools } from './tools/inventory';
@@ -180,6 +186,12 @@ export function createGrocyMealieSyncMcpServer(
       ...defaultUnitServices,
       ...overrides.units,
     },
+    conversions: {
+      listConversions,
+      createUnitConversion,
+      deleteUnitConversion,
+      ...overrides.conversions,
+    },
     history: {
       listRecentHistoryResource,
       getHistoryRunResource,
@@ -205,6 +217,7 @@ export function createGrocyMealieSyncMcpServer(
   registerInventoryTools(server, services.inventory);
   registerMappingTools(server, services.mappings);
   registerUnitTools(server, services.units);
+  registerConversionTools(server, services.conversions);
   registerHistoryTools(server, services.history);
   registerConflictTools(server, services.conflicts);
   registerDiagnosticTools(server, services.diagnostics);

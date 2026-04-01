@@ -34,6 +34,7 @@ const mappedOverview: ProductOverview = {
     pluralName: 'Whole Milks',
     aliases: ['Milk'],
   },
+  conversions: [],
 };
 
 describe('product diagnostics', () => {
@@ -104,6 +105,7 @@ describe('product diagnostics', () => {
             pluralName: 'Pastas',
             aliases: [],
           },
+          conversions: [],
         })),
         listOpenMappingConflicts: vi.fn(async () => []),
       },

@@ -41,6 +41,7 @@ const baseOverview: ProductOverview = {
     pluralName: 'Milks',
     aliases: ['Whole milk'],
   },
+  conversions: [],
 };
 
 const baseDetails: ProductDetailsResponse = {
