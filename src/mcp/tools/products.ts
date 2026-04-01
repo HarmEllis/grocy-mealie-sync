@@ -13,6 +13,36 @@ const verifiedGrocyUnitIdSchema = z.number().int().positive().describe(
 
 export function registerProductTools(server: McpServer, services: ProductMcpServices) {
   server.registerTool(
+    'products.list',
+    {
+      title: 'List Products',
+      description: 'List Grocy products with optional filters. Defaults to mapped products only; use scope "all" to include unmapped products.',
+      inputSchema: {
+        scope: z.enum(['all', 'mapped']).optional().describe('Show all Grocy products or only mapped ones (default: mapped).'),
+        stockGt: z.number().min(0).optional().describe('Only products with current stock greater than this value.'),
+        hasMinStock: z.boolean().optional().describe('Only products with a minimum stock amount greater than 0.'),
+        belowMinimum: z.boolean().optional().describe('Only products below their minimum stock level.'),
+        locationId: z.number().int().positive().optional().describe('Only products in a specific Grocy location.'),
+        productGroupId: z.number().int().positive().optional().describe('Only products in a specific Grocy product group.'),
+        noOwnStock: z.boolean().optional().describe('Only products marked as not tracking own stock.'),
+        shouldNotBeFrozen: z.boolean().optional().describe('Only products that should not be frozen.'),
+      },
+    },
+    async (params) => {
+      const data = await services.listProducts(params);
+      const result = createOkResult(
+        formatCountMessage(data.count, 'product'),
+        data,
+      );
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
     'products.search',
     {
       title: 'Search Products',

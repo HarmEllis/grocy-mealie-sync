@@ -120,6 +120,7 @@ describe('MCP action history wrappers', () => {
       searchProducts: vi.fn(),
       getProductOverview: vi.fn(),
       checkProductDuplicates: vi.fn(),
+      listProducts: vi.fn(),
       updateGrocyStockSettings: vi.fn(),
       createProductInGrocy: vi.fn(async () => ({
         created: false,

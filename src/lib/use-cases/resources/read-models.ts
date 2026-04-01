@@ -86,6 +86,8 @@ export interface OpenMappingConflictsResource {
   conflicts: MappingConflictRecord[];
 }
 
+import { listProducts, type ProductListDeps, type ProductListEntry } from '../products/list';
+
 export interface LowStockProductResource {
   productRef: string;
   grocyProductId: number;
@@ -326,43 +328,34 @@ export async function listOpenMappingConflictsResource(
   };
 }
 
+function toLowStockProduct(entry: ProductListEntry): LowStockProductResource {
+  return {
+    productRef: entry.productRef,
+    grocyProductId: entry.grocyProductId,
+    grocyProductName: entry.grocyProductName,
+    mealieFoodId: entry.mealieFoodId,
+    mealieFoodName: entry.mealieFoodName,
+    currentStock: entry.currentStock,
+    minStockAmount: entry.minStockAmount,
+    isBelowMinimum: entry.isBelowMinimum,
+  };
+}
+
 export async function listLowStockProductsResource(
-  deps: Pick<
-    ResourceReadModelDeps,
-    'listProductMappings' | 'listGrocyProducts' | 'getCurrentStock' | 'getVolatileStock'
-  > = defaultDeps,
+  deps: ProductListDeps = {
+    listProductMappings: defaultDeps.listProductMappings,
+    listGrocyProducts: defaultDeps.listGrocyProducts,
+    getCurrentStock: defaultDeps.getCurrentStock,
+    getVolatileStock: defaultDeps.getVolatileStock,
+  },
 ): Promise<LowStockProductsResource> {
-  const [mappings, grocyProducts, currentStock, volatileStock] = await Promise.all([
-    deps.listProductMappings(),
-    deps.listGrocyProducts(),
-    deps.getCurrentStock(),
-    deps.getVolatileStock(),
-  ]);
-
-  const grocyProductsById = new Map(grocyProducts.map(product => [Number(product.id), product]));
-  const currentStockByProductId = buildCurrentStockMap(currentStock);
-  const belowMinimumIds = buildBelowMinimumSet(volatileStock.missing_products);
-
-  const products = mappings
-    .filter(mapping => belowMinimumIds.has(mapping.grocyProductId))
-    .map(mapping => {
-      const grocyProduct = grocyProductsById.get(mapping.grocyProductId);
-
-      return {
-        productRef: `mapping:${mapping.id}`,
-        grocyProductId: mapping.grocyProductId,
-        grocyProductName: mapping.grocyProductName,
-        mealieFoodId: mapping.mealieFoodId,
-        mealieFoodName: mapping.mealieFoodName,
-        currentStock: currentStockByProductId.get(mapping.grocyProductId) ?? 0,
-        minStockAmount: Number(grocyProduct?.min_stock_amount ?? 0),
-        isBelowMinimum: true,
-      };
-    })
-    .sort((left, right) => left.grocyProductName.localeCompare(right.grocyProductName));
+  const result = await listProducts(
+    { scope: 'mapped', belowMinimum: true },
+    deps,
+  );
 
   return {
-    count: products.length,
-    products,
+    count: result.count,
+    products: result.products.map(toLowStockProduct),
   };
 }

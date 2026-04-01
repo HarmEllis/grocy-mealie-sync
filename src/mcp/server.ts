@@ -27,6 +27,9 @@ import {
   searchProducts,
 } from '@/lib/use-cases/products/catalog';
 import {
+  listProducts,
+} from '@/lib/use-cases/products/list';
+import {
   createProductInGrocy,
   createProductInMealie,
   createProductInBoth,
@@ -100,6 +103,7 @@ export function createGrocyMealieSyncMcpServer(
     searchProducts,
     getProductOverview,
     checkProductDuplicates,
+    listProducts,
     updateGrocyStockSettings,
     createProductInGrocy,
     createProductInMealie,

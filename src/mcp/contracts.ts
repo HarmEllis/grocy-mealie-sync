@@ -19,6 +19,10 @@ import type {
   ProductSearchResult,
 } from '@/lib/use-cases/products/catalog';
 import type {
+  ProductListParams,
+  ProductListResult,
+} from '@/lib/use-cases/products/list';
+import type {
   CreateProductInGrocyParams,
   CreateProductInGrocyResult,
   CreateProductInMealieParams,
@@ -116,6 +120,7 @@ export interface ProductMcpServices {
   searchProducts(params: ProductSearchParams): Promise<ProductSearchResult>;
   getProductOverview(params: ProductOverviewParams): Promise<ProductOverview>;
   checkProductDuplicates(params: ProductDuplicateCheckParams): Promise<ProductDuplicateCheckResult>;
+  listProducts(params: ProductListParams): Promise<ProductListResult>;
   updateGrocyStockSettings(params: UpdateGrocyStockSettingsParams): Promise<UpdateGrocyStockSettingsResult>;
   createProductInGrocy(params: CreateProductInGrocyParams): Promise<CreateProductInGrocyResult>;
   createProductInMealie(params: CreateProductInMealieParams): Promise<CreateProductInMealieResult>;
