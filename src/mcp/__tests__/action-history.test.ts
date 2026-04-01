@@ -133,6 +133,8 @@ describe('MCP action history wrappers', () => {
       createProductInMealie: vi.fn(),
       createProductInBoth: vi.fn(),
       updateBasicProduct: vi.fn(),
+      deleteProduct: vi.fn(),
+      updateProductUnits: vi.fn(),
     };
   }
 
@@ -169,6 +171,7 @@ describe('MCP action history wrappers', () => {
         keptItemId: 'item-1',
         removedItemIds: ['item-2'],
       })),
+      updateShoppingItemUnit: vi.fn(),
     };
   }
 

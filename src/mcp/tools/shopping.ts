@@ -189,4 +189,25 @@ export function registerShoppingTools(server: McpServer, services: ShoppingMcpSe
       };
     },
   );
+
+  server.registerTool(
+    'shopping.update_unit',
+    {
+      title: 'Update Shopping Item Unit',
+      description: 'Change the unit of one Mealie shopping list item. Use units.list_catalog to find available Mealie unit IDs.',
+      inputSchema: {
+        itemId: z.string().trim().min(1),
+        unitId: z.string().trim().min(1),
+      },
+    },
+    async ({ itemId, unitId }) => {
+      const data = await services.updateShoppingItemUnit({ itemId, unitId });
+      const result = createOkResult('Updated the shopping list item unit.', data);
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
 }

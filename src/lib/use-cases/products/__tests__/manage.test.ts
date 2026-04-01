@@ -6,6 +6,8 @@ import {
   createProductInBoth,
   updateBasicProduct,
   updateGrocyStockSettings,
+  deleteProduct,
+  updateProductUnits,
 } from '../manage';
 
 const mappedOverview: ProductOverview = {
@@ -317,6 +319,314 @@ describe('product management use-cases', () => {
         mealiePluralName: 'Semi Skimmed Milks',
         mealieAliases: ['Milk'],
       },
+    }    );
+  });
+
+  it('deletes an unmapped Grocy product', async () => {
+    const deleteGrocyProduct = vi.fn(async () => undefined);
+    const unmappedGrocyOverview: ProductOverview = {
+      productRef: 'grocy:999',
+      mapping: null,
+      grocyProduct: {
+        id: 999,
+        name: 'Old Product',
+        quIdPurchase: 10,
+        quIdStock: 10,
+        minStockAmount: 0,
+        currentStock: 0,
+        isBelowMinimum: false,
+        treatOpenedAsOutOfStock: false,
+        defaultBestBeforeDays: 7,
+        defaultBestBeforeDaysAfterOpen: 3,
+        defaultBestBeforeDaysAfterFreezing: 14,
+        defaultBestBeforeDaysAfterThawing: 2,
+        dueType: 'best_before',
+        shouldNotBeFrozen: false,
+      },
+      mealieFood: null,
+    };
+
+    const result = await deleteProduct(
+      { productRef: 'grocy:999', system: 'grocy' },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        getProductOverview: vi.fn(async () => unmappedGrocyOverview),
+        listProductMappings: vi.fn(async () => []),
+        deleteGrocyProduct,
+        deleteMealieFood: vi.fn(async () => undefined),
+      },
+    );
+
+    expect(deleteGrocyProduct).toHaveBeenCalledWith(999);
+    expect(result).toEqual({
+      deleted: true,
+      system: 'grocy',
+      productId: 999,
     });
+  });
+
+  it('deletes an unmapped Mealie food', async () => {
+    const deleteMealieFood = vi.fn(async () => undefined);
+    const unmappedMealieOverview: ProductOverview = {
+      productRef: 'mealie:food-999',
+      mapping: null,
+      grocyProduct: null,
+      mealieFood: {
+        id: 'food-999',
+        name: 'Old Food',
+        pluralName: null,
+        aliases: [],
+      },
+    };
+
+    const result = await deleteProduct(
+      { productRef: 'mealie:food-999', system: 'mealie' },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        getProductOverview: vi.fn(async () => unmappedMealieOverview),
+        listProductMappings: vi.fn(async () => []),
+        deleteGrocyProduct: vi.fn(async () => undefined),
+        deleteMealieFood,
+      },
+    );
+
+    expect(deleteMealieFood).toHaveBeenCalledWith('food-999');
+    expect(result).toEqual({
+      deleted: true,
+      system: 'mealie',
+      productId: 'food-999',
+    });
+  });
+
+  it('rejects deleting a mapped Grocy product', async () => {
+    const mappingRecord = {
+      ...mappedOverview.mapping!,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    await expect(deleteProduct(
+      { productRef: 'grocy:101', system: 'grocy' },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        getProductOverview: vi.fn(async () => mappedOverview),
+        listProductMappings: vi.fn(async () => [mappingRecord]),
+        deleteGrocyProduct: vi.fn(async () => undefined),
+        deleteMealieFood: vi.fn(async () => undefined),
+      },
+    )).rejects.toThrow('Cannot delete a mapped product');
+  });
+
+  it('rejects deleting a mapped Mealie food', async () => {
+    const mappingRecord = {
+      ...mappedOverview.mapping!,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    await expect(deleteProduct(
+      { productRef: 'mealie:food-1', system: 'mealie' },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        getProductOverview: vi.fn(async () => mappedOverview),
+        listProductMappings: vi.fn(async () => [mappingRecord]),
+        deleteGrocyProduct: vi.fn(async () => undefined),
+        deleteMealieFood: vi.fn(async () => undefined),
+      },
+    )).rejects.toThrow('Cannot delete a mapped product');
+  });
+
+  it('rejects deleting a Grocy product that does not exist', async () => {
+    const nonExistentOverview: ProductOverview = {
+      productRef: 'grocy:999',
+      mapping: null,
+      grocyProduct: null,
+      mealieFood: null,
+    };
+
+    await expect(deleteProduct(
+      { productRef: 'grocy:999', system: 'grocy' },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        getProductOverview: vi.fn(async () => nonExistentOverview),
+        listProductMappings: vi.fn(async () => []),
+        deleteGrocyProduct: vi.fn(async () => undefined),
+        deleteMealieFood: vi.fn(async () => undefined),
+      },
+    )).rejects.toThrow('Product does not exist in Grocy');
+  });
+
+  it('rejects deleting a Mealie food that does not exist', async () => {
+    const nonExistentOverview: ProductOverview = {
+      productRef: 'mealie:food-999',
+      mapping: null,
+      grocyProduct: null,
+      mealieFood: null,
+    };
+
+    await expect(deleteProduct(
+      { productRef: 'mealie:food-999', system: 'mealie' },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        getProductOverview: vi.fn(async () => nonExistentOverview),
+        listProductMappings: vi.fn(async () => []),
+        deleteGrocyProduct: vi.fn(async () => undefined),
+        deleteMealieFood: vi.fn(async () => undefined),
+      },
+    )).rejects.toThrow('Product does not exist in Mealie');
+  });
+
+  it('updates Grocy product units', async () => {
+    const updateGrocyProduct = vi.fn(async () => undefined);
+    const unitsOverview: ProductOverview = {
+      productRef: 'grocy:101',
+      mapping: null,
+      grocyProduct: {
+        id: 101,
+        name: 'Milk',
+        quIdPurchase: 10,
+        quIdStock: 10,
+        minStockAmount: 0,
+        currentStock: 5,
+        isBelowMinimum: false,
+        treatOpenedAsOutOfStock: false,
+        defaultBestBeforeDays: 7,
+        defaultBestBeforeDaysAfterOpen: 3,
+        defaultBestBeforeDaysAfterFreezing: 14,
+        defaultBestBeforeDaysAfterThawing: 2,
+        dueType: 'best_before',
+        shouldNotBeFrozen: false,
+      },
+      mealieFood: null,
+    };
+
+    const result = await updateProductUnits(
+      { productRef: 'grocy:101', grocyUnitIdPurchase: 20, grocyUnitIdStock: 20 },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        getProductOverview: vi.fn(async () => unitsOverview),
+        updateGrocyProduct,
+      },
+    );
+
+    expect(updateGrocyProduct).toHaveBeenCalledWith(101, {
+      qu_id_purchase: 20,
+      qu_id_stock: 20,
+    });
+    expect(result).toEqual({
+      productRef: 'grocy:101',
+      grocyProductId: 101,
+      updated: {
+        quIdPurchase: 20,
+        quIdStock: 20,
+      },
+    });
+  });
+
+  it('updates only purchase unit when stock unit is omitted', async () => {
+    const updateGrocyProduct = vi.fn(async () => undefined);
+    const unitsOverview: ProductOverview = {
+      productRef: 'grocy:101',
+      mapping: null,
+      grocyProduct: {
+        id: 101,
+        name: 'Milk',
+        quIdPurchase: 10,
+        quIdStock: 10,
+        minStockAmount: 0,
+        currentStock: 5,
+        isBelowMinimum: false,
+        treatOpenedAsOutOfStock: false,
+        defaultBestBeforeDays: 7,
+        defaultBestBeforeDaysAfterOpen: 3,
+        defaultBestBeforeDaysAfterFreezing: 14,
+        defaultBestBeforeDaysAfterThawing: 2,
+        dueType: 'best_before',
+        shouldNotBeFrozen: false,
+      },
+      mealieFood: null,
+    };
+
+    const result = await updateProductUnits(
+      { productRef: 'grocy:101', grocyUnitIdPurchase: 30 },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        getProductOverview: vi.fn(async () => unitsOverview),
+        updateGrocyProduct,
+      },
+    );
+
+    expect(updateGrocyProduct).toHaveBeenCalledWith(101, {
+      qu_id_purchase: 30,
+    });
+    expect(result.updated).toEqual({
+      quIdPurchase: 30,
+    });
+  });
+
+  it('rejects updating units when no Grocy product exists', async () => {
+    const noGrocyOverview: ProductOverview = {
+      productRef: 'mealie:food-999',
+      mapping: null,
+      grocyProduct: null,
+      mealieFood: {
+        id: 'food-999',
+        name: 'Food',
+        pluralName: null,
+        aliases: [],
+      },
+    };
+
+    await expect(updateProductUnits(
+      { productRef: 'mealie:food-999', grocyUnitIdPurchase: 10 },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        getProductOverview: vi.fn(async () => noGrocyOverview),
+        updateGrocyProduct: vi.fn(async () => undefined),
+      },
+    )).rejects.toThrow('does not exist in Grocy');
+  });
+
+  it('rejects updating units when no unit changes are provided', async () => {
+    const unitsOverview: ProductOverview = {
+      productRef: 'grocy:101',
+      mapping: null,
+      grocyProduct: {
+        id: 101,
+        name: 'Milk',
+        quIdPurchase: 10,
+        quIdStock: 10,
+        minStockAmount: 0,
+        currentStock: 5,
+        isBelowMinimum: false,
+        treatOpenedAsOutOfStock: false,
+        defaultBestBeforeDays: 7,
+        defaultBestBeforeDaysAfterOpen: 3,
+        defaultBestBeforeDaysAfterFreezing: 14,
+        defaultBestBeforeDaysAfterThawing: 2,
+        dueType: 'best_before',
+        shouldNotBeFrozen: false,
+      },
+      mealieFood: null,
+    };
+
+    await expect(updateProductUnits(
+      { productRef: 'grocy:101' },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        getProductOverview: vi.fn(async () => unitsOverview),
+        updateGrocyProduct: vi.fn(async () => undefined),
+      },
+    )).rejects.toThrow('At least one unit field must be provided');
   });
 });

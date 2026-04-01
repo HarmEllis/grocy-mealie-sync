@@ -8,6 +8,9 @@ import type {
   UpsertUnitMappingResult,
 } from '@/lib/use-cases/mappings/manage';
 import type {
+  DeleteProductResult,
+} from '@/lib/use-cases/products/manage';
+import type {
   SuggestProductMappingsResult,
   SuggestUnitMappingsResult,
 } from '@/lib/use-cases/mappings/suggestions';
@@ -241,6 +244,12 @@ describe('MCP mapping and unit management', () => {
     skippedDuplicates: [],
   }));
 
+  const deleteProduct = vi.fn(async (): Promise<DeleteProductResult> => ({
+    deleted: true,
+    system: 'grocy',
+    productId: 999,
+  }));
+
   afterEach(() => {
     vi.clearAllMocks();
   });
@@ -274,6 +283,9 @@ describe('MCP mapping and unit management', () => {
         normalizeMappedUnits,
         updateGrocyUnitMetadata,
         updateMealieUnitMetadata,
+      },
+      products: {
+        deleteProduct,
       },
     });
 
@@ -316,6 +328,7 @@ describe('MCP mapping and unit management', () => {
         'units.normalize',
         'units.update_grocy',
         'units.update_mealie',
+        'products.delete',
       ]));
       expect(resources.resources.map(resource => resource.uri)).toEqual(expect.arrayContaining([
         'gms://units/catalog',

@@ -29,6 +29,10 @@ import type {
   UpdateBasicProductResult,
   UpdateGrocyStockSettingsParams,
   UpdateGrocyStockSettingsResult,
+  DeleteProductParams,
+  DeleteProductResult,
+  UpdateProductUnitsParams,
+  UpdateProductUnitsResult,
 } from '@/lib/use-cases/products/manage';
 import type {
   LowStockProductsResource,
@@ -51,6 +55,8 @@ import type {
   ShoppingListItemsResource,
   UpdateShoppingListItemParams,
   UpdateShoppingListItemResult,
+  UpdateShoppingItemUnitParams,
+  UpdateShoppingItemUnitResult,
 } from '@/lib/use-cases/shopping/list';
 import type {
   RemoveProductMappingParams,
@@ -108,6 +114,8 @@ export interface ProductMcpServices {
   createProductInMealie(params: CreateProductInMealieParams): Promise<CreateProductInMealieResult>;
   createProductInBoth(params: CreateProductInBothParams): Promise<CreateProductInBothResult>;
   updateBasicProduct(params: UpdateBasicProductParams): Promise<UpdateBasicProductResult>;
+  deleteProduct(params: DeleteProductParams): Promise<DeleteProductResult>;
+  updateProductUnits(params: UpdateProductUnitsParams): Promise<UpdateProductUnitsResult>;
 }
 
 export interface ResourceMcpServices {
@@ -130,6 +138,7 @@ export interface ShoppingMcpServices {
   addShoppingListItem(params: AddShoppingListItemParams): Promise<AddShoppingListItemResult>;
   removeShoppingListItem(params: RemoveShoppingListItemParams): Promise<RemoveShoppingListItemResult>;
   updateShoppingListItem(params: UpdateShoppingListItemParams): Promise<UpdateShoppingListItemResult>;
+  updateShoppingItemUnit(params: UpdateShoppingItemUnitParams): Promise<UpdateShoppingItemUnitResult>;
   mergeShoppingListDuplicates(params: MergeShoppingListDuplicatesParams): Promise<MergeShoppingListDuplicatesResult>;
 }
 

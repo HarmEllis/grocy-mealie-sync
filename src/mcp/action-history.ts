@@ -372,6 +372,89 @@ export function createHistoryWrappedProductServices(services: ProductMcpServices
         ],
       }),
     }),
+    deleteProduct: withMcpActionHistory(services.deleteProduct, {
+      action: 'product_delete',
+      historyErrorPrefix: '[History] Failed to record MCP product deletion:',
+      buildSuccess: (result) => {
+        const message = `Deleted product from ${result.system}.`;
+
+        return {
+          logMessage: `[MCP] Deleted product from ${result.system} (id: ${result.productId}).`,
+          message,
+          summary: result,
+          events: [
+            buildManualHistoryEvent({
+              level: 'info',
+              category: 'product',
+              entityKind: 'product',
+              entityRef: result.system === 'grocy' ? `grocy:${result.productId}` : `mealie:${result.productId}`,
+              message,
+              details: result,
+            }),
+          ],
+        };
+      },
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Delete product failed:',
+        message: `Deleting product failed: ${formatManualActionError(error)}`,
+        summary: {
+          productRef: params.productRef,
+          system: params.system,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'product',
+            'product',
+            params.productRef,
+            'Deleting product failed.',
+            error,
+            { productRef: params.productRef, system: params.system },
+          ),
+        ],
+      }),
+    }),
+    updateProductUnits: withMcpActionHistory(services.updateProductUnits, {
+      action: 'product_update_units',
+      historyErrorPrefix: '[History] Failed to record MCP product units update:',
+      buildSuccess: (result) => {
+        const message = `Updated product units for grocy:${result.grocyProductId}.`;
+
+        return {
+          logMessage: `[MCP] Updated product units for grocy:${result.grocyProductId}.`,
+          message,
+          summary: result,
+          events: [
+            buildManualHistoryEvent({
+              level: 'info',
+              category: 'product',
+              entityKind: 'product',
+              entityRef: `grocy:${result.grocyProductId}`,
+              message,
+              details: result,
+            }),
+          ],
+        };
+      },
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Update product units failed:',
+        message: `Updating product units failed: ${formatManualActionError(error)}`,
+        summary: {
+          productRef: params.productRef,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'product',
+            'product',
+            params.productRef,
+            'Updating product units failed.',
+            error,
+            { productRef: params.productRef },
+          ),
+        ],
+      }),
+    }),
   };
 }
 
@@ -759,6 +842,49 @@ export function createHistoryWrappedShoppingServices(services: ShoppingMcpServic
             'Merging shopping list duplicates failed.',
             error,
             { foodId: params.foodId },
+          ),
+        ],
+      }),
+    }),
+    updateShoppingItemUnit: withMcpActionHistory(services.updateShoppingItemUnit, {
+      action: 'shopping_update_unit',
+      historyErrorPrefix: '[History] Failed to record MCP shopping item unit update:',
+      buildSuccess: (result) => {
+        const label = toShoppingLabel(result.item);
+        const message = `Updated unit for shopping list item "${label}".`;
+
+        return {
+          logMessage: `[MCP] Updated unit for shopping list item "${label}".`,
+          message,
+          summary: result,
+          events: [
+            buildManualHistoryEvent({
+              level: 'info',
+              category: 'shopping',
+              entityKind: 'shopping_item',
+              entityRef: result.item.id,
+              message,
+              details: result,
+            }),
+          ],
+        };
+      },
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Update shopping item unit failed:',
+        message: `Updating shopping item unit failed: ${formatManualActionError(error)}`,
+        summary: {
+          itemId: params.itemId,
+          unitId: params.unitId,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'shopping',
+            'shopping_item',
+            params.itemId,
+            'Updating shopping item unit failed.',
+            error,
+            { itemId: params.itemId, unitId: params.unitId },
           ),
         ],
       }),

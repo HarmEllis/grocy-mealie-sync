@@ -113,6 +113,10 @@ export function formatHistoryActionLabel(action: HistoryRunAction): string {
       return 'Update product metadata';
     case 'product_update_stock_settings':
       return 'Update Grocy stock settings';
+    case 'product_delete':
+      return 'Delete product';
+    case 'product_update_units':
+      return 'Update product units';
     case 'mapping_unit_create':
       return 'Create Grocy units';
     case 'mapping_unit_create_mealie':
@@ -141,6 +145,8 @@ export function formatHistoryActionLabel(action: HistoryRunAction): string {
       return 'Add shopping item';
     case 'shopping_update_item':
       return 'Update shopping item';
+    case 'shopping_update_unit':
+      return 'Update shopping item unit';
     case 'shopping_remove_item':
       return 'Remove shopping item';
     case 'shopping_merge_duplicates':

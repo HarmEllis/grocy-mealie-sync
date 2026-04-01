@@ -17,6 +17,7 @@ import {
   getProductOverview,
   type ProductDuplicateCheckResult,
   type ProductDuplicateMatch,
+  type ProductMappingRecord,
   type ProductOverview,
 } from './catalog';
 import { defaultSyncLockDeps, runWithSyncLock, type SyncLockDeps } from '@/lib/use-cases/shared/sync-lock';
@@ -135,6 +136,32 @@ export interface UpdateBasicProductResult {
   };
 }
 
+export interface DeleteProductParams {
+  productRef: string;
+  system: 'grocy' | 'mealie';
+}
+
+export interface DeleteProductResult {
+  deleted: true;
+  system: 'grocy' | 'mealie';
+  productId: number | string;
+}
+
+export interface UpdateProductUnitsParams {
+  productRef: string;
+  grocyUnitIdPurchase?: number;
+  grocyUnitIdStock?: number;
+}
+
+export interface UpdateProductUnitsResult {
+  productRef: string;
+  grocyProductId: number;
+  updated: {
+    quIdPurchase?: number;
+    quIdStock?: number;
+  };
+}
+
 export interface ProductManageDeps extends SyncLockDeps {
   getProductOverview(params: { productRef: string }): Promise<ProductOverview>;
   getMealieFood(foodId: string): Promise<IngredientFood_Output>;
@@ -143,6 +170,7 @@ export interface ProductManageDeps extends SyncLockDeps {
   checkProductDuplicates(params: { name: string }): Promise<ProductDuplicateCheckResult>;
   listGrocyLocations(): Promise<Location[]>;
   listUnitMappings(): Promise<UnitMappingRecord[]>;
+  listProductMappings(): Promise<ProductMappingRecord[]>;
   createGrocyProduct(body: CreateProductBody): Promise<{ createdObjectId: number }>;
   createMealieFood(body: CreateIngredientFood): Promise<IngredientFood_Output>;
   deleteGrocyProduct(productId: number): Promise<void>;
@@ -170,6 +198,7 @@ const defaultDeps: ProductManageDeps = {
     id: unitMappings.id,
     grocyUnitId: unitMappings.grocyUnitId,
   }).from(unitMappings),
+  listProductMappings: async () => db.select().from(productMappings),
   createGrocyProduct: async body => {
     const result = await createGrocyEntity('products', body);
     const createdObjectId = Number(result.created_object_id ?? 0);
@@ -537,6 +566,105 @@ export async function updateBasicProduct(
         mealiePluralName: params.mealiePluralName,
         mealieAliases: params.mealieAliases,
       },
+    };
+  });
+}
+
+export async function deleteProduct(
+  params: DeleteProductParams,
+  deps: Pick<
+    ProductManageDeps,
+    | 'acquireSyncLock'
+    | 'releaseSyncLock'
+    | 'getProductOverview'
+    | 'listProductMappings'
+    | 'deleteGrocyProduct'
+    | 'deleteMealieFood'
+  > = defaultDeps,
+): Promise<DeleteProductResult> {
+  return runWithSyncLock(deps, async () => {
+    const overview = await deps.getProductOverview({ productRef: params.productRef });
+    const mappings = await deps.listProductMappings();
+
+    if (params.system === 'grocy') {
+      if (!overview.grocyProduct) {
+        throw new Error('Product does not exist in Grocy.');
+      }
+
+      const isMapped = mappings.some(
+        m => m.grocyProductId === overview.grocyProduct!.id,
+      );
+      if (isMapped) {
+        throw new Error('Cannot delete a mapped product. Remove the mapping first.');
+      }
+
+      await deps.deleteGrocyProduct(overview.grocyProduct.id);
+
+      return {
+        deleted: true,
+        system: 'grocy',
+        productId: overview.grocyProduct.id,
+      };
+    }
+
+    if (!overview.mealieFood) {
+      throw new Error('Product does not exist in Mealie.');
+    }
+
+    const isMapped = mappings.some(
+      m => m.mealieFoodId === overview.mealieFood!.id,
+    );
+    if (isMapped) {
+      throw new Error('Cannot delete a mapped product. Remove the mapping first.');
+    }
+
+    await deps.deleteMealieFood(overview.mealieFood.id);
+
+    return {
+      deleted: true,
+      system: 'mealie',
+      productId: overview.mealieFood.id,
+    };
+  });
+}
+
+export async function updateProductUnits(
+  params: UpdateProductUnitsParams,
+  deps: Pick<
+    ProductManageDeps,
+    | 'acquireSyncLock'
+    | 'releaseSyncLock'
+    | 'getProductOverview'
+    | 'updateGrocyProduct'
+  > = defaultDeps,
+): Promise<UpdateProductUnitsResult> {
+  return runWithSyncLock(deps, async () => {
+    const overview = await deps.getProductOverview({ productRef: params.productRef });
+    const grocyProduct = requireGrocyProduct(overview);
+
+    const update: Record<string, unknown> = {};
+    const updated: UpdateProductUnitsResult['updated'] = {};
+
+    if (params.grocyUnitIdPurchase !== undefined) {
+      update.qu_id_purchase = params.grocyUnitIdPurchase;
+      updated.quIdPurchase = params.grocyUnitIdPurchase;
+    }
+
+    if (params.grocyUnitIdStock !== undefined) {
+      update.qu_id_stock = params.grocyUnitIdStock;
+      updated.quIdStock = params.grocyUnitIdStock;
+    }
+
+    if (Object.keys(update).length === 0) {
+      throw new Error('At least one unit field must be provided.');
+    }
+
+    await deps.updateGrocyProduct(grocyProduct.id, update);
+
+    return {
+      productRef: params.productRef,
+      grocyProductId: grocyProduct.id,
+      updated,
     };
   });
 }

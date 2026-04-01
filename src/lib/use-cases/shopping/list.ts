@@ -102,6 +102,18 @@ export interface UpdateShoppingListItemResult {
   };
 }
 
+export interface UpdateShoppingItemUnitParams {
+  itemId: string;
+  unitId: string;
+}
+
+export interface UpdateShoppingItemUnitResult {
+  item: ShoppingListItemSummary;
+  updated: {
+    unitId: string;
+  };
+}
+
 export interface MergeShoppingListDuplicatesParams {
   foodId: string;
 }
@@ -560,5 +572,32 @@ export async function mergeShoppingListDuplicates(
       quantity,
       note: mergedNote,
     }),
+  };
+}
+
+export async function updateShoppingItemUnit(
+  params: UpdateShoppingItemUnitParams,
+  deps: Pick<ShoppingListDeps, 'getShoppingItem' | 'updateShoppingItem'> = defaultDeps,
+): Promise<UpdateShoppingItemUnitResult> {
+  const currentItem = await deps.getShoppingItem(params.itemId);
+  const currentSummary = toShoppingListItemSummary(currentItem);
+
+  const collection = await deps.updateShoppingItem(params.itemId, {
+    shoppingListId: currentSummary.shoppingListId,
+    foodId: currentSummary.foodId ?? undefined,
+    unitId: params.unitId,
+    note: currentSummary.note ?? undefined,
+    quantity: currentSummary.quantity,
+    checked: currentSummary.checked,
+  });
+
+  return {
+    item: getUpdatedOrFallbackItem(collection, {
+      ...currentSummary,
+      unitId: params.unitId,
+    }),
+    updated: {
+      unitId: params.unitId,
+    },
   };
 }

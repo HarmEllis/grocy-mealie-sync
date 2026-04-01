@@ -240,4 +240,54 @@ export function registerProductTools(server: McpServer, services: ProductMcpServ
       };
     },
   );
+
+  server.registerTool(
+    'products.delete',
+    {
+      title: 'Delete Product',
+      description: 'Delete one unmapped product from Grocy or Mealie. The product must not have an active mapping.',
+      inputSchema: {
+        productRef: productRefSchema,
+        system: z.enum(['grocy', 'mealie']),
+      },
+    },
+    async ({ productRef, system }) => {
+      const data = await services.deleteProduct({ productRef, system });
+      const result = createOkResult(
+        `Deleted the product from ${system}.`,
+        data,
+      );
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
+    'products.update_units',
+    {
+      title: 'Update Product Units',
+      description: 'Update the purchase and/or stock unit of a Grocy product. Use units.list_catalog first to find verified unit IDs.',
+      inputSchema: {
+        productRef: productRefSchema,
+        grocyUnitIdPurchase: z.number().int().positive().optional().describe('Verified Grocy unit id for purchases.'),
+        grocyUnitIdStock: z.number().int().positive().optional().describe('Verified Grocy unit id for stock.'),
+      },
+    },
+    async ({ productRef, grocyUnitIdPurchase, grocyUnitIdStock }) => {
+      const data = await services.updateProductUnits({
+        productRef,
+        grocyUnitIdPurchase,
+        grocyUnitIdStock,
+      });
+      const result = createOkResult('Updated the product units.', data);
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
 }

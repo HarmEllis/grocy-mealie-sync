@@ -7,6 +7,7 @@ import {
   mergeShoppingListDuplicates,
   removeShoppingListItem,
   updateShoppingListItem,
+  updateShoppingItemUnit,
   type ShoppingListDeps,
 } from '../list';
 
@@ -504,6 +505,33 @@ describe('shopping list use-cases', () => {
         display: 'Milk',
         createdAt: '2026-03-29T09:00:00.000Z',
         updatedAt: '2026-03-29T10:10:00.000Z',
+      },
+    });
+  });
+
+  it('updates the unit of an existing shopping list item', async () => {
+    const result = await updateShoppingItemUnit(
+      { itemId: 'item-1', unitId: 'unit-2' },
+      createDeps(),
+    );
+
+    expect(result).toEqual({
+      item: {
+        id: 'item-1',
+        shoppingListId: 'list-1',
+        foodId: 'food-1',
+        foodName: 'Milk',
+        unitId: 'unit-2',
+        unitName: null,
+        quantity: 2,
+        checked: false,
+        note: null,
+        display: 'Milk',
+        createdAt: '2026-03-29T09:00:00.000Z',
+        updatedAt: '2026-03-29T10:10:00.000Z',
+      },
+      updated: {
+        unitId: 'unit-2',
       },
     });
   });

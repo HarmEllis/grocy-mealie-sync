@@ -32,6 +32,8 @@ import {
   createProductInBoth,
   updateBasicProduct,
   updateGrocyStockSettings,
+  deleteProduct,
+  updateProductUnits,
 } from '@/lib/use-cases/products/manage';
 import {
   getStatusResource,
@@ -49,6 +51,7 @@ import {
   mergeShoppingListDuplicates,
   removeShoppingListItem,
   updateShoppingListItem,
+  updateShoppingItemUnit,
 } from '@/lib/use-cases/shopping/list';
 import {
   compareUnits,
@@ -96,6 +99,8 @@ export function createGrocyMealieSyncMcpServer(
     createProductInMealie,
     createProductInBoth,
     updateBasicProduct,
+    deleteProduct,
+    updateProductUnits,
   });
 
   const defaultShoppingServices = createHistoryWrappedShoppingServices({
@@ -104,6 +109,7 @@ export function createGrocyMealieSyncMcpServer(
     addShoppingListItem,
     removeShoppingListItem,
     updateShoppingListItem,
+    updateShoppingItemUnit,
     mergeShoppingListDuplicates,
   });
 
