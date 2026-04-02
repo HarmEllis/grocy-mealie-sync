@@ -77,7 +77,9 @@ export interface GrocyProductOverview {
   id: number;
   name: string;
   quIdPurchase: number | null;
+  quIdPurchaseName: string | null;
   quIdStock: number | null;
+  quIdStockName: string | null;
   minStockAmount: number;
   currentStock: number;
   isBelowMinimum: boolean;
@@ -340,6 +342,7 @@ function toGrocyProductOverview(
   belowMinimumIds: Set<number>,
   locationNameById: Map<number, string>,
   groupNameById: Map<number, string>,
+  unitNameById: Map<number, string>,
 ): GrocyProductOverview | null {
   if (!grocyProduct?.id) {
     return null;
@@ -348,6 +351,8 @@ function toGrocyProductOverview(
   const productId = Number(grocyProduct.id);
   const locId = grocyProduct.location_id ?? null;
   const grpId = grocyProduct.product_group_id ?? null;
+  const quIdPurch = grocyProduct.qu_id_purchase ?? null;
+  const quIdStk = grocyProduct.qu_id_stock ?? null;
 
   const extendedProduct = grocyProduct as Product & {
     default_best_before_days_after_freezing?: number | null;
@@ -358,8 +363,10 @@ function toGrocyProductOverview(
   return {
     id: productId,
     name: grocyProduct.name || 'Unknown',
-    quIdPurchase: grocyProduct.qu_id_purchase ?? null,
-    quIdStock: grocyProduct.qu_id_stock ?? null,
+    quIdPurchase: quIdPurch,
+    quIdPurchaseName: quIdPurch !== null ? (unitNameById.get(quIdPurch) ?? null) : null,
+    quIdStock: quIdStk,
+    quIdStockName: quIdStk !== null ? (unitNameById.get(quIdStk) ?? null) : null,
     minStockAmount: Number(grocyProduct.min_stock_amount ?? 0),
     currentStock: currentStockByProductId.get(productId) ?? 0,
     isBelowMinimum: belowMinimumIds.has(productId),
@@ -624,6 +631,8 @@ export async function getProductOverview(
     ? []
     : buildProductConversions(grocyProductId, grocyProduct, conversions, units);
 
+  const unitNameById = new Map(units.map(u => [Number(u.id), u.name || 'Unknown']));
+
   return {
     productRef: canonicalProductRef,
     mapping: toProductOverviewMapping(mapping),
@@ -633,6 +642,7 @@ export async function getProductOverview(
       buildBelowMinimumSet(volatileStock.missing_products),
       locationNameById,
       groupNameById,
+      unitNameById,
     ),
     mealieFood: toMealieFoodOverview(mealieFood),
     conversions: relevantConversions,
