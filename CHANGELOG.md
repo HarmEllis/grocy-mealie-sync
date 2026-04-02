@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.7.0] - 2026-04-03
+
+This minor release adds a products listing MCP tool with stock and mapping filters, enriches product details with location, product group, and unit names, and extends the stock settings update tool to cover location, product group, and move-on-open fields.
+
+### Added
+
+- `products.list` MCP tool with filters for stock levels, location, product group, and mapping scope.
+- Product overview now resolves Grocy location and product group names alongside unit names for purchase and stock units.
+
+### Changed
+
+- `products.update_grocy_stock_settings` now accepts `productGroupId`, `locationId`, `moveOnOpen`, and `defaultConsumeLocationId` to manage all core product options in one operation.
+- Product details expose `moveOnOpen` and `defaultConsumeLocation` fields so the location-after-open setting is visible through the overview.
+
 ## [1.6.0] - 2026-04-01
 
 This minor release adds shopping list cleanup automation, unit conversion and product management MCP tools, improved error visibility, and a project license.
@@ -158,6 +172,8 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.7.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.6.0...v1.7.0
+[1.7.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.3.0...v1.4.0
