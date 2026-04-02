@@ -6,7 +6,9 @@ import {
   getVolatileStock,
   type CurrentStockResponse,
   type GrocyMissingProduct,
+  type Location,
   type Product,
+  type ProductGroup,
   type QuantityUnit,
   type QuantityUnitConversion,
 } from '@/lib/grocy/types';
@@ -86,6 +88,10 @@ export interface GrocyProductOverview {
   defaultBestBeforeDaysAfterThawing: number | null;
   dueType: 'best_before' | 'expiration' | null;
   shouldNotBeFrozen: boolean;
+  locationId: number | null;
+  locationName: string | null;
+  productGroupId: number | null;
+  productGroupName: string | null;
 }
 
 export interface MealieFoodOverview {
@@ -165,6 +171,8 @@ export interface ProductCatalogDeps {
   listMealieFoods(): Promise<MealieFoodInput[]>;
   listGrocyConversions(): Promise<QuantityUnitConversion[]>;
   listGrocyUnits(): Promise<QuantityUnit[]>;
+  listGrocyLocations(): Promise<Location[]>;
+  listGrocyProductGroups(): Promise<ProductGroup[]>;
   getCurrentStock(): Promise<CurrentStockResponse[]>;
   getVolatileStock(): Promise<{ missing_products?: GrocyMissingProduct[] }>;
 }
@@ -223,6 +231,8 @@ const defaultDeps: ProductCatalogDeps = {
   ),
   listGrocyConversions: async () => getGrocyEntities('quantity_unit_conversions'),
   listGrocyUnits: async () => getGrocyEntities('quantity_units'),
+  listGrocyLocations: async () => getGrocyEntities('locations'),
+  listGrocyProductGroups: async () => getGrocyEntities('product_groups'),
   getCurrentStock,
   getVolatileStock,
 };
@@ -328,12 +338,16 @@ function toGrocyProductOverview(
   grocyProduct: Product | undefined,
   currentStockByProductId: Map<number, number>,
   belowMinimumIds: Set<number>,
+  locationNameById: Map<number, string>,
+  groupNameById: Map<number, string>,
 ): GrocyProductOverview | null {
   if (!grocyProduct?.id) {
     return null;
   }
 
   const productId = Number(grocyProduct.id);
+  const locId = grocyProduct.location_id ?? null;
+  const grpId = grocyProduct.product_group_id ?? null;
 
   const extendedProduct = grocyProduct as Product & {
     default_best_before_days_after_freezing?: number | null;
@@ -360,6 +374,10 @@ function toGrocyProductOverview(
         ? 'best_before'
         : null,
     shouldNotBeFrozen: Boolean(grocyProduct.should_not_be_frozen),
+    locationId: locId,
+    locationName: locId !== null ? (locationNameById.get(locId) ?? null) : null,
+    productGroupId: grpId,
+    productGroupName: grpId !== null ? (groupNameById.get(grpId) ?? null) : null,
   };
 }
 
@@ -554,7 +572,7 @@ export async function getProductOverview(
   deps: ProductCatalogDeps = defaultDeps,
 ): Promise<ProductOverview> {
   const parsedRef = parseProductRef(params.productRef);
-  const [mappings, grocyProducts, mealieFoods, currentStock, volatileStock, conversions, units] = await Promise.all([
+  const [mappings, grocyProducts, mealieFoods, currentStock, volatileStock, conversions, units, locations, productGroups] = await Promise.all([
     deps.listProductMappings(),
     deps.listGrocyProducts(),
     deps.listMealieFoods(),
@@ -562,9 +580,13 @@ export async function getProductOverview(
     deps.getVolatileStock(),
     deps.listGrocyConversions(),
     deps.listGrocyUnits(),
+    deps.listGrocyLocations(),
+    deps.listGrocyProductGroups(),
   ]);
   const normalizedMealieFoods = mealieFoods.map(normalizeMealieFoodRecord);
   const canonicalProductRef = toCanonicalProductRef(parsedRef);
+  const locationNameById = new Map(locations.map((l: Location) => [Number(l.id), l.name || 'Unknown']));
+  const groupNameById = new Map(productGroups.map((g: ProductGroup) => [Number(g.id), g.name || 'Unknown']));
 
   let mapping: ProductMappingRecord | null = null;
 
@@ -609,6 +631,8 @@ export async function getProductOverview(
       grocyProduct,
       buildCurrentStockMap(currentStock),
       buildBelowMinimumSet(volatileStock.missing_products),
+      locationNameById,
+      groupNameById,
     ),
     mealieFood: toMealieFoodOverview(mealieFood),
     conversions: relevantConversions,

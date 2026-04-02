@@ -10,6 +10,17 @@ import {
   updateProductUnits,
 } from '../manage';
 
+const extraGrocyFields = {
+  locationId: null,
+  locationName: null,
+  productGroupId: null,
+  productGroupName: null,
+} as const;
+
+function grocyProduct(base: Record<string, unknown>) {
+  return { ...base, ...extraGrocyFields };
+}
+
 const mappedOverview: ProductOverview = {
   productRef: 'mapping:map-1',
   mapping: {
@@ -20,7 +31,7 @@ const mappedOverview: ProductOverview = {
     grocyProductName: 'Milk',
     unitMappingId: 'unit-map-1',
   },
-  grocyProduct: {
+  grocyProduct: grocyProduct({
     id: 101,
     name: 'Milk',
     quIdPurchase: 10,
@@ -35,7 +46,7 @@ const mappedOverview: ProductOverview = {
     defaultBestBeforeDaysAfterThawing: 2,
     dueType: 'best_before',
     shouldNotBeFrozen: false,
-  },
+  }) as any,
   mealieFood: {
     id: 'food-1',
     name: 'Milk',
@@ -343,6 +354,7 @@ describe('product management use-cases', () => {
         defaultBestBeforeDaysAfterThawing: 2,
         dueType: 'best_before',
         shouldNotBeFrozen: false,
+        ...extraGrocyFields,
       },
       mealieFood: null,
       conversions: [],
@@ -507,6 +519,7 @@ describe('product management use-cases', () => {
         defaultBestBeforeDaysAfterThawing: 2,
         dueType: 'best_before',
         shouldNotBeFrozen: false,
+        ...extraGrocyFields,
       },
       mealieFood: null,
       conversions: [],
@@ -556,6 +569,7 @@ describe('product management use-cases', () => {
         defaultBestBeforeDaysAfterThawing: 2,
         dueType: 'best_before',
         shouldNotBeFrozen: false,
+        ...extraGrocyFields,
       },
       mealieFood: null,
       conversions: [],
@@ -623,6 +637,7 @@ describe('product management use-cases', () => {
         defaultBestBeforeDaysAfterThawing: 2,
         dueType: 'best_before',
         shouldNotBeFrozen: false,
+        ...extraGrocyFields,
       },
       mealieFood: null,
       conversions: [],

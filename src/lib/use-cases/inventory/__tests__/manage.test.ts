@@ -34,6 +34,10 @@ const baseOverview: ProductOverview = {
     defaultBestBeforeDaysAfterThawing: 2,
     dueType: 'expiration',
     shouldNotBeFrozen: false,
+    locationId: null,
+    locationName: null,
+    productGroupId: null,
+    productGroupName: null,
   },
   mealieFood: {
     id: 'food-1',

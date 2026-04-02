@@ -6,7 +6,9 @@ import {
   getVolatileStock,
   type CurrentStockResponse,
   type GrocyMissingProduct,
+  type Location,
   type Product,
+  type ProductGroup,
 } from '@/lib/grocy/types';
 import type { ProductMappingRecord } from './catalog';
 
@@ -32,7 +34,9 @@ export interface ProductListEntry {
   minStockAmount: number;
   isBelowMinimum: boolean;
   locationId: number | null;
+  locationName: string | null;
   productGroupId: number | null;
+  productGroupName: string | null;
   noOwnStock: boolean;
   shouldNotBeFrozen: boolean;
 }
@@ -45,6 +49,8 @@ export interface ProductListResult {
 export interface ProductListDeps {
   listProductMappings(): Promise<ProductMappingRecord[]>;
   listGrocyProducts(): Promise<Product[]>;
+  listGrocyLocations(): Promise<Location[]>;
+  listGrocyProductGroups(): Promise<ProductGroup[]>;
   getCurrentStock(): Promise<CurrentStockResponse[]>;
   getVolatileStock(): Promise<{ missing_products?: GrocyMissingProduct[] }>;
 }
@@ -52,6 +58,8 @@ export interface ProductListDeps {
 const defaultDeps: ProductListDeps = {
   listProductMappings: async () => db.select().from(productMappings),
   listGrocyProducts: async () => getGrocyEntities('products'),
+  listGrocyLocations: async () => getGrocyEntities('locations'),
+  listGrocyProductGroups: async () => getGrocyEntities('product_groups'),
   getCurrentStock,
   getVolatileStock,
 };
@@ -72,14 +80,18 @@ export async function listProducts(
   deps: ProductListDeps = defaultDeps,
 ): Promise<ProductListResult> {
   const scope = params.scope ?? 'mapped';
-  const [mappings, grocyProducts, currentStock, volatileStock] = await Promise.all([
+  const [mappings, grocyProducts, locations, productGroups, currentStock, volatileStock] = await Promise.all([
     deps.listProductMappings(),
     deps.listGrocyProducts(),
+    deps.listGrocyLocations(),
+    deps.listGrocyProductGroups(),
     deps.getCurrentStock(),
     deps.getVolatileStock(),
   ]);
 
   const mappingByGrocyId = new Map(mappings.map(m => [m.grocyProductId, m]));
+  const locationNameById = new Map(locations.map(l => [Number(l.id), l.name || 'Unknown']));
+  const groupNameById = new Map(productGroups.map(g => [Number(g.id), g.name || 'Unknown']));
   const currentStockByProductId = buildCurrentStockMap(currentStock);
   const belowMinimumIds = buildBelowMinimumSet(volatileStock.missing_products);
 
@@ -93,6 +105,8 @@ export async function listProducts(
     .map(product => {
       const productId = product.id!;
       const mapping = mappingByGrocyId.get(productId);
+      const locId = product.location_id ?? null;
+      const grpId = product.product_group_id ?? null;
 
       return {
         productRef: mapping ? `mapping:${mapping.id}` : `grocy:${productId}`,
@@ -104,8 +118,10 @@ export async function listProducts(
         currentStock: currentStockByProductId.get(productId) ?? 0,
         minStockAmount: Number(product.min_stock_amount ?? 0),
         isBelowMinimum: belowMinimumIds.has(productId),
-        locationId: product.location_id ?? null,
-        productGroupId: product.product_group_id ?? null,
+        locationId: locId,
+        locationName: locId !== null ? (locationNameById.get(locId) ?? null) : null,
+        productGroupId: grpId,
+        productGroupName: grpId !== null ? (groupNameById.get(grpId) ?? null) : null,
         noOwnStock: Boolean(product.no_own_stock),
         shouldNotBeFrozen: Boolean(product.should_not_be_frozen),
       };

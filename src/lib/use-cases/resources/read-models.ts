@@ -342,16 +342,21 @@ function toLowStockProduct(entry: ProductListEntry): LowStockProductResource {
 }
 
 export async function listLowStockProductsResource(
-  deps: ProductListDeps = {
+  deps: Pick<ProductListDeps, 'listProductMappings' | 'listGrocyProducts' | 'getCurrentStock' | 'getVolatileStock'> = {
     listProductMappings: defaultDeps.listProductMappings,
     listGrocyProducts: defaultDeps.listGrocyProducts,
     getCurrentStock: defaultDeps.getCurrentStock,
     getVolatileStock: defaultDeps.getVolatileStock,
   },
 ): Promise<LowStockProductsResource> {
+  const fullDeps: ProductListDeps = {
+    ...deps,
+    listGrocyLocations: async () => [],
+    listGrocyProductGroups: async () => [],
+  };
   const result = await listProducts(
     { scope: 'mapped', belowMinimum: true },
-    deps,
+    fullDeps,
   );
 
   return {

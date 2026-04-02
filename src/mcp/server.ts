@@ -30,6 +30,10 @@ import {
   listProducts,
 } from '@/lib/use-cases/products/list';
 import {
+  listGrocyLocations,
+  listGrocyProductGroups,
+} from '@/lib/use-cases/catalog/read';
+import {
   createProductInGrocy,
   createProductInMealie,
   createProductInBoth,
@@ -95,6 +99,7 @@ import { registerMappingTools } from './tools/mappings';
 import { registerProductTools } from './tools/products';
 import { registerShoppingTools } from './tools/shopping';
 import { registerUnitTools } from './tools/units';
+import { registerCatalogTools } from './tools/catalog';
 
 export function createGrocyMealieSyncMcpServer(
   overrides: GrocyMealieSyncMcpServiceOverrides = {},
@@ -209,6 +214,11 @@ export function createGrocyMealieSyncMcpServer(
       explainProductState,
       ...overrides.diagnostics,
     },
+    catalog: {
+      listGrocyLocations,
+      listGrocyProductGroups,
+      ...overrides.catalog,
+    },
   };
 
   const server = new McpServer({
@@ -225,6 +235,7 @@ export function createGrocyMealieSyncMcpServer(
   registerHistoryTools(server, services.history);
   registerConflictTools(server, services.conflicts);
   registerDiagnosticTools(server, services.diagnostics);
+  registerCatalogTools(server, services.catalog);
   registerCorePrompts(server);
   registerCoreResources(server, services.resources);
   registerProductResources(server, services.products);

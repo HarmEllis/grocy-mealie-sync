@@ -107,6 +107,14 @@ function createDeps(overrides: Partial<ProductListDeps> = {}): ProductListDeps {
         },
       ],
     }),
+    listGrocyLocations: async () => [
+      { id: 1, name: 'Pantry' },
+      { id: 2, name: 'Fridge' },
+    ],
+    listGrocyProductGroups: async () => [
+      { id: 3, name: 'Fruit' },
+      { id: 5, name: 'Dairy' },
+    ],
     ...overrides,
   };
 }

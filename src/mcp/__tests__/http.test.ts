@@ -82,6 +82,10 @@ describe('MCP streamable HTTP handler', () => {
       defaultBestBeforeDaysAfterThawing: 2,
       dueType: 'expiration',
       shouldNotBeFrozen: false,
+      locationId: null,
+      locationName: null,
+      productGroupId: null,
+      productGroupName: null,
     },
     mealieFood: {
       id: 'food-1',
@@ -1128,6 +1132,10 @@ describe('MCP streamable HTTP handler', () => {
           defaultBestBeforeDaysAfterThawing: 2,
           dueType: 'expiration',
           shouldNotBeFrozen: false,
+          locationId: null,
+          locationName: null,
+          productGroupId: null,
+          productGroupName: null,
         },
         mealieFood: {
           id: 'food-1',

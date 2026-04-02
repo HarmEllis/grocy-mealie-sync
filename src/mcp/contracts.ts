@@ -107,6 +107,10 @@ import type {
   ExplainProductStateParams,
   ProductStateExplanation,
 } from '@/lib/use-cases/diagnostics/explain';
+import type {
+  GrocyLocationsResult,
+  GrocyProductGroupsResult,
+} from '@/lib/use-cases/catalog/read';
 
 export interface McpActionResult<TData = unknown> {
   [key: string]: unknown;
@@ -201,6 +205,11 @@ export interface ConflictMcpServices {
   listOpenMappingConflictsResource(): Promise<OpenMappingConflictsResource>;
 }
 
+export interface CatalogMcpServices {
+  listGrocyLocations(): Promise<GrocyLocationsResult>;
+  listGrocyProductGroups(): Promise<GrocyProductGroupsResult>;
+}
+
 export interface DiagnosticsMcpServices {
   explainProductState(params: ExplainProductStateParams): Promise<ProductStateExplanation>;
 }
@@ -216,6 +225,7 @@ export interface GrocyMealieSyncMcpServices {
   history: HistoryMcpServices;
   conflicts: ConflictMcpServices;
   diagnostics: DiagnosticsMcpServices;
+  catalog: CatalogMcpServices;
 }
 
 export interface GrocyMealieSyncMcpServiceOverrides {
@@ -229,4 +239,5 @@ export interface GrocyMealieSyncMcpServiceOverrides {
   history?: Partial<HistoryMcpServices>;
   conflicts?: Partial<ConflictMcpServices>;
   diagnostics?: Partial<DiagnosticsMcpServices>;
+  catalog?: Partial<CatalogMcpServices>;
 }

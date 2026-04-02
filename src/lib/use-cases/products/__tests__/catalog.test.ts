@@ -95,6 +95,8 @@ function createDeps(overrides: Partial<ProductCatalogDeps> = {}): ProductCatalog
       { id: 11, name: 'Millilitre' },
       { id: 12, name: 'Glas' },
     ],
+    listGrocyLocations: async () => [],
+    listGrocyProductGroups: async () => [],
     ...overrides,
   };
 }
@@ -152,6 +154,10 @@ describe('product catalog use-cases', () => {
         defaultBestBeforeDaysAfterThawing: 2,
         dueType: 'expiration',
         shouldNotBeFrozen: false,
+        locationId: null,
+        locationName: null,
+        productGroupId: null,
+        productGroupName: null,
       },
       mealieFood: {
         id: 'food-1',
@@ -213,6 +219,10 @@ describe('product catalog use-cases', () => {
         defaultBestBeforeDaysAfterThawing: 5,
         dueType: 'best_before',
         shouldNotBeFrozen: true,
+        locationId: null,
+        locationName: null,
+        productGroupId: null,
+        productGroupName: null,
       },
       mealieFood: null,
       conversions: [

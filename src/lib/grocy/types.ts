@@ -13,6 +13,7 @@
 import './init';
 import { GenericEntityInteractionsService, StockService } from './client';
 import type { Product } from './client/models/Product';
+import type { ProductGroup } from './client/models/ProductGroup';
 import type { QuantityUnit } from './client/models/QuantityUnit';
 import type { QuantityUnitConversion } from './client/models/QuantityUnitConversion';
 import type { Location } from './client/models/Location';
@@ -29,6 +30,7 @@ import { StockTransactionType } from './client/models/StockTransactionType';
 /** Entity names used for listing (getObjects). */
 export type GrocyListableEntity =
   | 'products'
+  | 'product_groups'
   | 'quantity_units'
   | 'quantity_unit_conversions'
   | 'locations'
@@ -57,6 +59,7 @@ export type GrocyDeletableEntity =
 /** Maps entity name strings to their Grocy model types. */
 interface GrocyEntityTypeMap {
   products: Product;
+  product_groups: ProductGroup;
   quantity_units: QuantityUnit;
   quantity_unit_conversions: QuantityUnitConversion;
   locations: Location;
@@ -390,4 +393,4 @@ export async function openProductStock(
 }
 
 // Re-export model types that are commonly used in application code
-export type { Product, QuantityUnit, QuantityUnitConversion, Location, ShoppingListItem, ProductDetailsResponse, CurrentStockResponse };
+export type { Product, ProductGroup, QuantityUnit, QuantityUnitConversion, Location, ShoppingListItem, ProductDetailsResponse, CurrentStockResponse };
