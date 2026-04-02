@@ -94,6 +94,9 @@ export interface GrocyProductOverview {
   locationName: string | null;
   productGroupId: number | null;
   productGroupName: string | null;
+  moveOnOpen: boolean;
+  defaultConsumeLocationId: number | null;
+  defaultConsumeLocationName: string | null;
 }
 
 export interface MealieFoodOverview {
@@ -360,6 +363,8 @@ function toGrocyProductOverview(
     due_type?: number | null;
   };
 
+  const consumeLocId = grocyProduct.default_consume_location_id ?? null;
+
   return {
     id: productId,
     name: grocyProduct.name || 'Unknown',
@@ -385,6 +390,9 @@ function toGrocyProductOverview(
     locationName: locId !== null ? (locationNameById.get(locId) ?? null) : null,
     productGroupId: grpId,
     productGroupName: grpId !== null ? (groupNameById.get(grpId) ?? null) : null,
+    moveOnOpen: Boolean(grocyProduct.move_on_open),
+    defaultConsumeLocationId: consumeLocId,
+    defaultConsumeLocationName: consumeLocId !== null ? (locationNameById.get(consumeLocId) ?? null) : null,
   };
 }
 

@@ -147,19 +147,22 @@ export interface CreateQuantityUnitConversionBody {
 
 /** Fields accepted when updating a Grocy product (partial). */
 export interface UpdateProductBody {
-  name?: string;
-  description?: string;
-  min_stock_amount?: number;
-  qu_id_purchase?: number;
-  qu_id_stock?: number;
-  location_id?: number;
-  default_best_before_days?: number | null;
-  default_best_before_days_after_open?: number | null;
-  default_best_before_days_after_freezing?: number | null;
-  default_best_before_days_after_thawing?: number | null;
-  due_type?: number | null;
-  treat_opened_as_out_of_stock?: number;
-  should_not_be_frozen?: number;
+    name?: string;
+    description?: string;
+    min_stock_amount?: number;
+    qu_id_purchase?: number;
+    qu_id_stock?: number;
+    location_id?: number;
+    product_group_id?: number;
+    default_best_before_days?: number | null;
+    default_best_before_days_after_open?: number | null;
+    default_best_before_days_after_freezing?: number | null;
+    default_best_before_days_after_thawing?: number | null;
+    due_type?: number | null;
+    treat_opened_as_out_of_stock?: number;
+    should_not_be_frozen?: number;
+    move_on_open?: number;
+    default_consume_location_id?: number;
 }
 
 /** Fields accepted when updating a Grocy quantity unit (partial). */

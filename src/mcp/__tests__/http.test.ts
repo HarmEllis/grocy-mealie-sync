@@ -88,6 +88,9 @@ describe('MCP streamable HTTP handler', () => {
       locationName: null,
       productGroupId: null,
       productGroupName: null,
+      moveOnOpen: false,
+      defaultConsumeLocationId: null,
+      defaultConsumeLocationName: null,
     },
     mealieFood: {
       id: 'food-1',
@@ -1140,6 +1143,9 @@ describe('MCP streamable HTTP handler', () => {
           locationName: null,
           productGroupId: null,
           productGroupName: null,
+          moveOnOpen: false,
+          defaultConsumeLocationId: null,
+          defaultConsumeLocationName: null,
         },
         mealieFood: {
           id: 'food-1',

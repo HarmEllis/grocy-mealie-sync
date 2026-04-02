@@ -160,6 +160,9 @@ describe('product catalog use-cases', () => {
         locationName: null,
         productGroupId: null,
         productGroupName: null,
+        moveOnOpen: false,
+        defaultConsumeLocationId: null,
+        defaultConsumeLocationName: null,
       },
       mealieFood: {
         id: 'food-1',
@@ -227,6 +230,9 @@ describe('product catalog use-cases', () => {
         locationName: null,
         productGroupId: null,
         productGroupName: null,
+        moveOnOpen: false,
+        defaultConsumeLocationId: null,
+        defaultConsumeLocationName: null,
       },
       mealieFood: null,
       conversions: [

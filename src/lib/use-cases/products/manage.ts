@@ -37,6 +37,10 @@ export interface UpdateGrocyStockSettingsParams {
   allowFreezing?: boolean;
   frozenShelfLifeDays?: number | null;
   bestBeforeType?: 'best_before' | 'expiration';
+  productGroupId?: number | null;
+  locationId?: number | null;
+  moveOnOpen?: boolean;
+  defaultConsumeLocationId?: number | null;
 }
 
 export interface UpdateGrocyStockSettingsResult {
@@ -52,6 +56,10 @@ export interface UpdateGrocyStockSettingsResult {
     thawedShelfLifeDays?: number | null;
     bestBeforeType?: 'best_before' | 'expiration';
     allowFreezing?: boolean;
+    productGroupId?: number | null;
+    locationId?: number | null;
+    moveOnOpen?: boolean;
+    defaultConsumeLocationId?: number | null;
   };
 }
 
@@ -327,6 +335,26 @@ export async function updateGrocyStockSettings(
     if (params.allowFreezing !== undefined) {
       update.should_not_be_frozen = params.allowFreezing ? 0 : 1;
       updated.allowFreezing = params.allowFreezing;
+    }
+
+    if (params.productGroupId !== undefined) {
+      update.product_group_id = params.productGroupId;
+      updated.productGroupId = params.productGroupId;
+    }
+
+    if (params.locationId !== undefined) {
+      update.location_id = params.locationId;
+      updated.locationId = params.locationId;
+    }
+
+    if (params.moveOnOpen !== undefined) {
+      update.move_on_open = params.moveOnOpen ? 1 : 0;
+      updated.moveOnOpen = params.moveOnOpen;
+    }
+
+    if (params.defaultConsumeLocationId !== undefined) {
+      update.default_consume_location_id = params.defaultConsumeLocationId;
+      updated.defaultConsumeLocationId = params.defaultConsumeLocationId;
     }
 
     await deps.updateGrocyProduct(grocyProduct.id, update);

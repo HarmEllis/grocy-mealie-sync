@@ -15,6 +15,9 @@ const extraGrocyFields = {
   locationName: null,
   productGroupId: null,
   productGroupName: null,
+  moveOnOpen: false,
+  defaultConsumeLocationId: null,
+  defaultConsumeLocationName: null,
 } as const;
 
 function grocyProduct(base: Record<string, unknown>) {
@@ -73,6 +76,10 @@ describe('product management use-cases', () => {
         thawedShelfLifeDays: 4,
         bestBeforeType: 'expiration',
         allowFreezing: false,
+        productGroupId: 5,
+        locationId: 3,
+        moveOnOpen: true,
+        defaultConsumeLocationId: 7,
       },
       {
         acquireSyncLock: vi.fn(() => true),
@@ -91,6 +98,10 @@ describe('product management use-cases', () => {
       default_best_before_days_after_thawing: 4,
       due_type: 2,
       should_not_be_frozen: 1,
+      product_group_id: 5,
+      location_id: 3,
+      move_on_open: 1,
+      default_consume_location_id: 7,
     });
     expect(result).toEqual({
       productRef: 'mapping:map-1',
@@ -105,6 +116,10 @@ describe('product management use-cases', () => {
         thawedShelfLifeDays: 4,
         bestBeforeType: 'expiration',
         allowFreezing: false,
+        productGroupId: 5,
+        locationId: 3,
+        moveOnOpen: true,
+        defaultConsumeLocationId: 7,
       },
     });
   });

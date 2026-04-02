@@ -127,6 +127,10 @@ export function registerProductTools(server: McpServer, services: ProductMcpServ
         thawedShelfLifeDays: z.number().int().min(0).nullable().optional(),
         bestBeforeType: z.enum(['best_before', 'expiration']).optional(),
         allowFreezing: z.boolean().optional(),
+        productGroupId: z.number().int().positive().nullable().optional(),
+        locationId: z.number().int().positive().nullable().optional(),
+        moveOnOpen: z.boolean().optional(),
+        defaultConsumeLocationId: z.number().int().positive().nullable().optional(),
       },
     },
     async (params) => {
