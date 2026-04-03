@@ -1,15 +1,8 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ProductMcpServices } from '../contracts';
-import { createJsonTextContent, createOkResult, formatCountMessage } from '../helpers';
-
-const productRefSchema = z.string().trim().min(1).describe(
-  'Accepts mapping:<id>, grocy:<id>, mealie:<id>, or a raw Grocy numeric id. Use products.search to find the productRef first.',
-);
-
-const verifiedGrocyUnitIdSchema = z.number().int().positive().describe(
-  'Verified existing Grocy unit id only. Inspect units.list_catalog first and stop if the correct unit is unclear.',
-);
+import { createJsonTextContent, createOkResult, createSkippedResult, formatCountMessage } from '../helpers';
+import { productRefSchema, verifiedGrocyUnitIdSchema } from '../schemas';
 
 export function registerProductTools(server: McpServer, services: ProductMcpServices) {
   server.registerTool(
@@ -167,7 +160,8 @@ export function registerProductTools(server: McpServer, services: ProductMcpServ
         mealiePluralName,
         mealieAliases,
       });
-      const result = createOkResult(
+      const createResult = data.created ? createOkResult : createSkippedResult;
+      const result = createResult(
         data.created
           ? 'Created the product in Grocy and Mealie and stored the mapping.'
           : 'Skipped product creation because exact duplicates already exist.',
@@ -200,7 +194,8 @@ export function registerProductTools(server: McpServer, services: ProductMcpServ
         locationId,
         minStockAmount,
       });
-      const result = createOkResult(
+      const createResult = data.created ? createOkResult : createSkippedResult;
+      const result = createResult(
         data.created
           ? 'Created the product in Grocy.'
           : 'Skipped Grocy product creation because an exact duplicate already exists.',
@@ -231,7 +226,8 @@ export function registerProductTools(server: McpServer, services: ProductMcpServ
         pluralName,
         aliases,
       });
-      const result = createOkResult(
+      const createResult = data.created ? createOkResult : createSkippedResult;
+      const result = createResult(
         data.created
           ? 'Created the product in Mealie.'
           : 'Skipped Mealie product creation because an exact duplicate already exists.',

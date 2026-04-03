@@ -1,14 +1,7 @@
 import { ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ProductMcpServices } from '../contracts';
-
-function getSingleVariable(value: string | string[] | undefined): string {
-  if (Array.isArray(value)) {
-    return value[0] ?? '';
-  }
-
-  return value ?? '';
-}
+import { getSingleVariable } from '../helpers';
 
 export function registerProductResources(server: McpServer, services: ProductMcpServices) {
   server.registerResource(

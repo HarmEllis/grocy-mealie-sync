@@ -77,6 +77,7 @@ import {
 import { explainProductState } from '@/lib/use-cases/diagnostics/explain';
 import type { GrocyMealieSyncMcpServiceOverrides, GrocyMealieSyncMcpServices } from './contracts';
 import {
+  createHistoryWrappedConversionServices,
   createHistoryWrappedInventoryServices,
   createHistoryWrappedMappingServices,
   createHistoryWrappedProductServices,
@@ -196,9 +197,11 @@ export function createGrocyMealieSyncMcpServer(
       ...overrides.units,
     },
     conversions: {
-      listConversions,
-      createUnitConversion,
-      deleteUnitConversion,
+      ...createHistoryWrappedConversionServices({
+        listConversions,
+        createUnitConversion,
+        deleteUnitConversion,
+      }),
       ...overrides.conversions,
     },
     history: {

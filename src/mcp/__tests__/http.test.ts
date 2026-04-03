@@ -37,6 +37,13 @@ import type {
   ShoppingListItemsResource,
   UpdateShoppingListItemResult,
 } from '@/lib/use-cases/shopping/list';
+import type {
+  CreateGrocyUnitResult,
+  CreateMealieUnitResult,
+} from '@/lib/use-cases/units/manage';
+import type {
+  CreateUnitConversionResult,
+} from '@/lib/use-cases/conversions/manage';
 import { createMcpHttpHandler } from '../http';
 
 describe('MCP streamable HTTP handler', () => {
@@ -1367,5 +1374,202 @@ describe('MCP streamable HTTP handler', () => {
 
     expect(response.status).toBe(405);
     expect(response.headers.get('allow')).toBe('POST');
+  });
+
+  it('returns status skipped when duplicate prevention triggers', async () => {
+    const skippedCreateGrocy = vi.fn(async (): Promise<CreateProductInGrocyResult> => ({
+      created: false,
+      grocyProductId: null,
+      grocyProductName: null,
+      duplicateCheck: {
+        skipped: true,
+        exactGrocyMatches: 1,
+      },
+    }));
+
+    const skippedCreateMealie = vi.fn(async (): Promise<CreateProductInMealieResult> => ({
+      created: false,
+      mealieFoodId: null,
+      mealieFoodName: null,
+      duplicateCheck: {
+        skipped: true,
+        exactMealieMatches: 1,
+      },
+    }));
+
+    const skippedCreateInBoth = vi.fn(async (): Promise<CreateProductInBothResult> => ({
+      created: false,
+      grocyProductId: null,
+      grocyProductName: null,
+      mealieFoodId: null,
+      mealieFoodName: null,
+      unitMappingId: null,
+      duplicateCheck: {
+        skipped: true,
+        exactGrocyMatches: 1,
+        exactMealieMatches: 1,
+      },
+    }));
+
+    const skippedCreateGrocyUnit = vi.fn(async (): Promise<CreateGrocyUnitResult> => ({
+      created: false,
+      grocyUnitId: 10,
+      grocyUnitName: 'Gram',
+      duplicateCheck: {
+        skipped: true,
+        exactGrocyMatches: 1,
+      },
+    }));
+
+    const skippedCreateMealieUnit = vi.fn(async (): Promise<CreateMealieUnitResult> => ({
+      created: false,
+      mealieUnitId: 'unit-1',
+      mealieUnitName: 'Cup',
+      duplicateCheck: {
+        skipped: true,
+        exactMealieMatches: 1,
+      },
+    }));
+
+    const skippedCreateConversion = vi.fn(async (): Promise<CreateUnitConversionResult> => ({
+      created: false,
+      conversionId: null,
+      fromGrocyUnitId: 10,
+      toGrocyUnitId: 20,
+      factor: 1000,
+      grocyProductId: null,
+      duplicateCheck: {
+        skipped: true,
+        existingConversionId: 99,
+      },
+    }));
+
+    const skippedMergeDuplicates = vi.fn(async (): Promise<MergeShoppingListDuplicatesResult> => ({
+      merged: false,
+      keptItemId: 'item-1',
+      removedItemIds: [],
+      item: {
+        id: 'item-1',
+        shoppingListId: 'list-1',
+        foodId: 'food-1',
+        foodName: 'Milk',
+        unitId: null,
+        unitName: null,
+        quantity: 1,
+        checked: false,
+        note: null,
+        display: 'Milk',
+        createdAt: '2026-03-29T09:00:00.000Z',
+        updatedAt: '2026-03-29T09:00:00.000Z',
+      },
+    }));
+
+    const handleRequest = createMcpHttpHandler({
+      products: {
+        createProductInGrocy: skippedCreateGrocy,
+        createProductInMealie: skippedCreateMealie,
+        createProductInBoth: skippedCreateInBoth,
+      },
+      units: {
+        createGrocyUnit: skippedCreateGrocyUnit,
+        createMealieUnit: skippedCreateMealieUnit,
+      },
+      conversions: {
+        createUnitConversion: skippedCreateConversion,
+      },
+      shopping: {
+        mergeShoppingListDuplicates: skippedMergeDuplicates,
+      },
+    });
+
+    const client = new Client(
+      { name: 'mcp-skipped-test-client', version: '1.0.0' },
+      { capabilities: {} },
+    );
+
+    const transport = new StreamableHTTPClientTransport(
+      new URL('http://localhost/api/mcp'),
+      {
+        fetch: async (input, init) => handleRequest(
+          input instanceof Request ? input : new Request(input, init),
+        ),
+      },
+    );
+
+    try {
+      await client.connect(transport);
+
+      const grocyResult = await client.callTool({
+        name: 'products.create_grocy',
+        arguments: { name: 'Milk', grocyUnitId: 10 },
+      });
+      expect(grocyResult.structuredContent).toEqual(expect.objectContaining({
+        ok: true,
+        status: 'skipped',
+        message: 'Skipped Grocy product creation because an exact duplicate already exists.',
+      }));
+
+      const mealieResult = await client.callTool({
+        name: 'products.create_mealie',
+        arguments: { name: 'Milk' },
+      });
+      expect(mealieResult.structuredContent).toEqual(expect.objectContaining({
+        ok: true,
+        status: 'skipped',
+        message: 'Skipped Mealie product creation because an exact duplicate already exists.',
+      }));
+
+      const bothResult = await client.callTool({
+        name: 'products.create_in_both',
+        arguments: { name: 'Milk', grocyUnitId: 10 },
+      });
+      expect(bothResult.structuredContent).toEqual(expect.objectContaining({
+        ok: true,
+        status: 'skipped',
+        message: 'Skipped product creation because exact duplicates already exist.',
+      }));
+
+      const grocyUnitResult = await client.callTool({
+        name: 'units.create_grocy',
+        arguments: { name: 'Gram' },
+      });
+      expect(grocyUnitResult.structuredContent).toEqual(expect.objectContaining({
+        ok: true,
+        status: 'skipped',
+        message: 'Skipped Grocy unit creation because an exact duplicate already exists.',
+      }));
+
+      const mealieUnitResult = await client.callTool({
+        name: 'units.create_mealie',
+        arguments: { name: 'Cup' },
+      });
+      expect(mealieUnitResult.structuredContent).toEqual(expect.objectContaining({
+        ok: true,
+        status: 'skipped',
+        message: 'Skipped Mealie unit creation because an exact duplicate already exists.',
+      }));
+
+      const conversionResult = await client.callTool({
+        name: 'conversions.create',
+        arguments: { fromGrocyUnitId: 10, toGrocyUnitId: 20, factor: 1000 },
+      });
+      expect(conversionResult.structuredContent).toEqual(expect.objectContaining({
+        ok: true,
+        status: 'skipped',
+        message: 'Skipped: the same from→to conversion already exists with ID 99.',
+      }));
+
+      const mergeResult = await client.callTool({
+        name: 'shopping.merge_duplicates',
+        arguments: { foodId: 'food-1' },
+      });
+      expect(mergeResult.structuredContent).toEqual(expect.objectContaining({
+        ok: true,
+        status: 'skipped',
+        message: 'No duplicate shopping list items needed merging.',
+      }));
+    } finally {
+      await Promise.allSettled([client.close(), transport.close()]);
+    }
   });
 });

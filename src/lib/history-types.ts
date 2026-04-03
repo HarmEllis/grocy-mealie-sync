@@ -41,6 +41,8 @@ export const historyRunActions = [
   'shopping_merge_duplicates',
   'shopping_cleanup',
   'conflict_remap',
+  'conversion_create',
+  'conversion_delete',
 ] as const;
 export type HistoryRunAction = (typeof historyRunActions)[number];
 

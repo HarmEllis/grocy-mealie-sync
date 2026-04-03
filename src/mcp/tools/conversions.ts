@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ConversionMcpServices } from '../contracts';
-import { createJsonTextContent, createOkResult } from '../helpers';
+import { createJsonTextContent, createOkResult, createSkippedResult } from '../helpers';
 
 export function registerConversionTools(server: McpServer, services: ConversionMcpServices) {
   server.registerTool(
@@ -51,7 +51,8 @@ export function registerConversionTools(server: McpServer, services: ConversionM
         message = `Skipped: the same from→to conversion already exists with ID ${data.duplicateCheck?.existingConversionId}.`;
       }
 
-      const result = createOkResult(message, data);
+      const createResult = data.created ? createOkResult : createSkippedResult;
+      const result = createResult(message, data);
 
       return {
         content: [createJsonTextContent(result)],

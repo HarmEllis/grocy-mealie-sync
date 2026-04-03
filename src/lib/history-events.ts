@@ -155,6 +155,10 @@ export function formatHistoryActionLabel(action: HistoryRunAction): string {
       return 'Shopping list cleanup';
     case 'conflict_remap':
       return 'Resolve conflict';
+    case 'conversion_create':
+      return 'Create unit conversion';
+    case 'conversion_delete':
+      return 'Delete unit conversion';
   }
 }
 

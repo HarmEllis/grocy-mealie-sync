@@ -31,6 +31,7 @@ vi.mock('@/lib/logger', () => ({
 
 import { createManualHistoryRecorder } from '@/lib/manual-action-history';
 import type {
+  ConversionMcpServices,
   InventoryMcpServices,
   MappingMcpServices,
   ProductMcpServices,
@@ -38,6 +39,7 @@ import type {
   UnitMcpServices,
 } from '../contracts';
 import {
+  createHistoryWrappedConversionServices,
   createHistoryWrappedInventoryServices,
   createHistoryWrappedMappingServices,
   createHistoryWrappedProductServices,
@@ -602,6 +604,191 @@ describe('MCP action history wrappers', () => {
         expect.objectContaining({
           entityRef: 'unit-1',
           message: 'Updating the Mealie unit failed.',
+        }),
+      ],
+    }));
+  });
+
+  function createBaseConversionServices(): ConversionMcpServices {
+    return {
+      listConversions: vi.fn(),
+      createUnitConversion: vi.fn(async (): Promise<any> => ({
+        created: true,
+        conversionId: 42,
+        fromGrocyUnitId: 10,
+        toGrocyUnitId: 20,
+        factor: 1000,
+        grocyProductId: null,
+      })),
+      deleteUnitConversion: vi.fn(async (): Promise<any> => ({
+        deleted: true,
+        conversionId: 42,
+      })),
+    };
+  }
+
+  it('records successful conversion creation in history', async () => {
+    const baseServices = createBaseConversionServices();
+    const services = createHistoryWrappedConversionServices(baseServices);
+
+    const result = await services.createUnitConversion({
+      fromGrocyUnitId: 10,
+      toGrocyUnitId: 20,
+      factor: 1000,
+    });
+
+    expect(result.created).toBe(true);
+    expect(info).toHaveBeenCalledWith(
+      '[MCP] Created unit conversion from 10 to 20.',
+    );
+    expect(recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'conversion_create',
+      status: 'success',
+      message: 'Created unit conversion from unit 10 to unit 20 (factor 1000).',
+      events: [
+        expect.objectContaining({
+          entityRef: 'conversion:42',
+          category: 'mapping',
+          entityKind: 'unit',
+        }),
+      ],
+    }));
+  });
+
+  it('records skipped conversion creation when a duplicate exists', async () => {
+    const baseServices = createBaseConversionServices();
+    baseServices.createUnitConversion = vi.fn(async (): Promise<any> => ({
+      created: false,
+      conversionId: null,
+      fromGrocyUnitId: 10,
+      toGrocyUnitId: 20,
+      factor: 1000,
+      grocyProductId: null,
+      duplicateCheck: {
+        skipped: true,
+        existingConversionId: 99,
+        reverseConversion: false,
+      },
+    }));
+    const services = createHistoryWrappedConversionServices(baseServices);
+
+    const result = await services.createUnitConversion({
+      fromGrocyUnitId: 10,
+      toGrocyUnitId: 20,
+      factor: 1000,
+    });
+
+    expect(result.created).toBe(false);
+    expect(recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'conversion_create',
+      status: 'skipped',
+      message: 'Skipped: the same from→to conversion already exists with ID 99.',
+    }));
+  });
+
+  it('records skipped conversion creation when a reverse conversion exists', async () => {
+    const baseServices = createBaseConversionServices();
+    baseServices.createUnitConversion = vi.fn(async (): Promise<any> => ({
+      created: false,
+      conversionId: null,
+      fromGrocyUnitId: 10,
+      toGrocyUnitId: 20,
+      factor: 1000,
+      grocyProductId: null,
+      duplicateCheck: {
+        skipped: true,
+        existingConversionId: 77,
+        reverseConversion: true,
+      },
+    }));
+    const services = createHistoryWrappedConversionServices(baseServices);
+
+    const result = await services.createUnitConversion({
+      fromGrocyUnitId: 10,
+      toGrocyUnitId: 20,
+      factor: 1000,
+    });
+
+    expect(result.created).toBe(false);
+    expect(recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'conversion_create',
+      status: 'skipped',
+      message: 'Skipped: a reverse conversion (to→from) already exists with ID 77.',
+    }));
+  });
+
+  it('records conversion creation failures in history', async () => {
+    const baseServices = createBaseConversionServices();
+    const failingError = new Error('Grocy rejected the conversion.');
+    baseServices.createUnitConversion = vi.fn(async () => {
+      throw failingError;
+    });
+    const services = createHistoryWrappedConversionServices(baseServices);
+
+    await expect(services.createUnitConversion({
+      fromGrocyUnitId: 10,
+      toGrocyUnitId: 20,
+      factor: 1000,
+    })).rejects.toThrow('Grocy rejected the conversion.');
+
+    expect(error).toHaveBeenCalledWith('[MCP] Create unit conversion failed:', failingError);
+    expect(recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'conversion_create',
+      status: 'failure',
+      message: 'Unit conversion creation failed: Grocy rejected the conversion.',
+      summary: {
+        fromGrocyUnitId: 10,
+        toGrocyUnitId: 20,
+        factor: 1000,
+        error: 'Grocy rejected the conversion.',
+      },
+    }));
+  });
+
+  it('records successful conversion deletion in history', async () => {
+    const baseServices = createBaseConversionServices();
+    const services = createHistoryWrappedConversionServices(baseServices);
+
+    const result = await services.deleteUnitConversion({ conversionId: 42 });
+
+    expect(result.deleted).toBe(true);
+    expect(info).toHaveBeenCalledWith('[MCP] Deleted unit conversion 42.');
+    expect(recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'conversion_delete',
+      status: 'success',
+      message: 'Deleted unit conversion 42.',
+      events: [
+        expect.objectContaining({
+          entityRef: 'conversion:42',
+        }),
+      ],
+    }));
+  });
+
+  it('records conversion deletion failures in history', async () => {
+    const baseServices = createBaseConversionServices();
+    const failingError = new Error('Conversion not found.');
+    baseServices.deleteUnitConversion = vi.fn(async () => {
+      throw failingError;
+    });
+    const services = createHistoryWrappedConversionServices(baseServices);
+
+    await expect(services.deleteUnitConversion({
+      conversionId: 42,
+    })).rejects.toThrow('Conversion not found.');
+
+    expect(error).toHaveBeenCalledWith('[MCP] Delete unit conversion failed:', failingError);
+    expect(recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'conversion_delete',
+      status: 'failure',
+      message: 'Unit conversion deletion failed: Conversion not found.',
+      summary: {
+        conversionId: 42,
+        error: 'Conversion not found.',
+      },
+      events: [
+        expect.objectContaining({
+          entityRef: 'conversion:42',
         }),
       ],
     }));

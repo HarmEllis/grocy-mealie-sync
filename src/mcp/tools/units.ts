@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { UnitMcpServices } from '../contracts';
-import { createJsonTextContent, createOkResult, formatCountMessage } from '../helpers';
+import { createJsonTextContent, createOkResult, createSkippedResult, formatCountMessage } from '../helpers';
 
 export function registerUnitTools(server: McpServer, services: UnitMcpServices) {
   server.registerTool(
@@ -44,7 +44,8 @@ export function registerUnitTools(server: McpServer, services: UnitMcpServices) 
         pluralForms,
         description,
       });
-      const result = createOkResult(
+      const createResult = data.created ? createOkResult : createSkippedResult;
+      const result = createResult(
         data.created
           ? 'Created the Grocy unit.'
           : 'Skipped Grocy unit creation because an exact duplicate already exists.',
@@ -94,7 +95,8 @@ export function registerUnitTools(server: McpServer, services: UnitMcpServices) 
         fraction,
         useAbbreviation,
       });
-      const result = createOkResult(
+      const createResult = data.created ? createOkResult : createSkippedResult;
+      const result = createResult(
         data.created
           ? 'Created the Mealie unit.'
           : 'Skipped Mealie unit creation because an exact duplicate already exists.',

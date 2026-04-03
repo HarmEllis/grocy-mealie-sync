@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ShoppingMcpServices } from '../contracts';
-import { createJsonTextContent, createOkResult, formatCountMessage } from '../helpers';
+import { createJsonTextContent, createOkResult, createSkippedResult, formatCountMessage } from '../helpers';
 
 export function registerShoppingTools(server: McpServer, services: ShoppingMcpServices) {
   server.registerTool(
@@ -176,7 +176,8 @@ export function registerShoppingTools(server: McpServer, services: ShoppingMcpSe
     },
     async ({ foodId }) => {
       const data = await services.mergeShoppingListDuplicates({ foodId });
-      const result = createOkResult(
+      const mergeResult = data.merged ? createOkResult : createSkippedResult;
+      const result = mergeResult(
         data.merged
           ? 'Merged duplicate shopping list items.'
           : 'No duplicate shopping list items needed merging.',

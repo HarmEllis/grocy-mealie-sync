@@ -5,6 +5,7 @@ import {
 } from '@/lib/manual-action-history';
 import type { HistoryEventInput, HistoryRunAction, HistoryRunStatus } from '@/lib/history-store';
 import type {
+  ConversionMcpServices,
   InventoryMcpServices,
   MappingMcpServices,
   ProductMcpServices,
@@ -1252,6 +1253,103 @@ export function createHistoryWrappedUnitServices(services: UnitMcpServices): Uni
             'Updating the Mealie unit failed.',
             error,
             { mealieUnitId: params.mealieUnitId },
+          ),
+        ],
+      }),
+    }),
+  };
+}
+
+export function createHistoryWrappedConversionServices(services: ConversionMcpServices): ConversionMcpServices {
+  return {
+    ...services,
+    createUnitConversion: withMcpActionHistory(services.createUnitConversion, {
+      action: 'conversion_create',
+      historyErrorPrefix: '[History] Failed to record MCP unit conversion creation:',
+      buildSuccess: (result, params) => {
+        const message = result.created
+          ? `Created unit conversion from unit ${params.fromGrocyUnitId} to unit ${params.toGrocyUnitId} (factor ${params.factor}).`
+          : result.duplicateCheck?.reverseConversion
+            ? `Skipped: a reverse conversion (to→from) already exists with ID ${result.duplicateCheck.existingConversionId}.`
+            : `Skipped: the same from→to conversion already exists with ID ${result.duplicateCheck?.existingConversionId}.`;
+
+        return {
+          status: result.created ? 'success' : 'skipped',
+          logMessage: result.created
+            ? `[MCP] Created unit conversion from ${params.fromGrocyUnitId} to ${params.toGrocyUnitId}.`
+            : `[MCP] Skipped unit conversion creation (duplicate).`,
+          message,
+          summary: result,
+          events: [
+            buildManualHistoryEvent({
+              level: 'info',
+              category: 'mapping',
+              entityKind: 'unit',
+              entityRef: result.conversionId ? `conversion:${result.conversionId}` : null,
+              message,
+              details: result,
+            }),
+          ],
+        };
+      },
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Create unit conversion failed:',
+        message: `Unit conversion creation failed: ${formatManualActionError(error)}`,
+        summary: {
+          fromGrocyUnitId: params.fromGrocyUnitId,
+          toGrocyUnitId: params.toGrocyUnitId,
+          factor: params.factor,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'mapping',
+            'unit',
+            null,
+            'Unit conversion creation failed.',
+            error,
+            {
+              fromGrocyUnitId: params.fromGrocyUnitId,
+              toGrocyUnitId: params.toGrocyUnitId,
+              factor: params.factor,
+            },
+          ),
+        ],
+      }),
+    }),
+    deleteUnitConversion: withMcpActionHistory(services.deleteUnitConversion, {
+      action: 'conversion_delete',
+      historyErrorPrefix: '[History] Failed to record MCP unit conversion deletion:',
+      buildSuccess: (result) => ({
+        logMessage: `[MCP] Deleted unit conversion ${result.conversionId}.`,
+        message: `Deleted unit conversion ${result.conversionId}.`,
+        summary: result,
+        events: [
+          buildManualHistoryEvent({
+            level: 'info',
+            category: 'mapping',
+            entityKind: 'unit',
+            entityRef: `conversion:${result.conversionId}`,
+            message: `Deleted unit conversion ${result.conversionId}.`,
+            details: result,
+          }),
+        ],
+      }),
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Delete unit conversion failed:',
+        message: `Unit conversion deletion failed: ${formatManualActionError(error)}`,
+        summary: {
+          conversionId: params.conversionId,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'mapping',
+            'unit',
+            `conversion:${params.conversionId}`,
+            'Unit conversion deletion failed.',
+            error,
+            { conversionId: params.conversionId },
           ),
         ],
       }),

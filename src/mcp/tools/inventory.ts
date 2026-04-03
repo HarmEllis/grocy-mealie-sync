@@ -2,10 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { InventoryMcpServices } from '../contracts';
 import { createJsonTextContent, createOkResult, formatCountMessage } from '../helpers';
-
-const productRefSchema = z.string().trim().min(1).describe(
-  'Accepts mapping:<id>, grocy:<id>, mealie:<id>, or a raw Grocy numeric id. Use products.search to find the productRef first.',
-);
+import { productRefSchema } from '../schemas';
 
 export function registerInventoryTools(server: McpServer, services: InventoryMcpServices) {
   server.registerTool(

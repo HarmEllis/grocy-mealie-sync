@@ -2,10 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { MappingMcpServices } from '../contracts';
 import { createJsonTextContent, createOkResult, formatCountMessage } from '../helpers';
-
-const verifiedGrocyUnitIdSchema = z.number().int().positive().describe(
-  'Verified existing Grocy unit id only. Inspect units.list_catalog first and stop if the correct unit is unclear.',
-);
+import { verifiedGrocyUnitIdSchema } from '../schemas';
 
 export function registerMappingTools(server: McpServer, services: MappingMcpServices) {
   server.registerTool(
