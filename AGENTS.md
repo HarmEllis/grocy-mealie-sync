@@ -30,6 +30,8 @@ When asked to prepare or create a new release tag, complete all of the steps bel
    - only proceed when the user explicitly approves the push
    - when approved, push the release commit and the new `v<x.y.z>` tag to the remote
    - after the push succeeds, create or update a GitHub draft release for `v<x.y.z>` using the new changelog section as the release notes
+   - if any push, GitHub CLI auth, or GitHub release command fails in a way that may be caused by sandbox/network restrictions, retry that command with escalated permissions before concluding that auth or connectivity is actually broken
+   - prefer validating `gh` authentication and running the GitHub release command outside the sandbox when the first sandboxed attempt is inconclusive or reports credential/network problems
    - if the user does not approve, stop after the local release commit/tag and report that the release has not been pushed or drafted on GitHub
 
 ## Version Format
