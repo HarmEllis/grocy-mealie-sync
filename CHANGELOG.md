@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.8.0] - 2026-04-04
+
+This minor release expands the MCP operational workflow with Grocy catalog management, deeper inventory entry controls, and more complete action-history coverage for write operations.
+
+### Added
+
+- MCP catalog CRUD tools for Grocy locations and product groups, so storage metadata can be managed directly from the MCP surface.
+- MCP inventory entry listing, direct entry lookup, and entry update tools for more precise Grocy stock corrections.
+- Action-history tracking for conversion create/delete operations to close the remaining audit gap for MCP mutations.
+
+### Changed
+
+- Duplicate-prevention outcomes across product, unit, conversion, and shopping mutations now return `status: "skipped"` so MCP clients can distinguish no-op safeguards from successful writes.
+- Shared MCP schemas and helpers are centralized, and inventory/unit follow-up flows now preserve product context more consistently after mutations.
+
+### Fixed
+
+- Unit and inventory follow-up handling is tighter when previous operations reuse resolved product references, reducing stale-target behavior in chained MCP actions.
+
 ## [1.7.0] - 2026-04-03
 
 This minor release adds a products listing MCP tool with stock and mapping filters, enriches product details with location, product group, and unit names, and extends the stock settings update tool to cover location, product group, and move-on-open fields.
@@ -172,7 +191,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
-[1.7.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.6.0...v1.7.0
+[1.8.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.4.0...v1.5.0

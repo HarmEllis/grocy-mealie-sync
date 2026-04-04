@@ -15,7 +15,7 @@ When asked to prepare or create a new release tag, complete all of the steps bel
    - summarize the changes since the previous tag in concise release notes
    - group entries under `Added`, `Changed`, and `Fixed` when that structure fits the changes
    - add or update the bottom comparison link so the new version compares `<previous-tag>...v<x.y.z>`
-3. Bump the app version in `package.json` to the new release version. Keep `package-lock.json` in sync if its mirrored version fields change.
+3. Bump the app version in `package.json` to the new release version. Keep `package-lock.json` in sync as well, including its top-level `version` and the root package entry at `packages[""].version` when those mirrored fields change.
 4. Generate a fresh docs screenshot with `npm run docs:screenshot` and include the updated `docs/images/app-dashboard.png` in the release changes.
 5. Verify Drizzle migration completeness before tagging:
    - run `npm run db:generate`
