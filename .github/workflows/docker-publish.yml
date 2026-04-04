@@ -12,6 +12,7 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: read
   packages: write
   id-token: write # Required for cosign keyless signing (OIDC)
@@ -20,7 +21,66 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  verify-ci:
+    runs-on: ubuntu-24.04
+    outputs:
+      ref: ${{ steps.version.outputs.tag }}
+      commit_sha: ${{ steps.resolve_commit.outputs.sha }}
+
+    steps:
+      - name: Resolve version tag
+        id: version
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve tagged commit
+        id: resolve_commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ref_json="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}")"
+          object_type="$(printf '%s' "$ref_json" | jq -r '.object.type')"
+          object_sha="$(printf '%s' "$ref_json" | jq -r '.object.sha')"
+
+          if [ "$object_type" = "tag" ]; then
+            object_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${object_sha}" --jq '.object.sha')"
+          fi
+
+          echo "sha=${object_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Require successful CI workflow for tagged commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ steps.resolve_commit.outputs.sha }}
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          runs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?event=push&status=completed&head_sha=${TARGET_SHA}&per_page=100")"
+          success_count="$(printf '%s' "$runs_json" | jq '[.workflow_runs[] | select(.name == "CI" and .head_sha == "'"${TARGET_SHA}"'" and .conclusion == "success")] | length')"
+
+          if [ "$success_count" -eq 0 ]; then
+            matching_runs="$(printf '%s' "$runs_json" | jq -r '[.workflow_runs[] | select(.name == "CI" and .head_sha == "'"${TARGET_SHA}"'") | "\(.id):\(.status)/\(.conclusion)"] | join(", ")')"
+            if [ -z "$matching_runs" ]; then
+              matching_runs="none"
+            fi
+
+            echo "No successful CI workflow run found for ${TAG} (${TARGET_SHA}). Matching CI runs: ${matching_runs}" >&2
+            echo "Push the release commit to main, wait for CI to pass on that exact commit, and only then push the release tag." >&2
+            exit 1
+          fi
+
   prepare:
+    needs: verify-ci
     runs-on: ubuntu-24.04
     outputs:
       ref: ${{ steps.version.outputs.tag }}

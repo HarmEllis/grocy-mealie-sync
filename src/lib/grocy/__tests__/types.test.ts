@@ -23,7 +23,7 @@ describe('updateGrocyEntity', () => {
     mockState.putObject.mockReset();
   });
 
-  it('merges partial product updates onto the current Grocy product before PUT', async () => {
+  it('merges the current editable product fields onto partial updates before PUT', async () => {
     mockState.getObject.mockResolvedValue({
       id: 101,
       name: 'Gezeefde tomaten',
@@ -41,12 +41,18 @@ describe('updateGrocyEntity', () => {
     await updateGrocyEntity('products', 101, { name: 'Gepelde tomaten' });
 
     expect(mockState.getObject).toHaveBeenCalledWith('products', 101);
-    expect(mockState.putObject).toHaveBeenCalledWith('products', 101, {
+    expect(mockState.putObject).toHaveBeenCalledWith('products', 101, expect.objectContaining({
       name: 'Gepelde tomaten',
+      description: null,
       qu_id_purchase: 10,
       qu_id_stock: 10,
       min_stock_amount: 0,
       location_id: 1,
-    });
+      shopping_location_id: null,
+    }));
+
+    const payload = mockState.putObject.mock.calls[0]?.[2];
+    expect(payload).not.toHaveProperty('row_created_timestamp');
+    expect(payload).not.toHaveProperty('userfields');
   });
 });

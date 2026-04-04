@@ -24,11 +24,14 @@ When asked to prepare or create a new release tag, complete all of the steps bel
    - create or migrate a database with the code at `<previous-tag>` in a temporary, non-destructive setup such as a separate git worktree
    - run the current code against that same database and confirm the app's startup migrations complete successfully
    - add or update targeted migration coverage when needed so release prep tests the specific upgrade path introduced since `<previous-tag>`
-7. Verify the release-prep edits before tagging. At minimum, run `npm run typecheck`, `npm test -- src/lib/db/__tests__/migrations.test.ts`, and any targeted tests needed for files touched during the release prep.
+7. Verify the release-prep edits before tagging. At minimum, run `npm run typecheck`, `npm test`, `npm test -- src/lib/db/__tests__/migrations.test.ts`, and any targeted tests needed for files touched during the release prep.
 8. Create the git tag only after the changelog, screenshot, version bump, and migration verification are all committed-ready.
 9. As the final release step, ask the user whether to push the release.
    - only proceed when the user explicitly approves the push
-   - when approved, push the release commit and the new `v<x.y.z>` tag to the remote
+   - when approved, push the release commit to `main` first, but do not push the new `v<x.y.z>` tag yet
+   - wait for the `CI` workflow for that exact release commit on `main` to complete successfully before pushing the tag
+   - if the `CI` workflow fails, is cancelled, or never reaches a successful conclusion, stop and do not push the tag or create the GitHub draft release
+   - only after that successful `CI` run may the new `v<x.y.z>` tag be pushed to the remote
    - after the push succeeds, create or update a GitHub draft release for `v<x.y.z>` using the new changelog section as the release notes body, but omit the `## [x.y.z] - YYYY-MM-DD` heading from the body itself
    - keep the short introductory summary paragraph from the changelog section at the top of the GitHub release notes body, before any `### Added`, `### Changed`, or `### Fixed` headings
    - always end the GitHub release notes with `**Full Changelog**: https://github.com/HarmEllis/grocy-mealie-sync/compare/<previous-tag>...v<x.y.z>`

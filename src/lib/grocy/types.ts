@@ -167,7 +167,7 @@ export interface CreateQuantityUnitConversionBody {
 /** Fields accepted when updating a Grocy product (partial). */
 export interface UpdateProductBody {
     name?: string;
-    description?: string;
+    description?: string | null;
     min_stock_amount?: number;
     qu_id_purchase?: number;
     qu_id_stock?: number;
@@ -188,7 +188,7 @@ export interface UpdateProductBody {
 export interface UpdateQuantityUnitBody {
   name?: string;
   name_plural?: string;
-  description?: string;
+  description?: string | null;
   plural_forms?: string;
 }
 
