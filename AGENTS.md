@@ -26,6 +26,11 @@ When asked to prepare or create a new release tag, complete all of the steps bel
    - add or update targeted migration coverage when needed so release prep tests the specific upgrade path introduced since `<previous-tag>`
 7. Verify the release-prep edits before tagging. At minimum, run `npm run typecheck`, `npm test -- src/lib/db/__tests__/migrations.test.ts`, and any targeted tests needed for files touched during the release prep.
 8. Create the git tag only after the changelog, screenshot, version bump, and migration verification are all committed-ready.
+9. As the final release step, ask the user whether to push the release.
+   - only proceed when the user explicitly approves the push
+   - when approved, push the release commit and the new `v<x.y.z>` tag to the remote
+   - after the push succeeds, create or update a GitHub draft release for `v<x.y.z>` using the new changelog section as the release notes
+   - if the user does not approve, stop after the local release commit/tag and report that the release has not been pushed or drafted on GitHub
 
 ## Version Format
 
