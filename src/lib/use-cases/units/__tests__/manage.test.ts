@@ -3,6 +3,8 @@ import {
   compareUnits,
   createGrocyUnit,
   createMealieUnit,
+  deleteGrocyUnit,
+  deleteMealieUnit,
   getUnitCatalog,
   updateGrocyUnitMetadata,
   updateMealieUnitMetadata,
@@ -359,6 +361,245 @@ describe('unit management use-cases', () => {
       notes: [
         'The Mealie unit aliases overlap with the Grocy unit naming.',
       ],
+    });
+  });
+
+  it('blocks deleting a Grocy unit when it is still in use', async () => {
+    const deleteGrocyUnitDep = vi.fn(async () => undefined);
+
+    const result = await deleteGrocyUnit(
+      {
+        grocyUnitId: 10,
+      },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        getGrocyUnit: vi.fn(async () => ({
+          id: 10,
+          name: 'Litre',
+        })),
+        deleteGrocyUnit: deleteGrocyUnitDep,
+        listUnitMappings: vi.fn(async () => [
+          {
+            id: 'unit-map-1',
+            mealieUnitId: 'unit-1',
+            mealieUnitName: 'Liter',
+            mealieUnitAbbreviation: 'l',
+            grocyUnitId: 10,
+            grocyUnitName: 'Litre',
+            conversionFactor: 1,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ]),
+        listGrocyProducts: vi.fn(async () => [
+          {
+            id: 101,
+            name: 'Milk',
+            qu_id_purchase: 10,
+            qu_id_stock: 10,
+          },
+        ] as any),
+        listGrocyConversions: vi.fn(async () => [
+          {
+            id: 5,
+            from_qu_id: 10,
+            to_qu_id: 11,
+            factor: 1,
+          },
+        ] as any),
+      },
+    );
+
+    expect(deleteGrocyUnitDep).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      deleted: false,
+      blocked: true,
+      grocyUnitId: 10,
+      grocyUnitName: 'Litre',
+    });
+    expect(result.blockers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        source: 'unit_mapping',
+        reference: 'unit-map-1',
+      }),
+      expect.objectContaining({
+        source: 'grocy_product_purchase_unit',
+        reference: 'grocy:101',
+      }),
+      expect.objectContaining({
+        source: 'grocy_product_stock_unit',
+        reference: 'grocy:101',
+      }),
+      expect.objectContaining({
+        source: 'grocy_conversion_from_unit',
+        reference: 'conversion:5',
+      }),
+    ]));
+  });
+
+  it('deletes a Grocy unit when it has no references', async () => {
+    const deleteGrocyUnitDep = vi.fn(async () => undefined);
+
+    const result = await deleteGrocyUnit(
+      {
+        grocyUnitId: 10,
+      },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        getGrocyUnit: vi.fn(async () => ({
+          id: 10,
+          name: 'Litre',
+        })),
+        deleteGrocyUnit: deleteGrocyUnitDep,
+        listUnitMappings: vi.fn(async () => []),
+        listGrocyProducts: vi.fn(async () => []),
+        listGrocyConversions: vi.fn(async () => []),
+      },
+    );
+
+    expect(deleteGrocyUnitDep).toHaveBeenCalledWith(10);
+    expect(result).toEqual({
+      deleted: true,
+      blocked: false,
+      grocyUnitId: 10,
+      grocyUnitName: 'Litre',
+      blockers: [],
+    });
+  });
+
+  it('blocks deleting a Mealie unit when a shopping item still uses it', async () => {
+    const deleteMealieUnitDep = vi.fn(async () => undefined);
+    const getMealieRecipe = vi.fn();
+
+    const result = await deleteMealieUnit(
+      {
+        mealieUnitId: 'unit-1',
+      },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        getMealieUnit: vi.fn(async () => ({
+          id: 'unit-1',
+          name: 'Liter',
+        })),
+        deleteMealieUnit: deleteMealieUnitDep,
+        listUnitMappings: vi.fn(async () => []),
+        listMealieShoppingItems: vi.fn(async () => [
+          {
+            id: 'item-1',
+            unitId: 'unit-1',
+            display: 'Milk',
+          },
+        ] as any),
+        listMealieRecipeSummaries: vi.fn(async () => []),
+        getMealieRecipe,
+      },
+    );
+
+    expect(deleteMealieUnitDep).not.toHaveBeenCalled();
+    expect(getMealieRecipe).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      deleted: false,
+      blocked: true,
+      mealieUnitId: 'unit-1',
+      mealieUnitName: 'Liter',
+      blockers: [
+        {
+          source: 'mealie_shopping_item',
+          reference: 'item-1',
+          message: 'Mealie shopping item "Milk" uses this unit.',
+        },
+      ],
+    });
+  });
+
+  it('blocks deleting a Mealie unit when a recipe ingredient still uses it', async () => {
+    const deleteMealieUnitDep = vi.fn(async () => undefined);
+
+    const result = await deleteMealieUnit(
+      {
+        mealieUnitId: 'unit-1',
+      },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        getMealieUnit: vi.fn(async () => ({
+          id: 'unit-1',
+          name: 'Liter',
+        })),
+        deleteMealieUnit: deleteMealieUnitDep,
+        listUnitMappings: vi.fn(async () => []),
+        listMealieShoppingItems: vi.fn(async () => []),
+        listMealieRecipeSummaries: vi.fn(async () => [
+          {
+            id: 'recipe-1',
+            slug: 'pancakes',
+            name: 'Pancakes',
+          },
+        ]),
+        getMealieRecipe: vi.fn(async () => ({
+          id: 'recipe-1',
+          slug: 'pancakes',
+          name: 'Pancakes',
+          recipeIngredient: [
+            {
+              unit: {
+                id: 'unit-1',
+                name: 'Liter',
+              },
+            },
+          ],
+        })),
+      },
+    );
+
+    expect(deleteMealieUnitDep).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      deleted: false,
+      blocked: true,
+      mealieUnitId: 'unit-1',
+      mealieUnitName: 'Liter',
+      blockers: [
+        {
+          source: 'mealie_recipe',
+          reference: 'pancakes',
+          message: 'Mealie recipe "Pancakes" uses this unit in an ingredient.',
+        },
+      ],
+    });
+  });
+
+  it('deletes a Mealie unit when it has no references', async () => {
+    const deleteMealieUnitDep = vi.fn(async () => undefined);
+
+    const result = await deleteMealieUnit(
+      {
+        mealieUnitId: 'unit-1',
+      },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        getMealieUnit: vi.fn(async () => ({
+          id: 'unit-1',
+          name: 'Liter',
+        })),
+        deleteMealieUnit: deleteMealieUnitDep,
+        listUnitMappings: vi.fn(async () => []),
+        listMealieShoppingItems: vi.fn(async () => []),
+        listMealieRecipeSummaries: vi.fn(async () => []),
+        getMealieRecipe: vi.fn(),
+      },
+    );
+
+    expect(deleteMealieUnitDep).toHaveBeenCalledWith('unit-1');
+    expect(result).toEqual({
+      deleted: true,
+      blocked: false,
+      mealieUnitId: 'unit-1',
+      mealieUnitName: 'Liter',
+      blockers: [],
     });
   });
 });

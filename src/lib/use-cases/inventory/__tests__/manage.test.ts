@@ -4,9 +4,12 @@ import type { ProductOverview } from '@/lib/use-cases/products/catalog';
 import {
   addStock,
   consumeStock,
+  getInventoryEntry,
   getInventoryStock,
+  listInventoryEntries,
   markStockOpened,
   setStock,
+  updateInventoryEntry,
 } from '../manage';
 
 const baseOverview: ProductOverview = {
@@ -302,5 +305,214 @@ describe('inventory use-cases', () => {
       name: 'Milk',
       amount: 2,
     });
+  });
+
+  it('lists stock entries for a product reference', async () => {
+    const result = await listInventoryEntries(
+      { productRef: 'mapping:map-1' },
+      {
+        getProductOverview: vi.fn(async () => baseOverview),
+        getProductStockEntries: vi.fn(async () => [
+          {
+            id: 2,
+            product_id: 101,
+            location_id: 1,
+            amount: 1,
+            best_before_date: '2026-04-10',
+            open: 0,
+          },
+          {
+            id: 1,
+            product_id: 101,
+            location_id: 1,
+            amount: 2,
+            best_before_date: '2026-04-05',
+            open: 1,
+          },
+        ] as any),
+      },
+    );
+
+    expect(result).toEqual({
+      productRef: 'mapping:map-1',
+      grocyProductId: 101,
+      name: 'Milk',
+      count: 2,
+      entries: [
+        {
+          entryId: 1,
+          productId: 101,
+          locationId: 1,
+          shoppingLocationId: null,
+          amount: 2,
+          bestBeforeDate: '2026-04-05',
+          purchasedDate: null,
+          stockId: null,
+          price: null,
+          open: true,
+          openedDate: null,
+          note: null,
+          rowCreatedTimestamp: null,
+        },
+        {
+          entryId: 2,
+          productId: 101,
+          locationId: 1,
+          shoppingLocationId: null,
+          amount: 1,
+          bestBeforeDate: '2026-04-10',
+          purchasedDate: null,
+          stockId: null,
+          price: null,
+          open: false,
+          openedDate: null,
+          note: null,
+          rowCreatedTimestamp: null,
+        },
+      ],
+    });
+  });
+
+  it('returns an empty stock-entry list when a product has no entries', async () => {
+    const result = await listInventoryEntries(
+      { productRef: 'mapping:map-1' },
+      {
+        getProductOverview: vi.fn(async () => baseOverview),
+        getProductStockEntries: vi.fn(async () => []),
+      },
+    );
+
+    expect(result).toEqual({
+      productRef: 'mapping:map-1',
+      grocyProductId: 101,
+      name: 'Milk',
+      count: 0,
+      entries: [],
+    });
+  });
+
+  it('loads one inventory entry by id', async () => {
+    const result = await getInventoryEntry(
+      { entryId: 12 },
+      {
+        getGrocyStockEntry: vi.fn(async () => ({
+          id: 12,
+          product_id: 101,
+          location_id: 2,
+          shopping_location_id: 3,
+          amount: 1.5,
+          best_before_date: '2026-04-12',
+          purchased_date: '2026-04-01',
+          stock_id: 'stock-12',
+          price: 4.25,
+          open: 1,
+          opened_date: '2026-04-02',
+          note: 'Top shelf',
+          row_created_timestamp: '2026-04-01T10:00:00Z',
+        })),
+      },
+    );
+
+    expect(result).toEqual({
+      entry: {
+        entryId: 12,
+        productId: 101,
+        locationId: 2,
+        shoppingLocationId: 3,
+        amount: 1.5,
+        bestBeforeDate: '2026-04-12',
+        purchasedDate: '2026-04-01',
+        stockId: 'stock-12',
+        price: 4.25,
+        open: true,
+        openedDate: '2026-04-02',
+        note: 'Top shelf',
+        rowCreatedTimestamp: '2026-04-01T10:00:00Z',
+      },
+    });
+  });
+
+  it('updates one inventory entry using the explicit editable allowlist', async () => {
+    const updateGrocyStockEntry = vi.fn(async () => undefined);
+
+    const result = await updateInventoryEntry(
+      {
+        entryId: 12,
+        amount: 2,
+        bestBeforeDate: '2026-04-15',
+        price: 4.5,
+        open: true,
+        locationId: 4,
+        shoppingLocationId: 8,
+        purchasedDate: '2026-04-03',
+      },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        updateGrocyStockEntry,
+        getGrocyStockEntry: vi.fn(async () => ({
+          id: 12,
+          product_id: 101,
+          location_id: 4,
+          shopping_location_id: 8,
+          amount: 2,
+          best_before_date: '2026-04-15',
+          purchased_date: '2026-04-03',
+          stock_id: 'stock-12',
+          price: 4.5,
+          open: 1,
+          row_created_timestamp: '2026-04-01T10:00:00Z',
+        })),
+      },
+    );
+
+    expect(updateGrocyStockEntry).toHaveBeenCalledWith(12, {
+      amount: 2,
+      bestBeforeDate: '2026-04-15',
+      price: 4.5,
+      open: true,
+      locationId: 4,
+      shoppingLocationId: 8,
+      purchasedDate: '2026-04-03',
+    });
+    expect(result).toEqual({
+      entryId: 12,
+      updated: {
+        amount: 2,
+        bestBeforeDate: '2026-04-15',
+        price: 4.5,
+        open: true,
+        locationId: 4,
+        shoppingLocationId: 8,
+        purchasedDate: '2026-04-03',
+      },
+      entry: {
+        entryId: 12,
+        productId: 101,
+        locationId: 4,
+        shoppingLocationId: 8,
+        amount: 2,
+        bestBeforeDate: '2026-04-15',
+        purchasedDate: '2026-04-03',
+        stockId: 'stock-12',
+        price: 4.5,
+        open: true,
+        openedDate: null,
+        note: null,
+        rowCreatedTimestamp: '2026-04-01T10:00:00Z',
+      },
+    });
+  });
+
+  it('rejects inventory entry updates when no editable field is provided', async () => {
+    await expect(updateInventoryEntry(
+      { entryId: 12 },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        updateGrocyStockEntry: vi.fn(async () => undefined),
+        getGrocyStockEntry: vi.fn(),
+      },
+    )).rejects.toThrow('Provide at least one editable stock-entry field to update.');
   });
 });

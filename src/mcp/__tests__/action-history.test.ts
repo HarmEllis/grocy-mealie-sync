@@ -31,6 +31,7 @@ vi.mock('@/lib/logger', () => ({
 
 import { createManualHistoryRecorder } from '@/lib/manual-action-history';
 import type {
+  CatalogMcpServices,
   ConversionMcpServices,
   InventoryMcpServices,
   MappingMcpServices,
@@ -39,6 +40,7 @@ import type {
   UnitMcpServices,
 } from '../contracts';
 import {
+  createHistoryWrappedCatalogServices,
   createHistoryWrappedConversionServices,
   createHistoryWrappedInventoryServices,
   createHistoryWrappedMappingServices,
@@ -102,6 +104,8 @@ describe('MCP action history wrappers', () => {
     return {
       getInventoryStock: vi.fn(),
       listLowStockProductsResource: vi.fn(),
+      listInventoryEntries: vi.fn(),
+      getInventoryEntry: vi.fn(),
       addStock: vi.fn(async () => ({
         productRef: 'mapping:map-1',
         grocyProductId: 101,
@@ -114,6 +118,69 @@ describe('MCP action history wrappers', () => {
       consumeStock: vi.fn(),
       setStock: vi.fn(),
       markStockOpened: vi.fn(),
+      updateInventoryEntry: vi.fn(async (): Promise<any> => ({
+        entryId: 12,
+        updated: {
+          amount: 3,
+        },
+        entry: {
+          entryId: 12,
+          amount: 3,
+        },
+      })),
+    };
+  }
+
+  function createBaseCatalogServices(): CatalogMcpServices {
+    return {
+      listGrocyLocations: vi.fn(),
+      listGrocyProductGroups: vi.fn(),
+      createGrocyLocation: vi.fn(async (): Promise<any> => ({
+        created: true,
+        locationId: 2,
+        name: 'Fridge',
+        description: null,
+      })),
+      updateGrocyLocation: vi.fn(async (): Promise<any> => ({
+        locationId: 2,
+        name: 'Fridge',
+        updated: {
+          description: 'Cold storage',
+        },
+      })),
+      deleteGrocyLocation: vi.fn(async (): Promise<any> => ({
+        deleted: false,
+        blocked: true,
+        locationId: 2,
+        name: 'Fridge',
+        blockers: [
+          {
+            source: 'grocy_stock_entry',
+            reference: 'stock-entry:12',
+            message: 'Grocy stock entry #12 is stored in this location.',
+          },
+        ],
+      })),
+      createGrocyProductGroup: vi.fn(async (): Promise<any> => ({
+        created: true,
+        productGroupId: 8,
+        name: 'Frozen',
+        description: null,
+      })),
+      updateGrocyProductGroup: vi.fn(async (): Promise<any> => ({
+        productGroupId: 8,
+        name: 'Frozen',
+        updated: {
+          description: 'Freezer products',
+        },
+      })),
+      deleteGrocyProductGroup: vi.fn(async (): Promise<any> => ({
+        deleted: true,
+        blocked: false,
+        productGroupId: 8,
+        name: 'Frozen',
+        blockers: [],
+      })),
     };
   }
 
@@ -230,6 +297,26 @@ describe('MCP action history wrappers', () => {
       updateMealieUnitMetadata: vi.fn(async (): Promise<any> => ({
         mealieUnitId: 'unit-1',
         name: 'Cup',
+      })),
+      deleteGrocyUnit: vi.fn(async (): Promise<any> => ({
+        deleted: false,
+        blocked: true,
+        grocyUnitId: 10,
+        grocyUnitName: 'Gram',
+        blockers: [
+          {
+            source: 'unit_mapping',
+            reference: 'unit-map-1',
+            message: 'Unit mapping unit-map-1 links this Grocy unit to Mealie unit "Cup".',
+          },
+        ],
+      })),
+      deleteMealieUnit: vi.fn(async (): Promise<any> => ({
+        deleted: true,
+        blocked: false,
+        mealieUnitId: 'unit-1',
+        mealieUnitName: 'Cup',
+        blockers: [],
       })),
     };
   }
@@ -388,6 +475,90 @@ describe('MCP action history wrappers', () => {
         amount: 1,
         error: 'No unopened stock entries remain.',
       },
+    }));
+  });
+
+  it('records inventory entry updates in history', async () => {
+    const baseServices = createBaseInventoryServices();
+    const services = createHistoryWrappedInventoryServices(baseServices);
+
+    const result = await services.updateInventoryEntry({
+      entryId: 12,
+      amount: 3,
+    } as any);
+
+    expect(result.entryId).toBe(12);
+    expect(info).toHaveBeenCalledWith('[MCP] Updated inventory entry 12.');
+    expect(recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'inventory_update_entry',
+      status: 'success',
+      message: 'Updated inventory entry 12.',
+      events: [
+        expect.objectContaining({
+          category: 'inventory',
+          entityKind: null,
+          entityRef: 'stock-entry:12',
+        }),
+      ],
+    }));
+  });
+
+  it('records catalog mutations in history, including skipped deletes', async () => {
+    const baseServices = createBaseCatalogServices();
+    const services = createHistoryWrappedCatalogServices(baseServices);
+
+    await services.createGrocyLocation({ name: 'Fridge' });
+    await services.updateGrocyLocation({ locationId: 2, description: 'Cold storage' });
+    await services.deleteGrocyLocation({ locationId: 2 });
+    await services.createGrocyProductGroup({ name: 'Frozen' });
+    await services.updateGrocyProductGroup({ productGroupId: 8, description: 'Freezer products' });
+    await services.deleteGrocyProductGroup({ productGroupId: 8 });
+
+    const historyRuns = recordHistoryRun.mock.calls.flatMap(call => {
+      const historyRun = call.at(0);
+      return historyRun ? [historyRun as Record<string, unknown>] : [];
+    });
+
+    expect(recordHistoryRun).toHaveBeenCalledTimes(6);
+    expect(historyRuns.map(call => call.action)).toEqual([
+      'catalog_create_location',
+      'catalog_update_location',
+      'catalog_delete_location',
+      'catalog_create_product_group',
+      'catalog_update_product_group',
+      'catalog_delete_product_group',
+    ]);
+    expect(historyRuns.map(call => call.status)).toEqual([
+      'success',
+      'success',
+      'skipped',
+      'success',
+      'success',
+      'success',
+    ]);
+    expect(historyRuns[2]).toEqual(expect.objectContaining({
+      action: 'catalog_delete_location',
+      status: 'skipped',
+      message: 'Skipped deleting Grocy location "Fridge" because it is still in use.',
+      events: [
+        expect.objectContaining({
+          category: 'catalog',
+          entityKind: 'location',
+          entityRef: 'grocy-location:2',
+        }),
+      ],
+    }));
+    expect(historyRuns[5]).toEqual(expect.objectContaining({
+      action: 'catalog_delete_product_group',
+      status: 'success',
+      message: 'Deleted Grocy product group "Frozen".',
+      events: [
+        expect.objectContaining({
+          category: 'catalog',
+          entityKind: 'product_group',
+          entityRef: 'grocy-product-group:8',
+        }),
+      ],
     }));
   });
 
@@ -577,6 +748,51 @@ describe('MCP action history wrappers', () => {
       action: 'mapping_unit_create_mealie',
       status: 'skipped',
       message: 'Skipped Mealie unit creation for "Cup" because an exact duplicate already exists.',
+    }));
+  });
+
+  it('records blocked Grocy unit deletions as skipped history runs', async () => {
+    const baseServices = createBaseUnitServices();
+    const services = createHistoryWrappedUnitServices(baseServices);
+
+    const result = await services.deleteGrocyUnit({
+      grocyUnitId: 10,
+    });
+
+    expect(result.deleted).toBe(false);
+    expect(info).toHaveBeenCalledWith('[MCP] Skipped deleting Grocy unit "Gram" because it is still in use.');
+    expect(recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'unit_delete_grocy',
+      status: 'skipped',
+      message: 'Skipped deleting Grocy unit "Gram" because it is still in use.',
+      events: [
+        expect.objectContaining({
+          level: 'warning',
+          entityRef: 'grocy:10',
+        }),
+      ],
+    }));
+  });
+
+  it('records successful Mealie unit deletions', async () => {
+    const baseServices = createBaseUnitServices();
+    const services = createHistoryWrappedUnitServices(baseServices);
+
+    const result = await services.deleteMealieUnit({
+      mealieUnitId: 'unit-1',
+    });
+
+    expect(result.deleted).toBe(true);
+    expect(info).toHaveBeenCalledWith('[MCP] Deleted Mealie unit "Cup".');
+    expect(recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'unit_delete_mealie',
+      status: 'success',
+      message: 'Deleted Mealie unit "Cup".',
+      events: [
+        expect.objectContaining({
+          entityRef: 'unit-1',
+        }),
+      ],
     }));
   });
 

@@ -5,6 +5,7 @@ import {
 } from '@/lib/manual-action-history';
 import type { HistoryEventInput, HistoryRunAction, HistoryRunStatus } from '@/lib/history-store';
 import type {
+  CatalogMcpServices,
   ConversionMcpServices,
   InventoryMcpServices,
   MappingMcpServices,
@@ -649,6 +650,289 @@ export function createHistoryWrappedInventoryServices(services: InventoryMcpServ
         ],
       }),
     }),
+    updateInventoryEntry: withMcpActionHistory(services.updateInventoryEntry, {
+      action: 'inventory_update_entry',
+      historyErrorPrefix: '[History] Failed to record MCP inventory entry update:',
+      buildSuccess: (result) => ({
+        logMessage: `[MCP] Updated inventory entry ${result.entryId}.`,
+        message: `Updated inventory entry ${result.entryId}.`,
+        summary: result,
+        events: [
+          buildManualHistoryEvent({
+            level: 'info',
+            category: 'inventory',
+            entityKind: null,
+            entityRef: `stock-entry:${result.entryId}`,
+            message: `Updated inventory entry ${result.entryId}.`,
+            details: result,
+          }),
+        ],
+      }),
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Update inventory entry failed:',
+        message: `Updating inventory entry failed: ${formatManualActionError(error)}`,
+        summary: {
+          entryId: params.entryId,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'inventory',
+            null,
+            `stock-entry:${params.entryId}`,
+            'Updating inventory entry failed.',
+            error,
+            { entryId: params.entryId },
+          ),
+        ],
+      }),
+    }),
+  };
+}
+
+export function createHistoryWrappedCatalogServices(services: CatalogMcpServices): CatalogMcpServices {
+  return {
+    ...services,
+    createGrocyLocation: withMcpActionHistory(services.createGrocyLocation, {
+      action: 'catalog_create_location',
+      historyErrorPrefix: '[History] Failed to record MCP location creation:',
+      buildSuccess: (result) => ({
+        logMessage: `[MCP] Created Grocy location "${result.name}".`,
+        message: `Created Grocy location "${result.name}".`,
+        summary: result,
+        events: [
+          buildManualHistoryEvent({
+            level: 'info',
+            category: 'catalog',
+            entityKind: 'location',
+            entityRef: `grocy-location:${result.locationId}`,
+            message: `Created Grocy location "${result.name}".`,
+            details: result,
+          }),
+        ],
+      }),
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Create Grocy location failed:',
+        message: `Grocy location creation failed: ${formatManualActionError(error)}`,
+        summary: {
+          name: params.name,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'catalog',
+            'location',
+            params.name,
+            'Grocy location creation failed.',
+            error,
+            { name: params.name },
+          ),
+        ],
+      }),
+    }),
+    updateGrocyLocation: withMcpActionHistory(services.updateGrocyLocation, {
+      action: 'catalog_update_location',
+      historyErrorPrefix: '[History] Failed to record MCP location update:',
+      buildSuccess: (result) => ({
+        logMessage: `[MCP] Updated Grocy location "${result.name}".`,
+        message: `Updated Grocy location "${result.name}".`,
+        summary: result,
+        events: [
+          buildManualHistoryEvent({
+            level: 'info',
+            category: 'catalog',
+            entityKind: 'location',
+            entityRef: `grocy-location:${result.locationId}`,
+            message: `Updated Grocy location "${result.name}".`,
+            details: result,
+          }),
+        ],
+      }),
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Update Grocy location failed:',
+        message: `Grocy location update failed: ${formatManualActionError(error)}`,
+        summary: {
+          locationId: params.locationId,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'catalog',
+            'location',
+            `grocy-location:${params.locationId}`,
+            'Grocy location update failed.',
+            error,
+            { locationId: params.locationId },
+          ),
+        ],
+      }),
+    }),
+    deleteGrocyLocation: withMcpActionHistory(services.deleteGrocyLocation, {
+      action: 'catalog_delete_location',
+      historyErrorPrefix: '[History] Failed to record MCP location deletion:',
+      buildSuccess: (result) => {
+        const message = result.deleted
+          ? `Deleted Grocy location "${result.name}".`
+          : `Skipped deleting Grocy location "${result.name}" because it is still in use.`;
+
+        return {
+          status: result.deleted ? 'success' : 'skipped',
+          logMessage: result.deleted
+            ? `[MCP] Deleted Grocy location "${result.name}".`
+            : `[MCP] Skipped deleting Grocy location "${result.name}" because it is still in use.`,
+          message,
+          summary: result,
+          events: [
+            buildManualHistoryEvent({
+              level: 'info',
+              category: 'catalog',
+              entityKind: 'location',
+              entityRef: `grocy-location:${result.locationId}`,
+              message,
+              details: result,
+            }),
+          ],
+        };
+      },
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Delete Grocy location failed:',
+        message: `Grocy location deletion failed: ${formatManualActionError(error)}`,
+        summary: {
+          locationId: params.locationId,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'catalog',
+            'location',
+            `grocy-location:${params.locationId}`,
+            'Grocy location deletion failed.',
+            error,
+            { locationId: params.locationId },
+          ),
+        ],
+      }),
+    }),
+    createGrocyProductGroup: withMcpActionHistory(services.createGrocyProductGroup, {
+      action: 'catalog_create_product_group',
+      historyErrorPrefix: '[History] Failed to record MCP product group creation:',
+      buildSuccess: (result) => ({
+        logMessage: `[MCP] Created Grocy product group "${result.name}".`,
+        message: `Created Grocy product group "${result.name}".`,
+        summary: result,
+        events: [
+          buildManualHistoryEvent({
+            level: 'info',
+            category: 'catalog',
+            entityKind: 'product_group',
+            entityRef: `grocy-product-group:${result.productGroupId}`,
+            message: `Created Grocy product group "${result.name}".`,
+            details: result,
+          }),
+        ],
+      }),
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Create Grocy product group failed:',
+        message: `Grocy product group creation failed: ${formatManualActionError(error)}`,
+        summary: {
+          name: params.name,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'catalog',
+            'product_group',
+            params.name,
+            'Grocy product group creation failed.',
+            error,
+            { name: params.name },
+          ),
+        ],
+      }),
+    }),
+    updateGrocyProductGroup: withMcpActionHistory(services.updateGrocyProductGroup, {
+      action: 'catalog_update_product_group',
+      historyErrorPrefix: '[History] Failed to record MCP product group update:',
+      buildSuccess: (result) => ({
+        logMessage: `[MCP] Updated Grocy product group "${result.name}".`,
+        message: `Updated Grocy product group "${result.name}".`,
+        summary: result,
+        events: [
+          buildManualHistoryEvent({
+            level: 'info',
+            category: 'catalog',
+            entityKind: 'product_group',
+            entityRef: `grocy-product-group:${result.productGroupId}`,
+            message: `Updated Grocy product group "${result.name}".`,
+            details: result,
+          }),
+        ],
+      }),
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Update Grocy product group failed:',
+        message: `Grocy product group update failed: ${formatManualActionError(error)}`,
+        summary: {
+          productGroupId: params.productGroupId,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'catalog',
+            'product_group',
+            `grocy-product-group:${params.productGroupId}`,
+            'Grocy product group update failed.',
+            error,
+            { productGroupId: params.productGroupId },
+          ),
+        ],
+      }),
+    }),
+    deleteGrocyProductGroup: withMcpActionHistory(services.deleteGrocyProductGroup, {
+      action: 'catalog_delete_product_group',
+      historyErrorPrefix: '[History] Failed to record MCP product group deletion:',
+      buildSuccess: (result) => {
+        const message = result.deleted
+          ? `Deleted Grocy product group "${result.name}".`
+          : `Skipped deleting Grocy product group "${result.name}" because it is still in use.`;
+
+        return {
+          status: result.deleted ? 'success' : 'skipped',
+          logMessage: result.deleted
+            ? `[MCP] Deleted Grocy product group "${result.name}".`
+            : `[MCP] Skipped deleting Grocy product group "${result.name}" because it is still in use.`,
+          message,
+          summary: result,
+          events: [
+            buildManualHistoryEvent({
+              level: 'info',
+              category: 'catalog',
+              entityKind: 'product_group',
+              entityRef: `grocy-product-group:${result.productGroupId}`,
+              message,
+              details: result,
+            }),
+          ],
+        };
+      },
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Delete Grocy product group failed:',
+        message: `Grocy product group deletion failed: ${formatManualActionError(error)}`,
+        summary: {
+          productGroupId: params.productGroupId,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'catalog',
+            'product_group',
+            `grocy-product-group:${params.productGroupId}`,
+            'Grocy product group deletion failed.',
+            error,
+            { productGroupId: params.productGroupId },
+          ),
+        ],
+      }),
+    }),
   };
 }
 
@@ -1251,6 +1535,100 @@ export function createHistoryWrappedUnitServices(services: UnitMcpServices): Uni
             'unit',
             params.mealieUnitId,
             'Updating the Mealie unit failed.',
+            error,
+            { mealieUnitId: params.mealieUnitId },
+          ),
+        ],
+      }),
+    }),
+    deleteGrocyUnit: withMcpActionHistory(services.deleteGrocyUnit, {
+      action: 'unit_delete_grocy',
+      historyErrorPrefix: '[History] Failed to record MCP Grocy unit deletion:',
+      buildSuccess: (result) => {
+        const unitLabel = result.grocyUnitName ?? `#${result.grocyUnitId}`;
+        const message = result.deleted
+          ? `Deleted Grocy unit "${unitLabel}".`
+          : `Skipped deleting Grocy unit "${unitLabel}" because it is still in use.`;
+
+        return {
+          status: result.deleted ? 'success' : 'skipped',
+          logMessage: result.deleted
+            ? `[MCP] Deleted Grocy unit "${unitLabel}".`
+            : `[MCP] Skipped deleting Grocy unit "${unitLabel}" because it is still in use.`,
+          message,
+          summary: result,
+          events: [
+            buildManualHistoryEvent({
+              level: result.deleted ? 'info' : 'warning',
+              category: 'mapping',
+              entityKind: 'unit',
+              entityRef: `grocy:${result.grocyUnitId}`,
+              message,
+              details: result,
+            }),
+          ],
+        };
+      },
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Delete Grocy unit failed:',
+        message: `Deleting the Grocy unit failed: ${formatManualActionError(error)}`,
+        summary: {
+          grocyUnitId: params.grocyUnitId,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'mapping',
+            'unit',
+            `grocy:${params.grocyUnitId}`,
+            'Deleting the Grocy unit failed.',
+            error,
+            { grocyUnitId: params.grocyUnitId },
+          ),
+        ],
+      }),
+    }),
+    deleteMealieUnit: withMcpActionHistory(services.deleteMealieUnit, {
+      action: 'unit_delete_mealie',
+      historyErrorPrefix: '[History] Failed to record MCP Mealie unit deletion:',
+      buildSuccess: (result) => {
+        const unitLabel = result.mealieUnitName ?? result.mealieUnitId;
+        const message = result.deleted
+          ? `Deleted Mealie unit "${unitLabel}".`
+          : `Skipped deleting Mealie unit "${unitLabel}" because it is still in use.`;
+
+        return {
+          status: result.deleted ? 'success' : 'skipped',
+          logMessage: result.deleted
+            ? `[MCP] Deleted Mealie unit "${unitLabel}".`
+            : `[MCP] Skipped deleting Mealie unit "${unitLabel}" because it is still in use.`,
+          message,
+          summary: result,
+          events: [
+            buildManualHistoryEvent({
+              level: result.deleted ? 'info' : 'warning',
+              category: 'mapping',
+              entityKind: 'unit',
+              entityRef: result.mealieUnitId,
+              message,
+              details: result,
+            }),
+          ],
+        };
+      },
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Delete Mealie unit failed:',
+        message: `Deleting the Mealie unit failed: ${formatManualActionError(error)}`,
+        summary: {
+          mealieUnitId: params.mealieUnitId,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'mapping',
+            'unit',
+            params.mealieUnitId,
+            'Deleting the Mealie unit failed.',
             error,
             { mealieUnitId: params.mealieUnitId },
           ),

@@ -3,9 +3,12 @@ import packageJson from '../../package.json';
 import {
   addStock,
   consumeStock,
+  getInventoryEntry,
   getInventoryStock,
+  listInventoryEntries,
   markStockOpened,
   setStock,
+  updateInventoryEntry,
 } from '@/lib/use-cases/inventory/manage';
 import {
   getHistoryRunResource,
@@ -30,9 +33,15 @@ import {
   listProducts,
 } from '@/lib/use-cases/products/list';
 import {
+  createGrocyLocation,
+  createGrocyProductGroup,
+  deleteGrocyLocation,
+  deleteGrocyProductGroup,
   listGrocyLocations,
   listGrocyProductGroups,
-} from '@/lib/use-cases/catalog/read';
+  updateGrocyLocation,
+  updateGrocyProductGroup,
+} from '@/lib/use-cases/catalog/manage';
 import {
   createProductInGrocy,
   createProductInMealie,
@@ -64,6 +73,8 @@ import {
   compareUnits,
   createGrocyUnit,
   createMealieUnit,
+  deleteGrocyUnit,
+  deleteMealieUnit,
   getUnitCatalog,
   normalizeMappedUnits,
   updateGrocyUnitMetadata,
@@ -77,6 +88,7 @@ import {
 import { explainProductState } from '@/lib/use-cases/diagnostics/explain';
 import type { GrocyMealieSyncMcpServiceOverrides, GrocyMealieSyncMcpServices } from './contracts';
 import {
+  createHistoryWrappedCatalogServices,
   createHistoryWrappedConversionServices,
   createHistoryWrappedInventoryServices,
   createHistoryWrappedMappingServices,
@@ -88,6 +100,7 @@ import { registerCorePrompts } from './prompts/core';
 import { registerCoreResources } from './resources/core';
 import { registerHistoryResources } from './resources/history';
 import { registerInventoryResources } from './resources/inventory';
+import { registerCatalogResources } from './resources/catalog';
 import { registerProductResources } from './resources/products';
 import { registerShoppingResources } from './resources/shopping';
 import { registerUnitResources } from './resources/units';
@@ -132,10 +145,13 @@ export function createGrocyMealieSyncMcpServer(
   const defaultInventoryServices = createHistoryWrappedInventoryServices({
     getInventoryStock,
     listLowStockProductsResource,
+    listInventoryEntries,
+    getInventoryEntry,
     addStock,
     consumeStock,
     setStock,
     markStockOpened,
+    updateInventoryEntry,
   });
 
   const defaultMappingServices = createHistoryWrappedMappingServices({
@@ -159,6 +175,8 @@ export function createGrocyMealieSyncMcpServer(
     normalizeMappedUnits,
     updateGrocyUnitMetadata,
     updateMealieUnitMetadata,
+    deleteGrocyUnit,
+    deleteMealieUnit,
   });
 
   const services: GrocyMealieSyncMcpServices = {
@@ -218,8 +236,16 @@ export function createGrocyMealieSyncMcpServer(
       ...overrides.diagnostics,
     },
     catalog: {
-      listGrocyLocations,
-      listGrocyProductGroups,
+      ...createHistoryWrappedCatalogServices({
+        listGrocyLocations,
+        listGrocyProductGroups,
+        createGrocyLocation,
+        updateGrocyLocation,
+        deleteGrocyLocation,
+        createGrocyProductGroup,
+        updateGrocyProductGroup,
+        deleteGrocyProductGroup,
+      }),
       ...overrides.catalog,
     },
   };
@@ -244,6 +270,7 @@ export function createGrocyMealieSyncMcpServer(
   registerProductResources(server, services.products);
   registerShoppingResources(server, services.shopping);
   registerInventoryResources(server, services.inventory);
+  registerCatalogResources(server, services.catalog);
   registerUnitResources(server, services.units);
   registerHistoryResources(server, services.history);
 

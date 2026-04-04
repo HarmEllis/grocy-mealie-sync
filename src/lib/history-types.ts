@@ -30,10 +30,19 @@ export const historyRunActions = [
   'mapping_unit_delete_orphans',
   'unit_update_grocy',
   'unit_update_mealie',
+  'unit_delete_grocy',
+  'unit_delete_mealie',
+  'catalog_create_location',
+  'catalog_update_location',
+  'catalog_delete_location',
+  'catalog_create_product_group',
+  'catalog_update_product_group',
+  'catalog_delete_product_group',
   'inventory_add_stock',
   'inventory_consume_stock',
   'inventory_set_stock',
   'inventory_mark_opened',
+  'inventory_update_entry',
   'shopping_add_item',
   'shopping_update_item',
   'shopping_update_unit',
@@ -57,11 +66,14 @@ export type HistoryEventCategory =
   | 'lock'
   | 'system'
   | 'product'
+  | 'catalog'
   | 'inventory'
   | 'shopping';
 export type HistoryEventEntityKind =
   | 'product'
   | 'unit'
+  | 'location'
+  | 'product_group'
   | 'shopping_item'
   | 'conflict'
   | 'lock'

@@ -12,6 +12,7 @@
 // the grocy/index.ts barrel would hit the placeholder 'xxx' base URL.
 import './init';
 import { GenericEntityInteractionsService, StockService } from './client';
+import type { StockEntry } from './client/models/StockEntry';
 import type { Product } from './client/models/Product';
 import type { ProductGroup } from './client/models/ProductGroup';
 import type { QuantityUnit } from './client/models/QuantityUnit';
@@ -39,6 +40,7 @@ export type GrocyListableEntity =
 /** Entity names used for creation/editing (postObjects, putObjects). */
 export type GrocyEditableEntity =
   | 'products'
+  | 'product_groups'
   | 'quantity_units'
   | 'quantity_unit_conversions'
   | 'locations'
@@ -47,6 +49,7 @@ export type GrocyEditableEntity =
 /** Entity names used for deletion (deleteObjects). */
 export type GrocyDeletableEntity =
   | 'products'
+  | 'product_groups'
   | 'quantity_units'
   | 'quantity_unit_conversions'
   | 'locations'
@@ -91,6 +94,10 @@ const EDITABLE_ENTITY_FIELDS = {
     'should_not_be_frozen',
     'default_consume_location_id',
     'move_on_open',
+  ],
+  product_groups: [
+    'name',
+    'description',
   ],
   quantity_units: [
     'name',
@@ -137,6 +144,18 @@ export interface CreateQuantityUnitBody {
   plural_forms?: string;
 }
 
+/** Fields accepted when creating a Grocy location. */
+export interface CreateLocationBody {
+  name: string;
+  description?: string | null;
+}
+
+/** Fields accepted when creating a Grocy product group. */
+export interface CreateProductGroupBody {
+  name: string;
+  description?: string | null;
+}
+
 /** Fields accepted when creating a Grocy quantity unit conversion. */
 export interface CreateQuantityUnitConversionBody {
   from_qu_id: number;
@@ -173,6 +192,18 @@ export interface UpdateQuantityUnitBody {
   plural_forms?: string;
 }
 
+/** Fields accepted when updating a Grocy location (partial). */
+export interface UpdateLocationBody {
+  name?: string;
+  description?: string | null;
+}
+
+/** Fields accepted when updating a Grocy product group (partial). */
+export interface UpdateProductGroupBody {
+  name?: string;
+  description?: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Typed wrappers for GenericEntityInteractionsService
 // ---------------------------------------------------------------------------
@@ -203,6 +234,14 @@ export async function createGrocyEntity(
   body: CreateQuantityUnitBody,
 ): Promise<{ created_object_id?: number }>;
 export async function createGrocyEntity(
+  entity: 'locations',
+  body: CreateLocationBody,
+): Promise<{ created_object_id?: number }>;
+export async function createGrocyEntity(
+  entity: 'product_groups',
+  body: CreateProductGroupBody,
+): Promise<{ created_object_id?: number }>;
+export async function createGrocyEntity(
   entity: 'quantity_unit_conversions',
   body: CreateQuantityUnitConversionBody,
 ): Promise<{ created_object_id?: number }>;
@@ -212,7 +251,13 @@ export async function createGrocyEntity(
 ): Promise<{ created_object_id?: number }>;
 export async function createGrocyEntity(
   entity: GrocyEditableEntity,
-  body: CreateProductBody | CreateQuantityUnitBody | CreateQuantityUnitConversionBody | Record<string, unknown>,
+  body:
+    | CreateProductBody
+    | CreateQuantityUnitBody
+    | CreateLocationBody
+    | CreateProductGroupBody
+    | CreateQuantityUnitConversionBody
+    | Record<string, unknown>,
 ): Promise<{ created_object_id?: number }> {
   return GenericEntityInteractionsService.postObjects(entity as any, body as any);
 }
@@ -231,6 +276,16 @@ export async function updateGrocyEntity(
   body: UpdateQuantityUnitBody,
 ): Promise<void>;
 export async function updateGrocyEntity(
+  entity: 'locations',
+  id: number,
+  body: UpdateLocationBody,
+): Promise<void>;
+export async function updateGrocyEntity(
+  entity: 'product_groups',
+  id: number,
+  body: UpdateProductGroupBody,
+): Promise<void>;
+export async function updateGrocyEntity(
   entity: GrocyEditableEntity,
   id: number,
   body: Record<string, unknown>,
@@ -238,7 +293,12 @@ export async function updateGrocyEntity(
 export async function updateGrocyEntity(
   entity: GrocyEditableEntity,
   id: number,
-  body: UpdateProductBody | UpdateQuantityUnitBody | Record<string, unknown>,
+  body:
+    | UpdateProductBody
+    | UpdateQuantityUnitBody
+    | UpdateLocationBody
+    | UpdateProductGroupBody
+    | Record<string, unknown>,
 ): Promise<void> {
   // Grocy's object PUT endpoint expects a full entity payload rather than a partial patch.
   // Merge the requested changes onto the current entity so callers can safely pass only the
@@ -258,7 +318,9 @@ function sanitizeGrocyEntityUpdate(
 
   for (const field of editableFields) {
     const value = body[field];
-    if (value !== null && value !== undefined) {
+    // Preserve explicit nulls so callers can clear nullable Grocy fields such as
+    // descriptions and date defaults via the generic entity update wrapper.
+    if (value !== undefined) {
       sanitized[field] = value;
     }
   }
@@ -319,6 +381,53 @@ export async function getCurrentStock(): Promise<CurrentStockResponse[]> {
  */
 export async function getProductDetails(productId: number): Promise<ProductDetailsResponse> {
   return StockService.getStockProducts(productId);
+}
+
+/**
+ * Fetch all stock entries for a given Grocy product ID.
+ */
+export async function getProductStockEntries(productId: number): Promise<StockEntry[]> {
+  return StockService.getStockProductsEntries(productId);
+}
+
+/**
+ * Fetch all stock entries for a given Grocy location ID.
+ */
+export async function getLocationStockEntries(locationId: number): Promise<StockEntry[]> {
+  return StockService.getStockLocationsEntries(locationId);
+}
+
+/**
+ * Fetch one stock entry by its Grocy stock entry ID.
+ */
+export async function getGrocyStockEntry(entryId: number): Promise<StockEntry> {
+  return StockService.getStockEntry(entryId);
+}
+
+/**
+ * Update a Grocy stock entry.
+ */
+export async function updateGrocyStockEntry(
+  entryId: number,
+  input: {
+    amount?: number;
+    bestBeforeDate?: string | null;
+    price?: number;
+    open?: boolean;
+    locationId?: number;
+    shoppingLocationId?: number;
+    purchasedDate?: string;
+  },
+): Promise<void> {
+  await StockService.putStockEntry(entryId, {
+    amount: input.amount,
+    best_before_date: input.bestBeforeDate ?? undefined,
+    price: input.price,
+    open: input.open,
+    location_id: input.locationId,
+    shopping_location_id: input.shoppingLocationId,
+    purchased_date: input.purchasedDate,
+  });
 }
 
 /**
@@ -396,4 +505,4 @@ export async function openProductStock(
 }
 
 // Re-export model types that are commonly used in application code
-export type { Product, ProductGroup, QuantityUnit, QuantityUnitConversion, Location, ShoppingListItem, ProductDetailsResponse, CurrentStockResponse };
+export type { Product, ProductGroup, QuantityUnit, QuantityUnitConversion, Location, ShoppingListItem, StockEntry, ProductDetailsResponse, CurrentStockResponse };

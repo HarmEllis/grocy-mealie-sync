@@ -141,6 +141,31 @@ export function registerUnitTools(server: McpServer, services: UnitMcpServices) 
   );
 
   server.registerTool(
+    'units.delete_grocy',
+    {
+      title: 'Delete Grocy Unit',
+      description: 'Delete one Grocy unit when it is no longer referenced by mappings, products, or conversions',
+      inputSchema: {
+        grocyUnitId: z.number().int().positive(),
+      },
+    },
+    async ({ grocyUnitId }) => {
+      const data = await services.deleteGrocyUnit({ grocyUnitId });
+      const result = (data.deleted ? createOkResult : createSkippedResult)(
+        data.deleted
+          ? 'Deleted the Grocy unit.'
+          : 'Skipped Grocy unit deletion because the unit is still in use.',
+        data,
+      );
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
     'units.compare',
     {
       title: 'Compare Units',
@@ -203,6 +228,31 @@ export function registerUnitTools(server: McpServer, services: UnitMcpServices) 
         aliases,
       });
       const result = createOkResult('Updated the Mealie unit metadata.', data);
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
+    'units.delete_mealie',
+    {
+      title: 'Delete Mealie Unit',
+      description: 'Delete one Mealie unit when it is no longer referenced by mappings, shopping items, or recipe ingredients',
+      inputSchema: {
+        mealieUnitId: z.string().trim().min(1),
+      },
+    },
+    async ({ mealieUnitId }) => {
+      const data = await services.deleteMealieUnit({ mealieUnitId });
+      const result = (data.deleted ? createOkResult : createSkippedResult)(
+        data.deleted
+          ? 'Deleted the Mealie unit.'
+          : 'Skipped Mealie unit deletion because the unit is still in use.',
+        data,
+      );
 
       return {
         content: [createJsonTextContent(result)],

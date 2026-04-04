@@ -1,10 +1,14 @@
 import {
   addProductStock as addProductStockToGrocy,
   consumeProductStock as consumeProductStockFromGrocy,
+  getGrocyStockEntry as getGrocyStockEntryFromGrocy,
   getProductDetails,
+  getProductStockEntries as getProductStockEntriesFromGrocy,
   inventoryProductStock as inventoryProductStockInGrocy,
   openProductStock as openProductStockInGrocy,
   type ProductDetailsResponse,
+  type StockEntry,
+  updateGrocyStockEntry as updateGrocyStockEntryInGrocy,
 } from '@/lib/grocy/types';
 import { getProductOverview, type ProductOverview } from '@/lib/use-cases/products/catalog';
 import { defaultSyncLockDeps, runWithSyncLock, type SyncLockDeps } from '@/lib/use-cases/shared/sync-lock';
@@ -96,9 +100,72 @@ export interface MarkStockOpenedResult {
   amount: number;
 }
 
+export interface InventoryEntry {
+  entryId: number;
+  productId: number | null;
+  locationId: number | null;
+  shoppingLocationId: number | null;
+  amount: number;
+  bestBeforeDate: string | null;
+  purchasedDate: string | null;
+  stockId: string | null;
+  price: number | null;
+  open: boolean;
+  openedDate: string | null;
+  note: string | null;
+  rowCreatedTimestamp: string | null;
+}
+
+export interface InventoryStockEntriesParams {
+  productRef: string;
+}
+
+export interface InventoryStockEntriesResult {
+  productRef: string;
+  grocyProductId: number;
+  name: string;
+  count: number;
+  entries: InventoryEntry[];
+}
+
+export interface GetInventoryEntryParams {
+  entryId: number;
+}
+
+export interface GetInventoryEntryResult {
+  entry: InventoryEntry;
+}
+
+export interface UpdateInventoryEntryParams {
+  entryId: number;
+  amount?: number;
+  bestBeforeDate?: string;
+  price?: number;
+  open?: boolean;
+  locationId?: number;
+  shoppingLocationId?: number;
+  purchasedDate?: string;
+}
+
+export interface UpdateInventoryEntryResult {
+  entryId: number;
+  updated: {
+    amount?: number;
+    bestBeforeDate?: string;
+    price?: number;
+    open?: boolean;
+    locationId?: number;
+    shoppingLocationId?: number;
+    purchasedDate?: string;
+  };
+  entry: InventoryEntry;
+}
+
 export interface InventoryDeps extends SyncLockDeps {
   getProductOverview(params: InventoryStockParams): Promise<ProductOverview>;
   getProductDetails(productId: number): Promise<ProductDetailsResponse>;
+  getProductStockEntries(productId: number): Promise<StockEntry[]>;
+  getGrocyStockEntry(entryId: number): Promise<StockEntry>;
   addProductStock(
     productId: number,
     input: {
@@ -129,16 +196,31 @@ export interface InventoryDeps extends SyncLockDeps {
       amount: number;
     },
   ): Promise<void>;
+  updateGrocyStockEntry(
+    entryId: number,
+    input: {
+      amount?: number;
+      bestBeforeDate?: string;
+      price?: number;
+      open?: boolean;
+      locationId?: number;
+      shoppingLocationId?: number;
+      purchasedDate?: string;
+    },
+  ): Promise<void>;
 }
 
 const defaultDeps: InventoryDeps = {
   ...defaultSyncLockDeps,
   getProductOverview,
   getProductDetails,
+  getProductStockEntries: getProductStockEntriesFromGrocy,
+  getGrocyStockEntry: getGrocyStockEntryFromGrocy,
   addProductStock: addProductStockToGrocy,
   consumeProductStock: consumeProductStockFromGrocy,
   inventoryProductStock: inventoryProductStockInGrocy,
   openProductStock: openProductStockInGrocy,
+  updateGrocyStockEntry: updateGrocyStockEntryInGrocy,
 };
 
 function requireGrocyProduct(overview: ProductOverview): NonNullable<ProductOverview['grocyProduct']> {
@@ -208,6 +290,83 @@ function toInventoryStockSnapshot(
   };
 }
 
+function toInventoryEntry(entry: StockEntry): InventoryEntry {
+  return {
+    entryId: Number(entry.id ?? 0),
+    productId: entry.product_id != null ? Number(entry.product_id) : null,
+    locationId: entry.location_id != null ? Number(entry.location_id) : null,
+    shoppingLocationId: entry.shopping_location_id != null ? Number(entry.shopping_location_id) : null,
+    amount: Number(entry.amount ?? 0),
+    bestBeforeDate: entry.best_before_date ?? null,
+    purchasedDate: entry.purchased_date ?? null,
+    stockId: entry.stock_id ?? null,
+    price: entry.price != null ? Number(entry.price) : null,
+    open: Boolean(entry.open),
+    openedDate: entry.opened_date ?? null,
+    note: entry.note ?? null,
+    rowCreatedTimestamp: entry.row_created_timestamp ?? null,
+  };
+}
+
+function sortInventoryEntries(left: InventoryEntry, right: InventoryEntry): number {
+  const leftDue = left.bestBeforeDate ?? '';
+  const rightDue = right.bestBeforeDate ?? '';
+
+  if (leftDue !== rightDue) {
+    if (leftDue.length === 0) {
+      return 1;
+    }
+    if (rightDue.length === 0) {
+      return -1;
+    }
+    return leftDue.localeCompare(rightDue);
+  }
+
+  return left.entryId - right.entryId;
+}
+
+function requireInventoryEntryUpdate(
+  params: UpdateInventoryEntryParams,
+): UpdateInventoryEntryResult['updated'] {
+  const updated: UpdateInventoryEntryResult['updated'] = {};
+
+  if (params.amount !== undefined) {
+    ensurePositiveAmount(params.amount);
+    updated.amount = params.amount;
+  }
+
+  if (params.bestBeforeDate !== undefined) {
+    updated.bestBeforeDate = params.bestBeforeDate;
+  }
+
+  if (params.price !== undefined) {
+    ensureNonNegativeAmount(params.price, 'Price');
+    updated.price = params.price;
+  }
+
+  if (params.open !== undefined) {
+    updated.open = params.open;
+  }
+
+  if (params.locationId !== undefined) {
+    updated.locationId = params.locationId;
+  }
+
+  if (params.shoppingLocationId !== undefined) {
+    updated.shoppingLocationId = params.shoppingLocationId;
+  }
+
+  if (params.purchasedDate !== undefined) {
+    updated.purchasedDate = params.purchasedDate;
+  }
+
+  if (Object.keys(updated).length === 0) {
+    throw new Error('Provide at least one editable stock-entry field to update.');
+  }
+
+  return updated;
+}
+
 export async function getInventoryStock(
   params: InventoryStockParams,
   deps: Pick<InventoryDeps, 'getProductOverview' | 'getProductDetails'> = defaultDeps,
@@ -216,6 +375,66 @@ export async function getInventoryStock(
   const grocyProduct = requireGrocyProduct(overview);
   const details = await deps.getProductDetails(grocyProduct.id);
   return toInventoryStockSnapshot(overview, details);
+}
+
+export async function listInventoryEntries(
+  params: InventoryStockEntriesParams,
+  deps: Pick<InventoryDeps, 'getProductOverview' | 'getProductStockEntries'> = defaultDeps,
+): Promise<InventoryStockEntriesResult> {
+  const overview = await deps.getProductOverview({ productRef: params.productRef });
+  const grocyProduct = requireGrocyProduct(overview);
+  const entries = (await deps.getProductStockEntries(grocyProduct.id))
+    .map(toInventoryEntry)
+    .sort(sortInventoryEntries);
+
+  return {
+    productRef: overview.productRef,
+    grocyProductId: grocyProduct.id,
+    name: grocyProduct.name,
+    count: entries.length,
+    entries,
+  };
+}
+
+export async function getInventoryEntry(
+  params: GetInventoryEntryParams,
+  deps: Pick<InventoryDeps, 'getGrocyStockEntry'> = defaultDeps,
+): Promise<GetInventoryEntryResult> {
+  const entry = await deps.getGrocyStockEntry(params.entryId);
+
+  return {
+    entry: toInventoryEntry(entry),
+  };
+}
+
+export async function updateInventoryEntry(
+  params: UpdateInventoryEntryParams,
+  deps: Pick<
+    InventoryDeps,
+    'acquireSyncLock' | 'releaseSyncLock' | 'updateGrocyStockEntry' | 'getGrocyStockEntry'
+  > = defaultDeps,
+): Promise<UpdateInventoryEntryResult> {
+  const updated = requireInventoryEntryUpdate(params);
+
+  return runWithSyncLock(deps, async () => {
+    await deps.updateGrocyStockEntry(params.entryId, {
+      amount: updated.amount,
+      bestBeforeDate: updated.bestBeforeDate,
+      price: updated.price,
+      open: updated.open,
+      locationId: updated.locationId,
+      shoppingLocationId: updated.shoppingLocationId,
+      purchasedDate: updated.purchasedDate,
+    });
+
+    const entry = await deps.getGrocyStockEntry(params.entryId);
+
+    return {
+      entryId: params.entryId,
+      updated,
+      entry: toInventoryEntry(entry),
+    };
+  });
 }
 
 export async function addStock(

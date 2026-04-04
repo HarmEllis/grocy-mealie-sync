@@ -3,12 +3,18 @@ import type {
   AddStockResult,
   ConsumeStockParams,
   ConsumeStockResult,
+  GetInventoryEntryParams,
+  GetInventoryEntryResult,
   InventoryStockParams,
   InventoryStockSnapshot,
+  InventoryStockEntriesParams,
+  InventoryStockEntriesResult,
   MarkStockOpenedParams,
   MarkStockOpenedResult,
   SetStockParams,
   SetStockResult,
+  UpdateInventoryEntryParams,
+  UpdateInventoryEntryResult,
 } from '@/lib/use-cases/inventory/manage';
 import type {
   ProductDuplicateCheckParams,
@@ -90,6 +96,10 @@ import type {
   CreateGrocyUnitResult,
   CreateMealieUnitParams,
   CreateMealieUnitResult,
+  DeleteGrocyUnitParams,
+  DeleteGrocyUnitResult,
+  DeleteMealieUnitParams,
+  DeleteMealieUnitResult,
   NormalizeMappedUnitsResult,
   UnitCatalogResource,
   UpdateGrocyUnitMetadataParams,
@@ -108,9 +118,21 @@ import type {
   ProductStateExplanation,
 } from '@/lib/use-cases/diagnostics/explain';
 import type {
+  CreateGrocyLocationParams,
+  CreateGrocyLocationResult,
+  CreateGrocyProductGroupParams,
+  CreateGrocyProductGroupResult,
+  DeleteGrocyLocationParams,
+  DeleteGrocyLocationResult,
+  DeleteGrocyProductGroupParams,
+  DeleteGrocyProductGroupResult,
   GrocyLocationsResult,
   GrocyProductGroupsResult,
-} from '@/lib/use-cases/catalog/read';
+  UpdateGrocyLocationParams,
+  UpdateGrocyLocationResult,
+  UpdateGrocyProductGroupParams,
+  UpdateGrocyProductGroupResult,
+} from '@/lib/use-cases/catalog/manage';
 
 export interface McpActionResult<TData = unknown> {
   [key: string]: unknown;
@@ -161,10 +183,13 @@ export interface ShoppingMcpServices {
 export interface InventoryMcpServices {
   getInventoryStock(params: InventoryStockParams): Promise<InventoryStockSnapshot>;
   listLowStockProductsResource(): Promise<LowStockProductsResource>;
+  listInventoryEntries(params: InventoryStockEntriesParams): Promise<InventoryStockEntriesResult>;
+  getInventoryEntry(params: GetInventoryEntryParams): Promise<GetInventoryEntryResult>;
   addStock(params: AddStockParams): Promise<AddStockResult>;
   consumeStock(params: ConsumeStockParams): Promise<ConsumeStockResult>;
   setStock(params: SetStockParams): Promise<SetStockResult>;
   markStockOpened(params: MarkStockOpenedParams): Promise<MarkStockOpenedResult>;
+  updateInventoryEntry(params: UpdateInventoryEntryParams): Promise<UpdateInventoryEntryResult>;
 }
 
 export interface MappingMcpServices {
@@ -188,6 +213,8 @@ export interface UnitMcpServices {
   normalizeMappedUnits(): Promise<NormalizeMappedUnitsResult>;
   updateGrocyUnitMetadata(params: UpdateGrocyUnitMetadataParams): Promise<UpdateGrocyUnitMetadataResult>;
   updateMealieUnitMetadata(params: UpdateMealieUnitMetadataParams): Promise<UpdateMealieUnitMetadataResult>;
+  deleteGrocyUnit(params: DeleteGrocyUnitParams): Promise<DeleteGrocyUnitResult>;
+  deleteMealieUnit(params: DeleteMealieUnitParams): Promise<DeleteMealieUnitResult>;
 }
 
 export interface ConversionMcpServices {
@@ -208,6 +235,12 @@ export interface ConflictMcpServices {
 export interface CatalogMcpServices {
   listGrocyLocations(): Promise<GrocyLocationsResult>;
   listGrocyProductGroups(): Promise<GrocyProductGroupsResult>;
+  createGrocyLocation(params: CreateGrocyLocationParams): Promise<CreateGrocyLocationResult>;
+  updateGrocyLocation(params: UpdateGrocyLocationParams): Promise<UpdateGrocyLocationResult>;
+  deleteGrocyLocation(params: DeleteGrocyLocationParams): Promise<DeleteGrocyLocationResult>;
+  createGrocyProductGroup(params: CreateGrocyProductGroupParams): Promise<CreateGrocyProductGroupResult>;
+  updateGrocyProductGroup(params: UpdateGrocyProductGroupParams): Promise<UpdateGrocyProductGroupResult>;
+  deleteGrocyProductGroup(params: DeleteGrocyProductGroupParams): Promise<DeleteGrocyProductGroupResult>;
 }
 
 export interface DiagnosticsMcpServices {

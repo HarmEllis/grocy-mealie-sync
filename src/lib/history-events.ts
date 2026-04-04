@@ -133,6 +133,22 @@ export function formatHistoryActionLabel(action: HistoryRunAction): string {
       return 'Update Grocy unit';
     case 'unit_update_mealie':
       return 'Update Mealie unit';
+    case 'unit_delete_grocy':
+      return 'Delete Grocy unit';
+    case 'unit_delete_mealie':
+      return 'Delete Mealie unit';
+    case 'catalog_create_location':
+      return 'Create Grocy location';
+    case 'catalog_update_location':
+      return 'Update Grocy location';
+    case 'catalog_delete_location':
+      return 'Delete Grocy location';
+    case 'catalog_create_product_group':
+      return 'Create Grocy product group';
+    case 'catalog_update_product_group':
+      return 'Update Grocy product group';
+    case 'catalog_delete_product_group':
+      return 'Delete Grocy product group';
     case 'inventory_add_stock':
       return 'Add stock';
     case 'inventory_consume_stock':
@@ -141,6 +157,8 @@ export function formatHistoryActionLabel(action: HistoryRunAction): string {
       return 'Set stock';
     case 'inventory_mark_opened':
       return 'Mark stock opened';
+    case 'inventory_update_entry':
+      return 'Update inventory entry';
     case 'shopping_add_item':
       return 'Add shopping item';
     case 'shopping_update_item':

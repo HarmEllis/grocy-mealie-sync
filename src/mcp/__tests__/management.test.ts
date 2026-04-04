@@ -24,6 +24,8 @@ import type {
   CompareUnitsResult,
   CreateGrocyUnitResult,
   CreateMealieUnitResult,
+  DeleteGrocyUnitResult,
+  DeleteMealieUnitResult,
   UnitCatalogResource,
   UpdateGrocyUnitMetadataResult,
   UpdateMealieUnitMetadataResult,
@@ -244,6 +246,28 @@ describe('MCP mapping and unit management', () => {
     skippedDuplicates: [],
   }));
 
+  const deleteGrocyUnit = vi.fn(async (): Promise<DeleteGrocyUnitResult> => ({
+    deleted: false,
+    blocked: true,
+    grocyUnitId: 10,
+    grocyUnitName: 'Litre',
+    blockers: [
+      {
+        source: 'unit_mapping',
+        reference: 'unit-map-1',
+        message: 'Unit mapping unit-map-1 links this Grocy unit to Mealie unit "Liter".',
+      },
+    ],
+  }));
+
+  const deleteMealieUnit = vi.fn(async (): Promise<DeleteMealieUnitResult> => ({
+    deleted: true,
+    blocked: false,
+    mealieUnitId: 'unit-30',
+    mealieUnitName: 'Tablespoon',
+    blockers: [],
+  }));
+
   const deleteProduct = vi.fn(async (): Promise<DeleteProductResult> => ({
     deleted: true,
     system: 'grocy',
@@ -283,6 +307,8 @@ describe('MCP mapping and unit management', () => {
         normalizeMappedUnits,
         updateGrocyUnitMetadata,
         updateMealieUnitMetadata,
+        deleteGrocyUnit,
+        deleteMealieUnit,
       },
       products: {
         deleteProduct,
@@ -328,6 +354,8 @@ describe('MCP mapping and unit management', () => {
         'units.normalize',
         'units.update_grocy',
         'units.update_mealie',
+        'units.delete_grocy',
+        'units.delete_mealie',
         'products.delete',
       ]));
       expect(resources.resources.map(resource => resource.uri)).toEqual(expect.arrayContaining([
@@ -402,6 +430,18 @@ describe('MCP mapping and unit management', () => {
       const normalizeUnitsResult = await client.callTool({
         name: 'units.normalize',
         arguments: {},
+      });
+      const deleteGrocyUnitResult = await client.callTool({
+        name: 'units.delete_grocy',
+        arguments: {
+          grocyUnitId: 10,
+        },
+      });
+      const deleteMealieUnitResult = await client.callTool({
+        name: 'units.delete_mealie',
+        arguments: {
+          mealieUnitId: 'unit-30',
+        },
       });
 
       expect(unmappedResult.structuredContent).toEqual({
@@ -642,6 +682,42 @@ describe('MCP mapping and unit management', () => {
           normalizedMealie: 1,
           normalizedGrocy: 1,
           skippedDuplicates: [],
+        },
+      });
+      expect(deleteGrocyUnit).toHaveBeenCalledWith({
+        grocyUnitId: 10,
+      });
+      expect(deleteGrocyUnitResult.structuredContent).toEqual({
+        ok: true,
+        status: 'skipped',
+        message: 'Skipped Grocy unit deletion because the unit is still in use.',
+        data: {
+          deleted: false,
+          blocked: true,
+          grocyUnitId: 10,
+          grocyUnitName: 'Litre',
+          blockers: [
+            {
+              source: 'unit_mapping',
+              reference: 'unit-map-1',
+              message: 'Unit mapping unit-map-1 links this Grocy unit to Mealie unit "Liter".',
+            },
+          ],
+        },
+      });
+      expect(deleteMealieUnit).toHaveBeenCalledWith({
+        mealieUnitId: 'unit-30',
+      });
+      expect(deleteMealieUnitResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Deleted the Mealie unit.',
+        data: {
+          deleted: true,
+          blocked: false,
+          mealieUnitId: 'unit-30',
+          mealieUnitName: 'Tablespoon',
+          blockers: [],
         },
       });
 

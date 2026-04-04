@@ -26,6 +26,49 @@ export function registerInventoryTools(server: McpServer, services: InventoryMcp
   );
 
   server.registerTool(
+    'inventory.list_entries',
+    {
+      title: 'List Inventory Entries',
+      description: 'List the individual Grocy stock entries for one product reference',
+      inputSchema: {
+        productRef: productRefSchema,
+      },
+    },
+    async ({ productRef }) => {
+      const data = await services.listInventoryEntries({ productRef });
+      const result = createOkResult(
+        formatCountMessage(data.count, 'inventory entry'),
+        data,
+      );
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
+    'inventory.get_entry',
+    {
+      title: 'Get Inventory Entry',
+      description: 'Load one Grocy stock entry by its entry id',
+      inputSchema: {
+        entryId: z.number().int().positive(),
+      },
+    },
+    async ({ entryId }) => {
+      const data = await services.getInventoryEntry({ entryId });
+      const result = createOkResult('Loaded the inventory entry.', data);
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
     'inventory.list_low_stock',
     {
       title: 'List Low-Stock Products',
@@ -130,6 +173,42 @@ export function registerInventoryTools(server: McpServer, services: InventoryMcp
     async ({ productRef, amount = 1 }) => {
       const data = await services.markStockOpened({ productRef, amount });
       const result = createOkResult('Marked stock as opened in Grocy.', data);
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
+    'inventory.update_entry',
+    {
+      title: 'Update Inventory Entry',
+      description: 'Update an existing Grocy stock entry. Editable fields are amount, best-before date, price, open flag, location id, shopping location id, and purchased date.',
+      inputSchema: {
+        entryId: z.number().int().positive(),
+        amount: z.number().positive().optional(),
+        bestBeforeDate: z.string().trim().min(1).optional(),
+        price: z.number().min(0).optional(),
+        open: z.boolean().optional(),
+        locationId: z.number().int().positive().optional(),
+        shoppingLocationId: z.number().int().positive().optional(),
+        purchasedDate: z.string().trim().min(1).optional(),
+      },
+    },
+    async ({ entryId, amount, bestBeforeDate, price, open, locationId, shoppingLocationId, purchasedDate }) => {
+      const data = await services.updateInventoryEntry({
+        entryId,
+        amount,
+        bestBeforeDate,
+        price,
+        open,
+        locationId,
+        shoppingLocationId,
+        purchasedDate,
+      });
+      const result = createOkResult('Updated the inventory entry.', data);
 
       return {
         content: [createJsonTextContent(result)],
