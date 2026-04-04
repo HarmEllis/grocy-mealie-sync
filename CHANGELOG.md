@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.8.1] - 2026-04-04
+
+This patch release fixes the stale Grocy entity update test and hardens the release pipeline so container publishing only happens after successful CI on the tagged commit.
+
+### Changed
+
+- Release preparation now requires the full local `npm test` suite and a successful `CI` workflow on the release commit before the release tag is pushed.
+- The Docker publish workflow now refuses to start multi-platform image builds unless the tagged commit already has a successful `CI` workflow run.
+
+### Fixed
+
+- The Grocy entity update wrapper test now matches the merged editable `PUT` payload, including preserved nullable fields and filtered non-editable fields.
+- Grocy update wrapper types now accept nullable `description` values where the implementation already preserves explicit clears.
+
 ## [1.8.0] - 2026-04-04
 
 This minor release expands the MCP operational workflow with Grocy catalog management, deeper inventory entry controls, and more complete action-history coverage for write operations.
@@ -191,6 +205,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.8.1]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.5.0...v1.6.0
