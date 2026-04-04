@@ -102,6 +102,17 @@ describe('unit management use-cases', () => {
     });
   });
 
+  it('rejects Grocy unit metadata updates with no editable fields', async () => {
+    await expect(updateGrocyUnitMetadata(
+      { grocyUnitId: 10 },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        updateGrocyUnit: vi.fn(async () => undefined),
+      },
+    )).rejects.toThrow('Provide at least one field to update the Grocy unit.');
+  });
+
   it('creates a new Grocy unit and keeps plural metadata together', async () => {
     const createGrocyUnitDep = vi.fn(async () => ({ createdObjectId: 12 }));
 
@@ -222,6 +233,18 @@ describe('unit management use-cases', () => {
         aliases: ['eetlepel'],
       },
     });
+  });
+
+  it('rejects Mealie unit metadata updates with no editable fields', async () => {
+    await expect(updateMealieUnitMetadata(
+      { mealieUnitId: 'unit-1' },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        getMealieUnit: vi.fn(),
+        updateMealieUnit: vi.fn(async () => undefined),
+      },
+    )).rejects.toThrow('Provide at least one field to update the Mealie unit.');
   });
 
   it('creates a new Mealie unit with aliases and abbreviation defaults', async () => {

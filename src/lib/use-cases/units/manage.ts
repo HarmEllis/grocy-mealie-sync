@@ -129,6 +129,12 @@ export interface UpdateMealieUnitMetadataResult {
   };
 }
 
+function requireUnitMetadataUpdate(targetLabel: string, updated: Record<string, unknown>) {
+  if (Object.keys(updated).length === 0) {
+    throw new Error(`Provide at least one field to update the ${targetLabel}.`);
+  }
+}
+
 export type UnitDeleteBlockerSource =
   | 'unit_mapping'
   | 'grocy_product_purchase_unit'
@@ -650,6 +656,7 @@ export async function updateGrocyUnitMetadata(
       updated.description = params.description;
     }
 
+    requireUnitMetadataUpdate('Grocy unit', updated);
     await deps.updateGrocyUnit(params.grocyUnitId, update);
 
     return {
@@ -667,6 +674,30 @@ export async function updateMealieUnitMetadata(
   > = defaultDeps,
 ): Promise<UpdateMealieUnitMetadataResult> {
   return runWithSyncLock(deps, async () => {
+    const updated: UpdateMealieUnitMetadataResult['updated'] = {};
+
+    if (params.name !== undefined) {
+      updated.name = params.name;
+    }
+
+    if (params.pluralName !== undefined) {
+      updated.pluralName = params.pluralName;
+    }
+
+    if (params.abbreviation !== undefined) {
+      updated.abbreviation = params.abbreviation;
+    }
+
+    if (params.pluralAbbreviation !== undefined) {
+      updated.pluralAbbreviation = params.pluralAbbreviation;
+    }
+
+    if (params.aliases !== undefined) {
+      updated.aliases = params.aliases;
+    }
+
+    requireUnitMetadataUpdate('Mealie unit', updated);
+
     const currentUnit = await deps.getMealieUnit(params.mealieUnitId);
 
     const payload = {
@@ -688,13 +719,7 @@ export async function updateMealieUnitMetadata(
 
     return {
       mealieUnitId: params.mealieUnitId,
-      updated: {
-        name: params.name,
-        pluralName: params.pluralName,
-        abbreviation: params.abbreviation,
-        pluralAbbreviation: params.pluralAbbreviation,
-        aliases: params.aliases,
-      },
+      updated,
     };
   });
 }
@@ -764,6 +789,9 @@ export async function deleteMealieUnit(
     ]);
     const mappingBlockers = buildMealieUnitMappingBlockers(params.mealieUnitId, mappings);
 
+    // Stop after the first blocker category. Recipe scans are the most expensive path,
+    // so this phased check keeps the common "still mapped" and "still in shopping list"
+    // cases cheap even though it does not aggregate every possible blocker in one call.
     if (mappingBlockers.length > 0) {
       return {
         deleted: false,

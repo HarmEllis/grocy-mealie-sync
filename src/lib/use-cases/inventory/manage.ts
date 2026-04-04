@@ -139,7 +139,7 @@ export interface GetInventoryEntryResult {
 export interface UpdateInventoryEntryParams {
   entryId: number;
   amount?: number;
-  bestBeforeDate?: string;
+  bestBeforeDate?: string | null;
   price?: number;
   open?: boolean;
   locationId?: number;
@@ -151,7 +151,7 @@ export interface UpdateInventoryEntryResult {
   entryId: number;
   updated: {
     amount?: number;
-    bestBeforeDate?: string;
+    bestBeforeDate?: string | null;
     price?: number;
     open?: boolean;
     locationId?: number;
@@ -200,7 +200,7 @@ export interface InventoryDeps extends SyncLockDeps {
     entryId: number,
     input: {
       amount?: number;
-      bestBeforeDate?: string;
+      bestBeforeDate?: string | null;
       price?: number;
       open?: boolean;
       locationId?: number;

@@ -504,6 +504,66 @@ describe('inventory use-cases', () => {
     });
   });
 
+  it('clears the best-before date on an inventory entry when null is provided', async () => {
+    const updateGrocyStockEntry = vi.fn(async () => undefined);
+
+    const result = await updateInventoryEntry(
+      {
+        entryId: 12,
+        bestBeforeDate: null,
+      },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        updateGrocyStockEntry,
+        getGrocyStockEntry: vi.fn(async () => ({
+          id: 12,
+          product_id: 101,
+          location_id: 4,
+          shopping_location_id: 8,
+          amount: 2,
+          best_before_date: undefined,
+          purchased_date: '2026-04-03',
+          stock_id: 'stock-12',
+          price: 4.5,
+          open: 1,
+          row_created_timestamp: '2026-04-01T10:00:00Z',
+        })),
+      },
+    );
+
+    expect(updateGrocyStockEntry).toHaveBeenCalledWith(12, {
+      amount: undefined,
+      bestBeforeDate: null,
+      price: undefined,
+      open: undefined,
+      locationId: undefined,
+      shoppingLocationId: undefined,
+      purchasedDate: undefined,
+    });
+    expect(result).toEqual({
+      entryId: 12,
+      updated: {
+        bestBeforeDate: null,
+      },
+      entry: {
+        entryId: 12,
+        productId: 101,
+        locationId: 4,
+        shoppingLocationId: 8,
+        amount: 2,
+        bestBeforeDate: null,
+        purchasedDate: '2026-04-03',
+        stockId: 'stock-12',
+        price: 4.5,
+        open: true,
+        openedDate: null,
+        note: null,
+        rowCreatedTimestamp: '2026-04-01T10:00:00Z',
+      },
+    });
+  });
+
   it('rejects inventory entry updates when no editable field is provided', async () => {
     await expect(updateInventoryEntry(
       { entryId: 12 },

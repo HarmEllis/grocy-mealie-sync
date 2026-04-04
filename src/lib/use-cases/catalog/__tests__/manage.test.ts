@@ -175,6 +175,41 @@ describe('catalog management use-cases', () => {
     expect(deleteLocationDep).not.toHaveBeenCalled();
   });
 
+  it('blocks deleting a location when only the consume location still references it', async () => {
+    const deleteLocationDep = vi.fn(async () => undefined);
+
+    const result = await deleteGrocyLocation(
+      { locationId: 6 },
+      {
+        acquireSyncLock: vi.fn(() => true),
+        releaseSyncLock: vi.fn(),
+        listGrocyLocations: vi.fn(async () => [
+          { id: 6, name: 'Prep Counter', description: null },
+        ] as any),
+        deleteGrocyLocation: deleteLocationDep,
+        listGrocyProducts: vi.fn(async () => [
+          { id: 202, name: 'Soup', default_consume_location_id: 6 },
+        ] as any),
+        listLocationStockEntries: vi.fn(async () => []),
+      },
+    );
+
+    expect(result).toEqual({
+      deleted: false,
+      blocked: true,
+      locationId: 6,
+      name: 'Prep Counter',
+      blockers: [
+        {
+          source: 'grocy_product_consume_location',
+          reference: 'grocy-product:202',
+          message: 'Grocy product "Soup" uses this location as its consume location.',
+        },
+      ],
+    });
+    expect(deleteLocationDep).not.toHaveBeenCalled();
+  });
+
   it('lists, creates, updates, and deletes a product group', async () => {
     const createGroupDep = vi.fn(async () => ({ createdObjectId: 8 }));
     const updateGroupDep = vi.fn(async () => undefined);

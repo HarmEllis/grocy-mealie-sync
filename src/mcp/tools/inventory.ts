@@ -185,11 +185,11 @@ export function registerInventoryTools(server: McpServer, services: InventoryMcp
     'inventory.update_entry',
     {
       title: 'Update Inventory Entry',
-      description: 'Update an existing Grocy stock entry. Editable fields are amount, best-before date, price, open flag, location id, shopping location id, and purchased date.',
+      description: 'Update an existing Grocy stock entry. Editable fields are amount, best-before date (or null to clear it), price, open flag, location id, shopping location id, and purchased date.',
       inputSchema: {
         entryId: z.number().int().positive(),
         amount: z.number().positive().optional(),
-        bestBeforeDate: z.string().trim().min(1).optional(),
+        bestBeforeDate: z.string().trim().min(1).nullable().optional(),
         price: z.number().min(0).optional(),
         open: z.boolean().optional(),
         locationId: z.number().int().positive().optional(),

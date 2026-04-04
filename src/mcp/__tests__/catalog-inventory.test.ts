@@ -458,6 +458,98 @@ describe('MCP catalog and inventory entry management', () => {
     }
   });
 
+  it('passes null best-before dates through inventory entry updates', async () => {
+    const updateInventoryEntryForClear = vi.fn(async (): Promise<UpdateInventoryEntryResult> => ({
+      entryId: 12,
+      updated: {
+        bestBeforeDate: null,
+      },
+      entry: {
+        entryId: 12,
+        productId: 101,
+        locationId: 1,
+        shoppingLocationId: null,
+        amount: 2,
+        bestBeforeDate: null,
+        purchasedDate: '2026-04-03',
+        stockId: 'stock-12',
+        price: 4.5,
+        open: true,
+        openedDate: null,
+        note: null,
+        rowCreatedTimestamp: '2026-04-01T10:00:00Z',
+      },
+    }));
+
+    const handleRequest = createMcpHttpHandler({
+      inventory: {
+        updateInventoryEntry: updateInventoryEntryForClear,
+      },
+    });
+
+    const client = new Client(
+      { name: 'mcp-inventory-entry-clear-test-client', version: '1.0.0' },
+      { capabilities: {} },
+    );
+
+    const transport = new StreamableHTTPClientTransport(
+      new URL('http://localhost/api/mcp'),
+      {
+        fetch: async (input, init) => handleRequest(
+          input instanceof Request ? input : new Request(input, init),
+        ),
+      },
+    );
+
+    try {
+      await client.connect(transport);
+
+      const updateResult = await client.callTool({
+        name: 'inventory.update_entry',
+        arguments: { entryId: 12, bestBeforeDate: null },
+      });
+
+      expect(updateInventoryEntryForClear).toHaveBeenCalledWith({
+        entryId: 12,
+        amount: undefined,
+        bestBeforeDate: null,
+        price: undefined,
+        open: undefined,
+        locationId: undefined,
+        shoppingLocationId: undefined,
+        purchasedDate: undefined,
+      });
+      expect(updateResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Updated the inventory entry.',
+        data: {
+          entryId: 12,
+          updated: {
+            bestBeforeDate: null,
+          },
+          entry: {
+            entryId: 12,
+            productId: 101,
+            locationId: 1,
+            shoppingLocationId: null,
+            amount: 2,
+            bestBeforeDate: null,
+            purchasedDate: '2026-04-03',
+            stockId: 'stock-12',
+            price: 4.5,
+            open: true,
+            openedDate: null,
+            note: null,
+            rowCreatedTimestamp: '2026-04-01T10:00:00Z',
+          },
+        },
+      });
+    } finally {
+      await Promise.allSettled([client.close(), transport.close()]);
+    }
+  });
+
   it('returns skipped results for blocked catalog deletes', async () => {
     const handleRequest = createMcpHttpHandler({
       catalog: {
