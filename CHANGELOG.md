@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.9.0] - 2026-04-05
+
+This minor release adds MCP inventory-entry creation and hardens the Grocy stock-entry resolution path so create-entry mutations remain accurate under concurrent writes and merged stock batches.
+
+### Added
+
+- New `inventory.create_entry` MCP tool support, including prompt/catalog wiring and structured contract coverage for inventory-entry creation flows.
+- Action-history coverage and payload support for create-entry operations so manual MCP mutations are auditable from the History UI and API.
+
+### Changed
+
+- Inventory entry creation now prefers transaction-aware matching and only uses before/after diffs when transaction lookup data is unavailable.
+- Create-entry follow-up handling now preserves safer warning outcomes when Grocy merges stock into existing entries and no new transaction-owned rows are created.
+
+### Fixed
+
+- Explicit `bestBeforeDate: null` requests are now honored instead of defaulting to Grocy's implicit current-day due date.
+- Post-mutation error handling now avoids false failures after successful stock additions, reducing duplicate-add risk on caller retries.
+
 ## [1.8.1] - 2026-04-04
 
 This patch release fixes the stale Grocy entity update test and hardens the release pipeline so container publishing only happens after successful CI on the tagged commit.
@@ -205,6 +224,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.9.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.8.1...v1.9.0
 [1.8.1]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.6.0...v1.7.0
