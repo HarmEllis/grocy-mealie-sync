@@ -1,13 +1,17 @@
 import {
   addProductStock as addProductStockToGrocy,
+  consumeProductStockByEntry as consumeProductStockByEntryInGrocy,
   consumeProductStock as consumeProductStockFromGrocy,
   getGrocyStockEntry as getGrocyStockEntryFromGrocy,
   getProductDetails,
   getProductStockEntries as getProductStockEntriesFromGrocy,
+  getStockTransactionEntries as getStockTransactionEntriesFromGrocy,
   inventoryProductStock as inventoryProductStockInGrocy,
+  normalizeGrocyBestBeforeDate,
   openProductStock as openProductStockInGrocy,
   type ProductDetailsResponse,
   type StockEntry,
+  type StockLogEntry,
   updateGrocyStockEntry as updateGrocyStockEntryInGrocy,
 } from '@/lib/grocy/types';
 import { getProductOverview, type ProductOverview } from '@/lib/use-cases/products/catalog';
@@ -136,6 +140,34 @@ export interface GetInventoryEntryResult {
   entry: InventoryEntry;
 }
 
+export interface DeleteInventoryEntryParams {
+  entryId: number;
+}
+
+export interface DeleteInventoryEntryResult {
+  entryId: number;
+  entry: InventoryEntry;
+}
+
+export interface CreateInventoryEntryParams {
+  productRef: string;
+  amount: number;
+  bestBeforeDate?: string | null;
+  purchasedDate?: string;
+  locationId?: number;
+  open?: boolean;
+  note?: string | null;
+}
+
+export interface CreateInventoryEntryResult {
+  productRef: string;
+  grocyProductId: number;
+  name: string;
+  count: number;
+  entries: InventoryEntry[];
+  warning?: string;
+}
+
 export interface UpdateInventoryEntryParams {
   entryId: number;
   amount?: number;
@@ -171,9 +203,12 @@ export interface InventoryDeps extends SyncLockDeps {
     input: {
       amount: number;
       bestBeforeDate?: string | null;
+      locationId?: number;
       note?: string | null;
     },
-  ): Promise<void>;
+  ): Promise<StockLogEntry[]>;
+  getStockTransactionEntries(transactionId: string): Promise<StockLogEntry[]>;
+  consumeProductStockByEntry(productId: number, stockEntryId: string): Promise<void>;
   consumeProductStock(
     productId: number,
     input: {
@@ -217,6 +252,8 @@ const defaultDeps: InventoryDeps = {
   getProductStockEntries: getProductStockEntriesFromGrocy,
   getGrocyStockEntry: getGrocyStockEntryFromGrocy,
   addProductStock: addProductStockToGrocy,
+  getStockTransactionEntries: getStockTransactionEntriesFromGrocy,
+  consumeProductStockByEntry: consumeProductStockByEntryInGrocy,
   consumeProductStock: consumeProductStockFromGrocy,
   inventoryProductStock: inventoryProductStockInGrocy,
   openProductStock: openProductStockInGrocy,
@@ -297,7 +334,7 @@ function toInventoryEntry(entry: StockEntry): InventoryEntry {
     locationId: entry.location_id != null ? Number(entry.location_id) : null,
     shoppingLocationId: entry.shopping_location_id != null ? Number(entry.shopping_location_id) : null,
     amount: Number(entry.amount ?? 0),
-    bestBeforeDate: entry.best_before_date ?? null,
+    bestBeforeDate: normalizeGrocyBestBeforeDate(entry.best_before_date ?? null),
     purchasedDate: entry.purchased_date ?? null,
     stockId: entry.stock_id ?? null,
     price: entry.price != null ? Number(entry.price) : null,
@@ -306,6 +343,57 @@ function toInventoryEntry(entry: StockEntry): InventoryEntry {
     note: entry.note ?? null,
     rowCreatedTimestamp: entry.row_created_timestamp ?? null,
   };
+}
+
+function getInventoryEntryDiffKey(entry: StockEntry): string | null {
+  if (entry.stock_id) {
+    return `stock:${entry.stock_id}`;
+  }
+
+  if (entry.id != null) {
+    return `id:${Number(entry.id)}`;
+  }
+
+  return null;
+}
+
+function getTransactionId(entries: StockLogEntry[]): string | null {
+  for (const entry of entries) {
+    if (entry.transaction_id) {
+      return entry.transaction_id;
+    }
+  }
+
+  return null;
+}
+
+function getNewStockEntriesFromTransaction(
+  beforeEntries: StockEntry[],
+  afterEntries: StockEntry[],
+  transactionEntries: StockLogEntry[],
+): StockEntry[] {
+  const beforeEntriesByStockId = new Map(
+    beforeEntries
+      .filter((entry): entry is StockEntry & { stock_id: string } => (
+        typeof entry.stock_id === 'string' && entry.stock_id.length > 0
+      ))
+      .map(entry => [entry.stock_id, entry]),
+  );
+  const transactionStockIds = new Set(
+    transactionEntries
+      .map(entry => entry.stock_id)
+      .filter((stockId): stockId is string => typeof stockId === 'string' && stockId.length > 0),
+  );
+
+  if (transactionStockIds.size === 0) {
+    return [];
+  }
+
+  return afterEntries.filter(entry => (
+    entry.stock_id != null
+    && transactionStockIds.has(entry.stock_id)
+    && !beforeEntriesByStockId.has(entry.stock_id)
+  ));
 }
 
 function sortInventoryEntries(left: InventoryEntry, right: InventoryEntry): number {
@@ -367,6 +455,61 @@ function requireInventoryEntryUpdate(
   return updated;
 }
 
+function requireEntryProductId(entry: StockEntry): number {
+  if (entry.product_id == null) {
+    throw new Error('Entry has no product_id, cannot target for deletion.');
+  }
+
+  return Number(entry.product_id);
+}
+
+function requireEntryStockId(entry: StockEntry): string {
+  if (!entry.stock_id) {
+    throw new Error('Entry has no stock_id, cannot target for deletion.');
+  }
+
+  return entry.stock_id;
+}
+
+function requireEntryDeleteAmount(entry: StockEntry): number {
+  const amount = Number(entry.amount ?? 0);
+  ensurePositiveAmount(amount);
+
+  if (!Number.isInteger(amount)) {
+    throw new Error(
+      `Cannot delete entry with fractional amount ${amount} - targeted deletion of fractional entries is not supported by the Grocy API.`,
+    );
+  }
+
+  return amount;
+}
+
+function getNewStockEntries(beforeEntries: StockEntry[], afterEntries: StockEntry[]): StockEntry[] {
+  const beforeKeys = new Set(
+    beforeEntries
+      .map(getInventoryEntryDiffKey)
+      .filter((key): key is string => key !== null),
+  );
+  const newEntries = afterEntries.filter(entry => {
+    const key = getInventoryEntryDiffKey(entry);
+    return key !== null && !beforeKeys.has(key);
+  });
+
+  return newEntries;
+}
+
+function requireStockEntryId(entry: StockEntry): number {
+  if (entry.id == null) {
+    throw new Error('Created stock entry has no entry id, cannot apply follow-up updates.');
+  }
+
+  return Number(entry.id);
+}
+
+function buildCreateInventoryEntryWarning(): string {
+  return 'Stock was added in Grocy, but no new individual stock entries could be identified. Grocy may have merged the amount into an existing batch.';
+}
+
 export async function getInventoryStock(
   params: InventoryStockParams,
   deps: Pick<InventoryDeps, 'getProductOverview' | 'getProductDetails'> = defaultDeps,
@@ -405,6 +548,127 @@ export async function getInventoryEntry(
   return {
     entry: toInventoryEntry(entry),
   };
+}
+
+export async function deleteInventoryEntry(
+  params: DeleteInventoryEntryParams,
+  deps: Pick<
+    InventoryDeps,
+    'acquireSyncLock' | 'releaseSyncLock' | 'getGrocyStockEntry' | 'consumeProductStockByEntry'
+  > = defaultDeps,
+): Promise<DeleteInventoryEntryResult> {
+  return runWithSyncLock(deps, async () => {
+    const entry = await deps.getGrocyStockEntry(params.entryId);
+    const productId = requireEntryProductId(entry);
+    const stockId = requireEntryStockId(entry);
+    const amount = requireEntryDeleteAmount(entry);
+    const snapshot = toInventoryEntry(entry);
+
+    for (let index = 0; index < amount; index += 1) {
+      await deps.consumeProductStockByEntry(productId, stockId);
+    }
+
+    return {
+      entryId: params.entryId,
+      entry: snapshot,
+    };
+  });
+}
+
+export async function createInventoryEntry(
+  params: CreateInventoryEntryParams,
+  deps: Pick<
+    InventoryDeps,
+    | 'acquireSyncLock'
+    | 'releaseSyncLock'
+    | 'getProductOverview'
+    | 'getProductStockEntries'
+    | 'getStockTransactionEntries'
+    | 'getGrocyStockEntry'
+    | 'addProductStock'
+    | 'updateGrocyStockEntry'
+  > = defaultDeps,
+): Promise<CreateInventoryEntryResult> {
+  ensurePositiveAmount(params.amount);
+
+  return runWithSyncLock(deps, async () => {
+    const overview = await deps.getProductOverview({ productRef: params.productRef });
+    const grocyProduct = requireGrocyProduct(overview);
+    const beforeEntries = await deps.getProductStockEntries(grocyProduct.id);
+
+    const addLogEntries = await deps.addProductStock(grocyProduct.id, {
+      amount: params.amount,
+      bestBeforeDate: params.bestBeforeDate,
+      locationId: params.locationId,
+      note: params.note ?? null,
+    });
+
+    const afterEntries = await deps.getProductStockEntries(grocyProduct.id);
+    const transactionId = getTransactionId(addLogEntries);
+    let transactionEntries: StockLogEntry[] = [];
+    let transactionLookupFailed = transactionId == null;
+
+    if (transactionId) {
+      try {
+        transactionEntries = await deps.getStockTransactionEntries(transactionId);
+      } catch {
+        // Fall back to the before/after diff if the transaction endpoint is unavailable.
+        transactionLookupFailed = true;
+      }
+    }
+
+    const exactTransactionEntries = transactionEntries.length > 0
+      ? [...transactionEntries, ...addLogEntries]
+      : addLogEntries;
+    const transactionMatchedEntries = getNewStockEntriesFromTransaction(
+      beforeEntries,
+      afterEntries,
+      exactTransactionEntries,
+    );
+    const newEntries = transactionMatchedEntries.length > 0
+      ? transactionMatchedEntries
+      : transactionLookupFailed
+        ? getNewStockEntries(beforeEntries, afterEntries)
+        : [];
+
+    if (newEntries.length === 0) {
+      return {
+        productRef: overview.productRef,
+        grocyProductId: grocyProduct.id,
+        name: grocyProduct.name,
+        count: 0,
+        entries: [],
+        warning: buildCreateInventoryEntryWarning(),
+      };
+    }
+
+    let entriesToReturn = newEntries;
+
+    if (params.purchasedDate !== undefined || params.open !== undefined) {
+      for (const entry of newEntries) {
+        await deps.updateGrocyStockEntry(requireStockEntryId(entry), {
+          purchasedDate: params.purchasedDate,
+          open: params.open,
+        });
+      }
+
+      entriesToReturn = await Promise.all(
+        newEntries.map(entry => deps.getGrocyStockEntry(requireStockEntryId(entry))),
+      );
+    }
+
+    const entries = entriesToReturn
+      .map(toInventoryEntry)
+      .sort(sortInventoryEntries);
+
+    return {
+      productRef: overview.productRef,
+      grocyProductId: grocyProduct.id,
+      name: grocyProduct.name,
+      count: entries.length,
+      entries,
+    };
+  });
 }
 
 export async function updateInventoryEntry(
@@ -453,7 +717,7 @@ export async function addStock(
 
     await deps.addProductStock(grocyProduct.id, {
       amount: params.amount,
-      bestBeforeDate: params.bestBeforeDate ?? null,
+      bestBeforeDate: params.bestBeforeDate,
       note: params.note ?? null,
     });
 
@@ -546,7 +810,7 @@ export async function setStock(
     if (amountChanged) {
       await deps.inventoryProductStock(grocyProduct.id, {
         newAmount: params.amount,
-        bestBeforeDate: params.bestBeforeDate ?? null,
+        bestBeforeDate: params.bestBeforeDate,
         note: params.note ?? null,
       });
     }

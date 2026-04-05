@@ -119,7 +119,10 @@ Summarize the duplicate logic and the intended final shopping-list state before 
       `Apply the stock correction "${instruction}" for product reference "${productRef}" through the grocy-mealie-sync MCP server.
 
 Inspect products.get_overview and inventory.get_stock first.
-Choose exactly one of inventory.add_stock, inventory.consume_stock, inventory.set_stock, or inventory.mark_opened based on the user's intent.
+Choose exactly one of inventory.add_stock, inventory.consume_stock, inventory.set_stock, inventory.mark_opened, inventory.delete_entry, inventory.create_entry, or inventory.update_entry based on the user's intent.
+Use inventory.delete_entry when the user wants to remove a specific stock entry.
+Use inventory.create_entry when the user wants to add stock with specific entry-level fields (purchased date, location, open state).
+Use inventory.update_entry when the user wants to modify fields on an existing entry.
 Prefer canonical productRef values returned by prior tool calls; do not fall back to bare ids or names when a returned productRef is available.
 If the instruction is ambiguous, explain the ambiguity and stop instead of guessing.
 After the action, summarize what changed, including quantity, best-before data, and opened state if relevant.`,

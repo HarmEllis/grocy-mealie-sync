@@ -118,6 +118,27 @@ describe('MCP action history wrappers', () => {
       consumeStock: vi.fn(),
       setStock: vi.fn(),
       markStockOpened: vi.fn(),
+      deleteInventoryEntry: vi.fn(async (): Promise<any> => ({
+        entryId: 12,
+        entry: {
+          entryId: 12,
+          productId: 101,
+          amount: 1,
+        },
+      })),
+      createInventoryEntry: vi.fn(async (): Promise<any> => ({
+        productRef: 'mapping:map-1',
+        grocyProductId: 101,
+        name: 'Milk',
+        count: 1,
+        entries: [
+          {
+            entryId: 13,
+            productId: 101,
+            amount: 2,
+          },
+        ],
+      })),
       updateInventoryEntry: vi.fn(async (): Promise<any> => ({
         entryId: 12,
         updated: {
@@ -500,6 +521,83 @@ describe('MCP action history wrappers', () => {
           entityRef: 'stock-entry:12',
         }),
       ],
+    }));
+  });
+
+  it('records inventory entry deletions in history', async () => {
+    const baseServices = createBaseInventoryServices();
+    const services = createHistoryWrappedInventoryServices(baseServices);
+
+    const result = await services.deleteInventoryEntry({
+      entryId: 12,
+    });
+
+    expect(result.entryId).toBe(12);
+    expect(info).toHaveBeenCalledWith('[MCP] Deleted inventory entry 12.');
+    expect(recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'inventory_delete_entry',
+      status: 'success',
+      message: 'Deleted inventory entry 12.',
+      events: [
+        expect.objectContaining({
+          category: 'inventory',
+          entityKind: 'stock_entry',
+          entityRef: 'stock-entry:12',
+        }),
+      ],
+    }));
+  });
+
+  it('records inventory entry creation in history', async () => {
+    const baseServices = createBaseInventoryServices();
+    const services = createHistoryWrappedInventoryServices(baseServices);
+
+    const result = await services.createInventoryEntry({
+      productRef: 'mapping:map-1',
+      amount: 2,
+    } as any);
+
+    expect(result.count).toBe(1);
+    expect(info).toHaveBeenCalledWith('[MCP] Created 1 inventory entry for "Milk".');
+    expect(recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'inventory_create_entry',
+      status: 'success',
+      message: 'Created 1 inventory entry for Grocy product "Milk".',
+      events: [
+        expect.objectContaining({
+          category: 'inventory',
+          entityKind: 'product',
+          entityRef: 'grocy:101',
+        }),
+      ],
+    }));
+  });
+
+  it('records create-entry warnings as successful inventory mutations', async () => {
+    const baseServices = createBaseInventoryServices();
+    const services = createHistoryWrappedInventoryServices({
+      ...baseServices,
+      createInventoryEntry: vi.fn(async (): Promise<any> => ({
+        productRef: 'mapping:map-1',
+        grocyProductId: 101,
+        name: 'Milk',
+        count: 0,
+        entries: [],
+        warning: 'Stock was added in Grocy, but no new individual stock entries could be identified. Grocy may have merged the amount into an existing batch.',
+      })),
+    });
+
+    const result = await services.createInventoryEntry({
+      productRef: 'mapping:map-1',
+      amount: 2,
+    } as any);
+
+    expect(result.count).toBe(0);
+    expect(info).toHaveBeenCalledWith('[MCP] Stock was added in Grocy, but no new individual stock entries could be identified. Grocy may have merged the amount into an existing batch.');
+    expect(recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'inventory_create_entry',
+      status: 'success',
+      message: 'Stock was added in Grocy, but no new individual stock entries could be identified. Grocy may have merged the amount into an existing batch.',
     }));
   });
 

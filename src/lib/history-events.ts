@@ -151,8 +151,12 @@ export function formatHistoryActionLabel(action: HistoryRunAction): string {
       return 'Delete Grocy product group';
     case 'inventory_add_stock':
       return 'Add stock';
+    case 'inventory_create_entry':
+      return 'Create inventory entry';
     case 'inventory_consume_stock':
       return 'Consume stock';
+    case 'inventory_delete_entry':
+      return 'Delete inventory entry';
     case 'inventory_set_stock':
       return 'Set stock';
     case 'inventory_mark_opened':

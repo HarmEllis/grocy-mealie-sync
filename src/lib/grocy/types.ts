@@ -13,6 +13,7 @@
 import './init';
 import { GenericEntityInteractionsService, StockService } from './client';
 import type { StockEntry } from './client/models/StockEntry';
+import type { StockLogEntry } from './client/models/StockLogEntry';
 import type { Product } from './client/models/Product';
 import type { ProductGroup } from './client/models/ProductGroup';
 import type { QuantityUnit } from './client/models/QuantityUnit';
@@ -23,6 +24,24 @@ import type { CurrentVolatilStockResponse } from './client/models/CurrentVolatil
 import type { CurrentStockResponse } from './client/models/CurrentStockResponse';
 import type { ProductDetailsResponse } from './client/models/ProductDetailsResponse';
 import { StockTransactionType } from './client/models/StockTransactionType';
+
+export const GROCY_NO_BEST_BEFORE_DATE = '2999-12-31';
+
+function serializeGrocyBestBeforeDate(bestBeforeDate?: string | null): string | undefined {
+  if (bestBeforeDate === null) {
+    return GROCY_NO_BEST_BEFORE_DATE;
+  }
+
+  return bestBeforeDate ?? undefined;
+}
+
+export function normalizeGrocyBestBeforeDate(bestBeforeDate?: string | null): string | null {
+  if (!bestBeforeDate || bestBeforeDate === GROCY_NO_BEST_BEFORE_DATE) {
+    return null;
+  }
+
+  return bestBeforeDate;
+}
 
 // ---------------------------------------------------------------------------
 // Entity name unions
@@ -421,7 +440,7 @@ export async function updateGrocyStockEntry(
 ): Promise<void> {
   await StockService.putStockEntry(entryId, {
     amount: input.amount,
-    best_before_date: input.bestBeforeDate ?? undefined,
+    best_before_date: serializeGrocyBestBeforeDate(input.bestBeforeDate),
     price: input.price,
     open: input.open,
     location_id: input.locationId,
@@ -438,16 +457,18 @@ export async function addProductStock(
   amountOrInput: number | {
     amount: number;
     bestBeforeDate?: string | null;
+    locationId?: number;
     note?: string | null;
   },
-): Promise<void> {
+): Promise<StockLogEntry[]> {
   const input = typeof amountOrInput === 'number'
     ? { amount: amountOrInput }
     : amountOrInput;
 
-  await StockService.postStockProductsAdd(productId, {
+  return StockService.postStockProductsAdd(productId, {
     amount: input.amount,
-    best_before_date: input.bestBeforeDate ?? undefined,
+    best_before_date: serializeGrocyBestBeforeDate(input.bestBeforeDate),
+    location_id: input.locationId,
     note: input.note ?? undefined,
     transaction_type: StockTransactionType.PURCHASE,
   });
@@ -473,6 +494,27 @@ export async function consumeProductStock(
 }
 
 /**
+ * Remove a specific stock entry for a given product.
+ */
+export async function consumeProductStockByEntry(
+  productId: number,
+  stockEntryId: string,
+): Promise<void> {
+  await StockService.postStockProductsConsume(productId, {
+    amount: 1,
+    stock_entry_id: stockEntryId,
+    transaction_type: StockTransactionType.CONSUME,
+  });
+}
+
+/**
+ * Load all stock bookings for one Grocy stock transaction.
+ */
+export async function getStockTransactionEntries(transactionId: string): Promise<StockLogEntry[]> {
+  return StockService.getStockTransactions(transactionId);
+}
+
+/**
  * Correct stock for a given product to the provided exact amount.
  */
 export async function inventoryProductStock(
@@ -485,7 +527,7 @@ export async function inventoryProductStock(
 ): Promise<void> {
   await StockService.postStockProductsInventory(productId, {
     new_amount: input.newAmount,
-    best_before_date: input.bestBeforeDate ?? undefined,
+    best_before_date: serializeGrocyBestBeforeDate(input.bestBeforeDate),
     note: input.note ?? undefined,
   });
 }
@@ -505,4 +547,4 @@ export async function openProductStock(
 }
 
 // Re-export model types that are commonly used in application code
-export type { Product, ProductGroup, QuantityUnit, QuantityUnitConversion, Location, ShoppingListItem, StockEntry, ProductDetailsResponse, CurrentStockResponse };
+export type { Product, ProductGroup, QuantityUnit, QuantityUnitConversion, Location, ShoppingListItem, StockEntry, StockLogEntry, ProductDetailsResponse, CurrentStockResponse };

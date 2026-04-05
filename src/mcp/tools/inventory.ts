@@ -69,6 +69,26 @@ export function registerInventoryTools(server: McpServer, services: InventoryMcp
   );
 
   server.registerTool(
+    'inventory.delete_entry',
+    {
+      title: 'Delete Inventory Entry',
+      description: 'Delete a single Grocy stock entry by consuming it. Only works for entries with integer amounts; targeted deletion of fractional entries is not supported.',
+      inputSchema: {
+        entryId: z.number().int().positive(),
+      },
+    },
+    async ({ entryId }) => {
+      const data = await services.deleteInventoryEntry({ entryId });
+      const result = createOkResult('Deleted the inventory entry.', data);
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
     'inventory.list_low_stock',
     {
       title: 'List Low-Stock Products',
@@ -93,7 +113,7 @@ export function registerInventoryTools(server: McpServer, services: InventoryMcp
     'inventory.add_stock',
     {
       title: 'Add Stock',
-      description: 'Add stock in Grocy with an optional best-before date, note, and opened amount',
+      description: 'Add stock to a Grocy product by amount, with optional best-before date, note, and opened amount. Use inventory.create_entry when you need entry-level fields such as purchased date or location.',
       inputSchema: {
         productRef: productRefSchema,
         amount: z.number().positive(),
@@ -117,7 +137,7 @@ export function registerInventoryTools(server: McpServer, services: InventoryMcp
     'inventory.consume_stock',
     {
       title: 'Consume Stock',
-      description: 'Remove stock in Grocy because it was used or consumed',
+      description: 'Remove stock from a Grocy product by amount because it was used or consumed. Use inventory.delete_entry when you need to remove one specific stock entry.',
       inputSchema: {
         productRef: productRefSchema,
         amount: z.number().positive(),
@@ -140,7 +160,7 @@ export function registerInventoryTools(server: McpServer, services: InventoryMcp
     'inventory.set_stock',
     {
       title: 'Set Stock',
-      description: 'Correct the Grocy stock amount to an exact target value and optionally target an opened amount',
+      description: 'Correct the total Grocy stock amount for a product to an exact target value and optionally target an opened amount. This works at the product level, not on one specific stock entry.',
       inputSchema: {
         productRef: productRefSchema,
         amount: z.number().min(0),
@@ -182,10 +202,46 @@ export function registerInventoryTools(server: McpServer, services: InventoryMcp
   );
 
   server.registerTool(
+    'inventory.create_entry',
+    {
+      title: 'Create Inventory Entry',
+      description: 'Create new stock entries in Grocy with full field support including purchased date, location, and open state. Returns the created entries.',
+      inputSchema: {
+        productRef: productRefSchema,
+        amount: z.number().positive(),
+        bestBeforeDate: z.string().trim().min(1).nullable().optional(),
+        purchasedDate: z.string().trim().min(1).optional(),
+        locationId: z.number().int().positive().optional(),
+        open: z.boolean().optional(),
+        note: z.string().trim().min(1).nullable().optional(),
+      },
+    },
+    async ({ productRef, amount, bestBeforeDate, purchasedDate, locationId, open, note }) => {
+      const data = await services.createInventoryEntry({
+        productRef,
+        amount,
+        bestBeforeDate,
+        purchasedDate,
+        locationId,
+        open,
+        note,
+      });
+      const noun = data.count === 1 ? 'entry' : 'entries';
+      const message = data.warning ?? `Created ${data.count} inventory ${noun}.`;
+      const result = createOkResult(message, data);
+
+      return {
+        content: [createJsonTextContent(result)],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
     'inventory.update_entry',
     {
       title: 'Update Inventory Entry',
-      description: 'Update an existing Grocy stock entry. Editable fields are amount, best-before date (or null to clear it), price, open flag, location id, shopping location id, and purchased date.',
+      description: 'Update an existing Grocy stock entry after inspecting it with inventory.list_entries or inventory.get_entry. Editable fields are amount, best-before date (or null to clear it), price, open flag, location id, shopping location id, and purchased date.',
       inputSchema: {
         entryId: z.number().int().positive(),
         amount: z.number().positive().optional(),

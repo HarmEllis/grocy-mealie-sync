@@ -1,8 +1,12 @@
 import type {
   AddStockParams,
   AddStockResult,
+  CreateInventoryEntryParams,
+  CreateInventoryEntryResult,
   ConsumeStockParams,
   ConsumeStockResult,
+  DeleteInventoryEntryParams,
+  DeleteInventoryEntryResult,
   GetInventoryEntryParams,
   GetInventoryEntryResult,
   InventoryStockParams,
@@ -189,6 +193,8 @@ export interface InventoryMcpServices {
   consumeStock(params: ConsumeStockParams): Promise<ConsumeStockResult>;
   setStock(params: SetStockParams): Promise<SetStockResult>;
   markStockOpened(params: MarkStockOpenedParams): Promise<MarkStockOpenedResult>;
+  deleteInventoryEntry(params: DeleteInventoryEntryParams): Promise<DeleteInventoryEntryResult>;
+  createInventoryEntry(params: CreateInventoryEntryParams): Promise<CreateInventoryEntryResult>;
   updateInventoryEntry(params: UpdateInventoryEntryParams): Promise<UpdateInventoryEntryResult>;
 }
 

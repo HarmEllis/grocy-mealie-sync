@@ -110,7 +110,7 @@ beforeEach(() => {
   mockedFetchAll.mockResolvedValue([]);
   mockedGetGrocyEntities.mockResolvedValue([]);
   mockedDeleteGrocyEntity.mockResolvedValue(undefined);
-  mockedAddProductStock.mockResolvedValue(undefined);
+  mockedAddProductStock.mockResolvedValue([]);
 
   // DB: no mappings by default
   mockLimit.mockResolvedValue([]);
@@ -461,7 +461,7 @@ describe('pollMealieForCheckedItems', () => {
 
     // First item succeeds, second throws
     mockedAddProductStock
-      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce([])
       .mockRejectedValueOnce(new Error('Stock add failed'));
 
     await pollMealieForCheckedItems();

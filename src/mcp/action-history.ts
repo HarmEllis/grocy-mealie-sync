@@ -650,6 +650,106 @@ export function createHistoryWrappedInventoryServices(services: InventoryMcpServ
         ],
       }),
     }),
+    deleteInventoryEntry: withMcpActionHistory(services.deleteInventoryEntry, {
+      action: 'inventory_delete_entry',
+      historyErrorPrefix: '[History] Failed to record MCP inventory entry deletion:',
+      buildSuccess: (result) => ({
+        logMessage: `[MCP] Deleted inventory entry ${result.entryId}.`,
+        message: `Deleted inventory entry ${result.entryId}.`,
+        summary: result,
+        events: [
+          buildManualHistoryEvent({
+            level: 'info',
+            category: 'inventory',
+            entityKind: 'stock_entry',
+            entityRef: `stock-entry:${result.entryId}`,
+            message: `Deleted inventory entry ${result.entryId}.`,
+            details: result,
+          }),
+        ],
+      }),
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Delete inventory entry failed:',
+        message: `Deleting inventory entry failed: ${formatManualActionError(error)}`,
+        summary: {
+          entryId: params.entryId,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'inventory',
+            'stock_entry',
+            `stock-entry:${params.entryId}`,
+            'Deleting inventory entry failed.',
+            error,
+            { entryId: params.entryId },
+          ),
+        ],
+      }),
+    }),
+    createInventoryEntry: withMcpActionHistory(services.createInventoryEntry, {
+      action: 'inventory_create_entry',
+      historyErrorPrefix: '[History] Failed to record MCP inventory entry creation:',
+      buildSuccess: (result) => {
+        if (result.warning) {
+          return {
+            logMessage: `[MCP] ${result.warning}`,
+            message: result.warning,
+            summary: result,
+            events: [
+              buildManualHistoryEvent({
+                level: 'info',
+                category: 'inventory',
+                entityKind: 'product',
+                entityRef: `grocy:${result.grocyProductId}`,
+                message: result.warning,
+                details: result,
+              }),
+            ],
+          };
+        }
+
+        const noun = result.count === 1 ? 'entry' : 'entries';
+
+        return {
+          logMessage: `[MCP] Created ${result.count} inventory ${noun} for "${result.name}".`,
+          message: `Created ${result.count} inventory ${noun} for Grocy product "${result.name}".`,
+          summary: result,
+          events: [
+            buildManualHistoryEvent({
+              level: 'info',
+              category: 'inventory',
+              entityKind: 'product',
+              entityRef: `grocy:${result.grocyProductId}`,
+              message: `Created ${result.count} inventory ${noun} for Grocy product "${result.name}".`,
+              details: result,
+            }),
+          ],
+        };
+      },
+      buildFailure: (error, params) => ({
+        logMessage: '[MCP] Create inventory entry failed:',
+        message: `Creating inventory entry failed: ${formatManualActionError(error)}`,
+        summary: {
+          productRef: params.productRef,
+          amount: params.amount,
+          error: formatManualActionError(error),
+        },
+        events: [
+          buildMcpFailureEvent(
+            'inventory',
+            'product',
+            params.productRef,
+            'Creating inventory entry failed.',
+            error,
+            {
+              productRef: params.productRef,
+              amount: params.amount,
+            },
+          ),
+        ],
+      }),
+    }),
     updateInventoryEntry: withMcpActionHistory(services.updateInventoryEntry, {
       action: 'inventory_update_entry',
       historyErrorPrefix: '[History] Failed to record MCP inventory entry update:',

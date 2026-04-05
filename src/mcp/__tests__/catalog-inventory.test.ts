@@ -12,6 +12,8 @@ import type {
   UpdateGrocyProductGroupResult,
 } from '@/lib/use-cases/catalog/manage';
 import type {
+  CreateInventoryEntryResult,
+  DeleteInventoryEntryResult,
   GetInventoryEntryResult,
   InventoryStockEntriesResult,
   UpdateInventoryEntryResult,
@@ -142,6 +144,64 @@ describe('MCP catalog and inventory entry management', () => {
       note: null,
       rowCreatedTimestamp: '2026-04-01T10:00:00Z',
     },
+  }));
+
+  const deleteInventoryEntry = vi.fn(async (): Promise<DeleteInventoryEntryResult> => ({
+    entryId: 12,
+    entry: {
+      entryId: 12,
+      productId: 101,
+      locationId: 1,
+      shoppingLocationId: null,
+      amount: 2,
+      bestBeforeDate: '2026-04-15',
+      purchasedDate: '2026-04-03',
+      stockId: 'stock-12',
+      price: 4.5,
+      open: true,
+      openedDate: null,
+      note: null,
+      rowCreatedTimestamp: '2026-04-01T10:00:00Z',
+    },
+  }));
+
+  const createInventoryEntry = vi.fn(async (): Promise<CreateInventoryEntryResult> => ({
+    productRef: 'mapping:map-1',
+    grocyProductId: 101,
+    name: 'Milk',
+    count: 2,
+    entries: [
+      {
+        entryId: 14,
+        productId: 101,
+        locationId: 2,
+        shoppingLocationId: null,
+        amount: 1,
+        bestBeforeDate: '2026-04-20',
+        purchasedDate: '2026-04-03',
+        stockId: 'stock-14',
+        price: null,
+        open: true,
+        openedDate: '2026-04-03',
+        note: 'Fresh batch',
+        rowCreatedTimestamp: '2026-04-03T10:00:00Z',
+      },
+      {
+        entryId: 15,
+        productId: 101,
+        locationId: 2,
+        shoppingLocationId: null,
+        amount: 1,
+        bestBeforeDate: '2026-04-20',
+        purchasedDate: '2026-04-03',
+        stockId: 'stock-15',
+        price: null,
+        open: true,
+        openedDate: '2026-04-03',
+        note: 'Fresh batch',
+        rowCreatedTimestamp: '2026-04-03T10:00:01Z',
+      },
+    ],
   }));
 
   afterEach(() => {
@@ -324,6 +384,8 @@ describe('MCP catalog and inventory entry management', () => {
       inventory: {
         listInventoryEntries,
         getInventoryEntry,
+        deleteInventoryEntry,
+        createInventoryEntry,
         updateInventoryEntry,
       },
     });
@@ -349,6 +411,8 @@ describe('MCP catalog and inventory entry management', () => {
       expect(tools.tools.map(tool => tool.name)).toEqual(expect.arrayContaining([
         'inventory.list_entries',
         'inventory.get_entry',
+        'inventory.delete_entry',
+        'inventory.create_entry',
         'inventory.update_entry',
       ]));
 
@@ -359,6 +423,22 @@ describe('MCP catalog and inventory entry management', () => {
       const getResult = await client.callTool({
         name: 'inventory.get_entry',
         arguments: { entryId: 12 },
+      });
+      const deleteResult = await client.callTool({
+        name: 'inventory.delete_entry',
+        arguments: { entryId: 12 },
+      });
+      const createResult = await client.callTool({
+        name: 'inventory.create_entry',
+        arguments: {
+          productRef: 'mapping:map-1',
+          amount: 2,
+          bestBeforeDate: '2026-04-20',
+          purchasedDate: '2026-04-03',
+          locationId: 2,
+          open: true,
+          note: 'Fresh batch',
+        },
       });
       const updateResult = await client.callTool({
         name: 'inventory.update_entry',
@@ -416,6 +496,84 @@ describe('MCP catalog and inventory entry management', () => {
           },
         },
       });
+      expect(deleteInventoryEntry).toHaveBeenCalledWith({
+        entryId: 12,
+      });
+      expect(deleteResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Deleted the inventory entry.',
+        data: {
+          entryId: 12,
+          entry: {
+            entryId: 12,
+            productId: 101,
+            locationId: 1,
+            shoppingLocationId: null,
+            amount: 2,
+            bestBeforeDate: '2026-04-15',
+            purchasedDate: '2026-04-03',
+            stockId: 'stock-12',
+            price: 4.5,
+            open: true,
+            openedDate: null,
+            note: null,
+            rowCreatedTimestamp: '2026-04-01T10:00:00Z',
+          },
+        },
+      });
+      expect(createInventoryEntry).toHaveBeenCalledWith({
+        productRef: 'mapping:map-1',
+        amount: 2,
+        bestBeforeDate: '2026-04-20',
+        purchasedDate: '2026-04-03',
+        locationId: 2,
+        open: true,
+        note: 'Fresh batch',
+      });
+      expect(createResult.structuredContent).toEqual({
+        ok: true,
+        status: 'ok',
+        message: 'Created 2 inventory entries.',
+        data: {
+          productRef: 'mapping:map-1',
+          grocyProductId: 101,
+          name: 'Milk',
+          count: 2,
+          entries: [
+            {
+              entryId: 14,
+              productId: 101,
+              locationId: 2,
+              shoppingLocationId: null,
+              amount: 1,
+              bestBeforeDate: '2026-04-20',
+              purchasedDate: '2026-04-03',
+              stockId: 'stock-14',
+              price: null,
+              open: true,
+              openedDate: '2026-04-03',
+              note: 'Fresh batch',
+              rowCreatedTimestamp: '2026-04-03T10:00:00Z',
+            },
+            {
+              entryId: 15,
+              productId: 101,
+              locationId: 2,
+              shoppingLocationId: null,
+              amount: 1,
+              bestBeforeDate: '2026-04-20',
+              purchasedDate: '2026-04-03',
+              stockId: 'stock-15',
+              price: null,
+              open: true,
+              openedDate: '2026-04-03',
+              note: 'Fresh batch',
+              rowCreatedTimestamp: '2026-04-03T10:00:01Z',
+            },
+          ],
+        },
+      });
       expect(updateInventoryEntry).toHaveBeenCalledWith({
         entryId: 12,
         amount: 3,
@@ -453,6 +611,51 @@ describe('MCP catalog and inventory entry management', () => {
           },
         },
       });
+    } finally {
+      await Promise.allSettled([client.close(), transport.close()]);
+    }
+  });
+
+  it('returns an error for unknown inventory tools', async () => {
+    const handleRequest = createMcpHttpHandler({
+      inventory: {
+        listInventoryEntries,
+        getInventoryEntry,
+        deleteInventoryEntry,
+        createInventoryEntry,
+        updateInventoryEntry,
+      },
+    });
+
+    const client = new Client(
+      { name: 'mcp-unknown-tool-test-client', version: '1.0.0' },
+      { capabilities: {} },
+    );
+
+    const transport = new StreamableHTTPClientTransport(
+      new URL('http://localhost/api/mcp'),
+      {
+        fetch: async (input, init) => handleRequest(
+          input instanceof Request ? input : new Request(input, init),
+        ),
+      },
+    );
+
+    try {
+      await client.connect(transport);
+
+      const result = await client.callTool({
+        name: 'inventory.does_not_exist',
+        arguments: {},
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toEqual([
+        {
+          type: 'text',
+          text: 'MCP error -32602: Tool inventory.does_not_exist not found',
+        },
+      ]);
     } finally {
       await Promise.allSettled([client.close(), transport.close()]);
     }

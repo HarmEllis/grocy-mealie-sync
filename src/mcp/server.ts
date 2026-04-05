@@ -3,6 +3,8 @@ import packageJson from '../../package.json';
 import {
   addStock,
   consumeStock,
+  createInventoryEntry,
+  deleteInventoryEntry,
   getInventoryEntry,
   getInventoryStock,
   listInventoryEntries,
@@ -148,7 +150,9 @@ export function createGrocyMealieSyncMcpServer(
     listInventoryEntries,
     getInventoryEntry,
     addStock,
+    createInventoryEntry,
     consumeStock,
+    deleteInventoryEntry,
     setStock,
     markStockOpened,
     updateInventoryEntry,

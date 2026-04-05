@@ -39,7 +39,9 @@ export const historyRunActions = [
   'catalog_update_product_group',
   'catalog_delete_product_group',
   'inventory_add_stock',
+  'inventory_create_entry',
   'inventory_consume_stock',
+  'inventory_delete_entry',
   'inventory_set_stock',
   'inventory_mark_opened',
   'inventory_update_entry',
@@ -75,6 +77,7 @@ export type HistoryEventEntityKind =
   | 'location'
   | 'product_group'
   | 'shopping_item'
+  | 'stock_entry'
   | 'conflict'
   | 'lock'
   | 'system'
