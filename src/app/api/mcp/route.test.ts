@@ -17,7 +17,7 @@ vi.mock('@/mcp/http', () => ({
   createMcpHttpHandler: vi.fn(() => mockState.handleMcpRequest),
 }));
 
-import { GET, POST } from './route';
+import { DELETE, GET, POST } from './route';
 
 describe('mcp route', () => {
   beforeEach(() => {
@@ -46,6 +46,15 @@ describe('mcp route', () => {
     expect(mockState.handleMcpRequest).not.toHaveBeenCalled();
   });
 
+  it('returns 503 for delete requests when mcp is disabled', async () => {
+    const response = await DELETE(new Request('http://localhost/api/mcp', {
+      method: 'DELETE',
+    }));
+
+    expect(response.status).toBe(503);
+    expect(mockState.handleMcpRequest).not.toHaveBeenCalled();
+  });
+
   it('delegates to the mcp handler when mcp is enabled', async () => {
     mockState.mcpEnabled = true;
     const request = new Request('http://localhost/api/mcp', {
@@ -54,6 +63,19 @@ describe('mcp route', () => {
     });
 
     const response = await POST(request);
+
+    expect(mockState.handleMcpRequest).toHaveBeenCalledWith(request);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('ok');
+  });
+
+  it('delegates delete requests to the mcp handler when mcp is enabled', async () => {
+    mockState.mcpEnabled = true;
+    const request = new Request('http://localhost/api/mcp', {
+      method: 'DELETE',
+    });
+
+    const response = await DELETE(request);
 
     expect(mockState.handleMcpRequest).toHaveBeenCalledWith(request);
     expect(response.status).toBe(200);

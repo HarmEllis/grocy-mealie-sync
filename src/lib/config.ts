@@ -192,6 +192,28 @@ export function parseCleanupCheckedItemsModeEnv(
   }
 }
 
+export function parseBoundedIntEnv(
+  value: string | undefined,
+  name: string,
+  defaultValue: number,
+  min: number,
+  max: number,
+): number {
+  if (!hasConfiguredValue(value)) {
+    return defaultValue;
+  }
+
+  const parsed = parseInt(value!.trim(), 10);
+  if (isNaN(parsed) || parsed < min || parsed > max) {
+    log.warn(
+      `[Config] ${name} must be an integer between ${min} and ${max} (got "${value}"). Falling back to ${defaultValue}.`,
+    );
+    return defaultValue;
+  }
+
+  return parsed;
+}
+
 const configuredTimeZone = parseTimeZoneEnv(process.env.TZ, 'TZ');
 const configuredLocale = resolveLocaleForConfiguredTimeZone(configuredTimeZone);
 const configuredHistoryRetentionDays = parseHistoryRetentionDaysEnv(
@@ -205,6 +227,8 @@ export const config = {
   mealieUrl: validateServiceUrl(process.env.MEALIE_URL, 'MEALIE_URL', MEALIE_DEFAULT_URL),
   mealieApiToken: process.env.MEALIE_API_TOKEN || '',
   mcpEnabled: parseBooleanEnv(process.env.MCP_ENABLED, false, 'MCP_ENABLED'),
+  mcpSessionTtlMs: parseBoundedIntEnv(process.env.MCP_SESSION_TTL_MS, 'MCP_SESSION_TTL_MS', 900_000, 60_000, 86_400_000),
+  mcpMaxSessions: parseBoundedIntEnv(process.env.MCP_MAX_SESSIONS, 'MCP_MAX_SESSIONS', 100, 1, 1_000),
   mealieShoppingListId: process.env.MEALIE_SHOPPING_LIST_ID || '',
   pollIntervalSeconds: parseIntOrDefault(process.env.POLL_INTERVAL_SECONDS, 60),
   productSyncIntervalHours: parseIntOrDefault(process.env.PRODUCT_SYNC_INTERVAL_HOURS, 6),

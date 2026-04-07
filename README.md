@@ -50,6 +50,8 @@ Optional auth settings:
 - `AUTH_ENABLED=true` to require login for the web UI and auth for protected API routes
 - `AUTH_SECRET=...` as the shared secret for both the login form and `Authorization: Bearer <token>`
 - `MCP_ENABLED=true` to enable the MCP endpoint at `/api/mcp` (default: disabled)
+- `MCP_SESSION_TTL_MS=900000` to control MCP session inactivity expiry in milliseconds (default: 15 minutes, min: 60000, max: 86400000)
+- `MCP_MAX_SESSIONS=100` to cap concurrent in-memory MCP sessions (default: 100, min: 1, max: 1000)
 
 If `AUTH_ENABLED` is unset, auth turns on automatically when `AUTH_SECRET` is set. Set `AUTH_ENABLED=false` to disable auth explicitly.
 
@@ -218,6 +220,18 @@ http://localhost:3000/api/mcp
 Use the same app URL when running in Docker or on a remote server.
 
 On startup, the app logs whether the MCP server is enabled or disabled.
+
+The MCP endpoint uses Streamable HTTP sessions:
+
+- create a session with an `initialize` `POST` request (response includes `mcp-session-id`)
+- reuse that session ID on subsequent `POST`, `GET`, and `DELETE` requests
+- sessions are kept in memory and expire after inactivity (`MCP_SESSION_TTL_MS`)
+- `DELETE` closes a session immediately
+
+Operational notes:
+
+- in development, Next.js hot reload recreates the module and clears in-memory MCP sessions
+- if session creation traffic is abusive, the in-memory cap can be exhausted until sessions expire or are closed; apply API rate limiting separately when needed
 
 When auth is enabled, connect with:
 

@@ -1365,15 +1365,15 @@ describe('MCP streamable HTTP handler', () => {
     }
   });
 
-  it('rejects non-POST requests', async () => {
+  it('rejects unsupported methods', async () => {
     const handleRequest = createMcpHttpHandler();
 
     const response = await handleRequest(new Request('http://localhost/api/mcp', {
-      method: 'GET',
+      method: 'PUT',
     }));
 
     expect(response.status).toBe(405);
-    expect(response.headers.get('allow')).toBe('POST');
+    expect(response.headers.get('allow')).toBe('GET, POST, DELETE');
   });
 
   it('returns status skipped when duplicate prevention triggers', async () => {

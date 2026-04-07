@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  parseBoundedIntEnv,
   parseBooleanEnv,
   parseCleanupCheckedItemsAfterHoursEnv,
   parseCleanupCheckedItemsModeEnv,
@@ -205,6 +206,26 @@ describe('parseCleanupCheckedItemsModeEnv', () => {
   it('falls back to all for invalid values', () => {
     expect(parseCleanupCheckedItemsModeEnv('invalid', 'TEST')).toBe('all');
     expect(parseCleanupCheckedItemsModeEnv('none', 'TEST')).toBe('all');
+  });
+});
+
+describe('parseBoundedIntEnv', () => {
+  it('returns default for empty values', () => {
+    expect(parseBoundedIntEnv(undefined, 'TEST', 10, 1, 100)).toBe(10);
+    expect(parseBoundedIntEnv('', 'TEST', 10, 1, 100)).toBe(10);
+    expect(parseBoundedIntEnv('   ', 'TEST', 10, 1, 100)).toBe(10);
+  });
+
+  it('accepts values within the configured bounds', () => {
+    expect(parseBoundedIntEnv('1', 'TEST', 10, 1, 100)).toBe(1);
+    expect(parseBoundedIntEnv('100', 'TEST', 10, 1, 100)).toBe(100);
+    expect(parseBoundedIntEnv(' 42 ', 'TEST', 10, 1, 100)).toBe(42);
+  });
+
+  it('falls back to default for invalid or out-of-range values', () => {
+    expect(parseBoundedIntEnv('abc', 'TEST', 10, 1, 100)).toBe(10);
+    expect(parseBoundedIntEnv('0', 'TEST', 10, 1, 100)).toBe(10);
+    expect(parseBoundedIntEnv('101', 'TEST', 10, 1, 100)).toBe(10);
   });
 });
 
