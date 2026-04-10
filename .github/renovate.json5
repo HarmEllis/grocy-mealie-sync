@@ -1,0 +1,115 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+
+  // Best-practice preset as baseline — provides safe defaults
+  "extends": ["config:recommended"],
+
+  // Run during off-hours to avoid disrupting development
+  "schedule": ["after 2am and before 6am every weekday"],
+
+  // Limit concurrent open PRs to avoid overwhelming the review queue
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+
+  // Wait 3 days after publish before raising a PR.
+  // Protects against fast publish/yank supply chain attacks (most yanked within 72h).
+  // Note: does not protect against malicious packages that remain published beyond 3 days.
+  "minimumReleaseAge": "3 days",
+
+  // Refresh lockfile weekly to pick up transitive vulnerability fixes.
+  // Note: also auto-merges non-security transitive runtime changes (e.g. a bugfix in a
+  // transitive dep). Intentional trade-off for a solo-maintainer workflow: the CI gate
+  // (typecheck + tests + build) is the quality check.
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 5am on monday"],
+    "automerge": true
+  },
+
+  "packageRules": [
+    // DevDependency patch updates: grouped auto-merge when CI passes.
+    // devDeps don't affect the production runtime — low risk for auto-merge.
+    {
+      "matchUpdateTypes": ["patch"],
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies"],
+      "groupName": "npm devDependency patch updates",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+
+    // Runtime dependency patch updates: always require manual review.
+    // Unit tests may not catch all behavioral regressions in production runtime packages.
+    {
+      "matchUpdateTypes": ["patch"],
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["dependencies"],
+      "groupName": "npm runtime patch updates",
+      "automerge": false
+    },
+
+    // Minor updates: open PR on Monday, require manual review.
+    {
+      "matchUpdateTypes": ["minor"],
+      "matchManagers": ["npm"],
+      "groupName": "npm minor updates",
+      "automerge": false,
+      "schedule": ["after 2am and before 6am on monday"]
+    },
+
+    // Major updates: individual PRs, never auto-merge.
+    {
+      "matchUpdateTypes": ["major"],
+      "matchManagers": ["npm"],
+      "automerge": false
+    },
+
+    // GitHub Actions SHA-pins: auto-update digest + tag comment.
+    // Actions updates are low risk when SHA-pinned.
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions updates",
+      "pinDigests": true,
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true,
+      "minimumReleaseAge": "1 day"
+    },
+
+    // Framework core: always require manual review regardless of update type.
+    {
+      "matchPackageNames": ["next", "react", "react-dom", "typescript"],
+      "automerge": false,
+      "groupName": null
+    },
+
+    // Drizzle ORM: schema migrations can be breaking — always manual review.
+    {
+      "matchPackageNames": ["drizzle-orm", "drizzle-kit"],
+      "automerge": false
+    },
+
+    // Native module: requires native rebuild — treat carefully.
+    {
+      "matchPackageNames": ["better-sqlite3", "@types/better-sqlite3"],
+      "automerge": false
+    }
+  ],
+
+  // Vulnerability alerts: open PR immediately regardless of schedule.
+  // Auto-merge is an intentional exception to the manual-review policy for runtime deps:
+  // security fixes take priority over regression risk.
+  // Rollback procedure if a regression is introduced: git revert <merge-commit>
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "schedule": ["at any time"],
+    "automerge": true,
+    "automergeType": "pr",
+    "platformAutomerge": true,
+    "labels": ["security"]
+  },
+
+  // Keep GitHub Actions SHA-pinned
+  "pinDigests": true
+}

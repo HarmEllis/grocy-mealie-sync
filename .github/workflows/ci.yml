@@ -39,6 +39,9 @@ jobs:
       - name: Security audit
         run: npm audit --audit-level=high
 
+      - name: Verify package signatures
+        run: npm audit signatures
+
       - name: Typecheck
         run: npm run typecheck
 
