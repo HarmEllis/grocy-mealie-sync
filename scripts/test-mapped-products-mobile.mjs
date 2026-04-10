@@ -32,7 +32,11 @@ const settingsBody = {
     },
     mappingWizardMinStockStep: { locked: false, envVar: 'MAPPING_WIZARD_MIN_STOCK_STEP', envValue: null },
     stockOnlyMinStock: { locked: false, envVar: 'STOCK_ONLY_MIN_STOCK', envValue: null },
+    cleanupCheckedItemsAfterHours: { locked: false, envVar: 'CLEANUP_CHECKED_ITEMS_AFTER_HOURS', envValue: null },
+    cleanupCheckedItemsMode: { locked: false, envVar: 'CLEANUP_CHECKED_ITEMS_MODE', envValue: null },
   },
+  cleanupCheckedItemsAfterHours: -1,
+  cleanupCheckedItemsMode: 'all',
   availableUnits: [],
   availableShoppingLists: [],
 };
