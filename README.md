@@ -17,7 +17,7 @@ The service polls both APIs on a configurable interval (default: 60 seconds).
 
 - A running **Grocy** instance (tested with Grocy 4.x)
 - A running **Mealie** instance (tested with Mealie v3.12.0)
-- **Node.js 22+** (for local dev) or **Docker**
+- **Node.js 24** (for local dev) or **Docker**
 - **VS Code** with the **Dev Containers** extension (optional, for containerized development)
 
 ## Setup

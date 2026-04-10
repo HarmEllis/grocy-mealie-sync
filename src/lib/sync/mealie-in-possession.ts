@@ -49,6 +49,15 @@ export function shouldMarkFoodInPossession(
   return currentStock > 0;
 }
 
+export function computeEffectiveStock(
+  rawStock: number,
+  openedStock: number,
+  treatOpenedAsOutOfStock: boolean,
+): number {
+  if (!treatOpenedAsOutOfStock) return rawStock;
+  return Math.max(0, rawStock - openedStock);
+}
+
 export function buildUpdatedHouseholdsWithIngredientFood(
   householdsWithIngredientFood: string[] | null | undefined,
   householdSlug: string,
@@ -137,6 +146,13 @@ async function runMealieInPossessionSync(
         getCurrentStockAmount(stock.amount, stock.amount_aggregated),
       ]),
     );
+    // Grocy /api/stock returns one aggregated row per product_id — map() is correct here
+    const openedStockByProductId = new Map(
+      currentStock.map(stock => [
+        Number(stock.product_id),
+        Number(stock.amount_opened_aggregated ?? stock.amount_opened ?? 0) || 0,
+      ]),
+    );
     const previousTracked = state.mealieInPossessionByGrocyProduct;
     const nextTracked: Record<string, boolean> = {};
 
@@ -158,8 +174,14 @@ async function runMealieInPossessionSync(
         continue;
       }
 
+      const rawStock = stockByProductId.get(mapping.grocyProductId) ?? 0;
+      const openedStock = openedStockByProductId.get(mapping.grocyProductId) ?? 0;
+      // Explicit finite-number check: Number(undefined)=NaN and NaN!==0 is true, so guard against that
+      const flagRaw = Number(grocyProduct.treat_opened_as_out_of_stock);
+      const treatOpenedAsOutOfStock = Number.isFinite(flagRaw) ? flagRaw !== 0 : false;
+      const effectiveStock = computeEffectiveStock(rawStock, openedStock, treatOpenedAsOutOfStock);
       const desired = shouldMarkFoodInPossession(
-        stockByProductId.get(mapping.grocyProductId) ?? 0,
+        effectiveStock,
         Number(grocyProduct.min_stock_amount ?? 0),
         onlyAboveMinStock,
       );

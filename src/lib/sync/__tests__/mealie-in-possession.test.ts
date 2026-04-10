@@ -84,6 +84,7 @@ vi.mock('../../logger', () => ({
 
 import {
   buildUpdatedHouseholdsWithIngredientFood,
+  computeEffectiveStock,
   reconcileMealieInPossessionFromGrocy,
   shouldMarkFoodInPossession,
   syncMealieInPossessionFromGrocy,
@@ -137,6 +138,108 @@ describe('mealie in-possession sync', () => {
     expect(shouldMarkFoodInPossession(1, 2, false)).toBe(true);
     expect(shouldMarkFoodInPossession(2, 2, true)).toBe(false);
     expect(shouldMarkFoodInPossession(3, 2, true)).toBe(true);
+  });
+
+  it('computeEffectiveStock subtracts opened stock when flag is true', () => {
+    expect(computeEffectiveStock(3, 2, true)).toBe(1);   // 3 total, 2 opened → 1 effective
+    expect(computeEffectiveStock(2, 2, true)).toBe(0);   // all opened → 0 effective
+    expect(computeEffectiveStock(2, 3, true)).toBe(0);   // opened > total → clamp to 0
+    expect(computeEffectiveStock(3, 0, true)).toBe(3);   // none opened → full stock
+    expect(computeEffectiveStock(3, 2, false)).toBe(3);  // flag off → opened not subtracted
+    expect(computeEffectiveStock(2, 2, false)).toBe(2);  // flag off → full stock even if all opened
+  });
+
+  it('marks product as not in possession when all stock is opened and flag is true', async () => {
+    mockState.grocyProducts = [
+      { id: 101, name: 'Milk', min_stock_amount: 0, treat_opened_as_out_of_stock: 1 },
+    ];
+    mockState.currentStock = [
+      { product_id: 101, amount: 2, amount_aggregated: 2, amount_opened: 2, amount_opened_aggregated: 2 },
+    ];
+    mockState.foodsById = {
+      'food-1': createFood({ householdsWithIngredientFood: ['family'] }),
+    };
+
+    const state = {
+      lastGrocyPoll: null,
+      lastMealiePoll: null,
+      grocyBelowMinStock: {},
+      mealieCheckedItems: {},
+      mealieInPossessionByGrocyProduct: { '101': true },
+      syncRestockedProducts: {},
+      mealieCheckedAt: {},
+      mealieItemsSyncedToGrocy: {},
+      lastCleanupRun: null,
+    };
+
+    const result = await syncMealieInPossessionFromGrocy(state);
+
+    expect(result.summary.disabledProducts).toBe(1);
+    expect(mockState.updateFood).toHaveBeenCalledWith('food-1', expect.objectContaining({
+      householdsWithIngredientFood: [],
+    }));
+    expect(state.mealieInPossessionByGrocyProduct).toEqual({ '101': false });
+  });
+
+  it('keeps product in possession when some stock is unopened and flag is true', async () => {
+    mockState.grocyProducts = [
+      { id: 101, name: 'Milk', min_stock_amount: 0, treat_opened_as_out_of_stock: 1 },
+    ];
+    mockState.currentStock = [
+      { product_id: 101, amount: 3, amount_aggregated: 3, amount_opened: 2, amount_opened_aggregated: 2 },
+    ];
+
+    const state = {
+      lastGrocyPoll: null,
+      lastMealiePoll: null,
+      grocyBelowMinStock: {},
+      mealieCheckedItems: {},
+      mealieInPossessionByGrocyProduct: {},
+      syncRestockedProducts: {},
+      mealieCheckedAt: {},
+      mealieItemsSyncedToGrocy: {},
+      lastCleanupRun: null,
+    };
+
+    const result = await syncMealieInPossessionFromGrocy(state);
+
+    expect(result.summary.enabledProducts).toBe(1);
+    expect(state.mealieInPossessionByGrocyProduct).toEqual({ '101': true });
+  });
+
+  it('marks product in possession when all stock is opened but flag is false', async () => {
+    mockState.grocyProducts = [
+      { id: 101, name: 'Milk', min_stock_amount: 0, treat_opened_as_out_of_stock: 0 },
+    ];
+    mockState.currentStock = [
+      { product_id: 101, amount: 2, amount_aggregated: 2, amount_opened: 2, amount_opened_aggregated: 2 },
+    ];
+
+    const state = {
+      lastGrocyPoll: null,
+      lastMealiePoll: null,
+      grocyBelowMinStock: {},
+      mealieCheckedItems: {},
+      mealieInPossessionByGrocyProduct: {},
+      syncRestockedProducts: {},
+      mealieCheckedAt: {},
+      mealieItemsSyncedToGrocy: {},
+      lastCleanupRun: null,
+    };
+
+    const result = await syncMealieInPossessionFromGrocy(state);
+
+    expect(result.summary.enabledProducts).toBe(1);
+    expect(state.mealieInPossessionByGrocyProduct).toEqual({ '101': true });
+  });
+
+  it('respects onlyAboveMinStock boundaries with effective stock', () => {
+    // effectiveStock equal to min → not in possession
+    expect(shouldMarkFoodInPossession(2, 2, true)).toBe(false);
+    // effectiveStock one above min → in possession
+    expect(shouldMarkFoodInPossession(3, 2, true)).toBe(true);
+    // effectiveStock one below min → not in possession
+    expect(shouldMarkFoodInPossession(1, 2, true)).toBe(false);
   });
 
   it('adds and removes the household slug without duplicating entries', () => {
