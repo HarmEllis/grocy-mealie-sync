@@ -25,6 +25,7 @@ When asked to prepare or create a new release tag, complete all of the steps bel
    - run the current code against that same database and confirm the app's startup migrations complete successfully
    - add or update targeted migration coverage when needed so release prep tests the specific upgrade path introduced since `<previous-tag>`
 7. Verify the release-prep edits before tagging. At minimum, run `npm run typecheck`, `npm test`, `npm test -- src/lib/db/__tests__/migrations.test.ts`, and any targeted tests needed for files touched during the release prep.
+   - If the settings API response shape has changed (fields added or removed in `src/app/api/settings/route.ts` or `src/lib/settings.ts`), verify that the `settingsBody` mock objects in all `scripts/test-*.mjs` Playwright scripts are updated to match. A mismatch causes a silent client-side crash that blocks the tests without a useful error. Run `npm run test:playwright` to confirm all Playwright tests pass before tagging.
 8. Create the git tag only after the changelog, screenshot, version bump, and migration verification are all committed-ready.
 9. As the final release step, ask the user whether to push the release.
    - only proceed when the user explicitly approves the push
