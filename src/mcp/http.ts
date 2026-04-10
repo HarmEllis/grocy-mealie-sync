@@ -113,9 +113,24 @@ export function createMcpHttpHandler(
 
   const sessions = new Map<string, SessionEntry>();
   let sweepTimer: ReturnType<typeof setInterval> | null = null;
+  let pendingInitializations = 0;
+
+  // Returns an idempotent release function. Each call site gets its own closure
+  // so double-release from both onsessioninitialized and the finally block is safe.
+  function createReservationRelease(): () => void {
+    let released = false;
+    return function releaseReservationOnce() {
+      if (!released) {
+        released = true;
+        pendingInitializations -= 1;
+      }
+    };
+  }
 
   function stopSweepTimerIfIdle() {
-    if (sessions.size === 0 && sweepTimer) {
+    // Keep the timer alive while reservations are pending: they will become
+    // active sessions imminently and would otherwise restart the timer immediately.
+    if (sessions.size === 0 && pendingInitializations === 0 && sweepTimer) {
       clearInterval(sweepTimer);
       sweepTimer = null;
     }
@@ -178,7 +193,11 @@ export function createMcpHttpHandler(
     await Promise.all(disposals);
   }
 
-  async function createSessionForInitializeRequest(request: Request, parsedBody: unknown): Promise<Response> {
+  async function createSessionForInitializeRequest(
+    request: Request,
+    parsedBody: unknown,
+    onReservationConsumed: () => void,
+  ): Promise<Response> {
     const server = createGrocyMealieSyncMcpServer(overrides);
     let initializedSessionId: string | null = null;
 
@@ -200,6 +219,8 @@ export function createMcpHttpHandler(
         };
 
         sessions.set(sessionId, entry);
+        // Reservation is now a live session; release the pending slot.
+        onReservationConsumed();
         startSweepTimerIfNeeded();
       },
     });
@@ -257,10 +278,19 @@ export function createMcpHttpHandler(
     }
 
     await sweepExpiredSessions();
-    if (sessions.size >= maxSessions) {
+    if (sessions.size + pendingInitializations >= maxSessions) {
       return createSessionCapacityResponse(maxSessions);
     }
+    // Reserve capacity atomically (no await between check and increment).
+    pendingInitializations += 1;
+    const releaseReservationOnce = createReservationRelease();
 
-    return createSessionForInitializeRequest(request, parsedBodyResult.parsedBody);
+    try {
+      return await createSessionForInitializeRequest(request, parsedBodyResult.parsedBody, releaseReservationOnce);
+    } finally {
+      // No-op if onsessioninitialized already called releaseReservationOnce.
+      // Fires on any failure path (thrown error, transport refusing init, etc.).
+      releaseReservationOnce();
+    }
   };
 }

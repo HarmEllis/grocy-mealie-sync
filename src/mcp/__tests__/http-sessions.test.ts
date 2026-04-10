@@ -138,6 +138,52 @@ describe('MCP streamable HTTP session lifecycle', () => {
     await handleRequest(createDeleteRequest(recoveredSessionId!));
   });
 
+  it('concurrent initialize burst respects the session cap', async () => {
+    const handleRequest = createMcpHttpHandler({}, {
+      sessionTtlMs: 900_000,
+      maxSessions: 2,
+      sweepIntervalMs: 60_000,
+      sessionIdGenerator: () => crypto.randomUUID(),
+    });
+
+    // Fire 4 concurrent initialize requests against a cap of 2.
+    const responses = await Promise.all([
+      handleRequest(createInitializeRequest()),
+      handleRequest(createInitializeRequest()),
+      handleRequest(createInitializeRequest()),
+      handleRequest(createInitializeRequest()),
+    ]);
+
+    const successes = responses.filter(r => r.status === 200);
+    const failures = responses.filter(r => r.status === 503);
+
+    expect(successes).toHaveLength(2);
+    expect(failures).toHaveLength(2);
+
+    for (const failure of failures) {
+      await expect(failure.json()).resolves.toEqual({
+        jsonrpc: '2.0',
+        error: {
+          code: -32000,
+          message: 'Service Unavailable: Maximum MCP sessions reached (2).',
+        },
+        id: null,
+      });
+    }
+
+    // After deleting one session, a slot must be available again.
+    const sessionIds = successes.map(r => r.headers.get('mcp-session-id')!);
+    await handleRequest(createDeleteRequest(sessionIds[0]!));
+
+    const recoveredInit = await handleRequest(createInitializeRequest());
+    expect(recoveredInit.status).toBe(200);
+    const recoveredSessionId = recoveredInit.headers.get('mcp-session-id');
+    expect(recoveredSessionId).toBeTruthy();
+
+    await handleRequest(createDeleteRequest(sessionIds[1]!));
+    await handleRequest(createDeleteRequest(recoveredSessionId!));
+  });
+
   it('expires inactive sessions via the background sweep timer', async () => {
     vi.useFakeTimers();
 
