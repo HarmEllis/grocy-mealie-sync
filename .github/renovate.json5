@@ -5,7 +5,7 @@
   "extends": ["config:recommended"],
 
   // Run during off-hours to avoid disrupting development
-  "schedule": ["after 2am and before 6am every weekday"],
+  "schedule": ["after 1am and before 6am on saturday"],
 
   // Limit concurrent open PRs to avoid overwhelming the review queue
   "prConcurrentLimit": 5,
@@ -22,7 +22,7 @@
   // (typecheck + tests + build) is the quality check.
   "lockFileMaintenance": {
     "enabled": true,
-    "schedule": ["before 5am on monday"],
+    "schedule": ["after 10pm and before 11pm on friday"],
     "automerge": true
   },
 
@@ -49,13 +49,13 @@
       "automerge": false
     },
 
-    // Minor updates: open PR on Monday, require manual review.
+    // Minor updates: open PR on Friday night, require manual review.
     {
       "matchUpdateTypes": ["minor"],
       "matchManagers": ["npm"],
       "groupName": "npm minor updates",
       "automerge": false,
-      "schedule": ["after 2am and before 6am on monday"]
+      "schedule": ["after 1am and before 6am on saturday"]
     },
 
     // Major updates: individual PRs, never auto-merge.
