@@ -1,7 +1,7 @@
 services:
   grocy:
     # SECURITY: Pin to a specific version for reproducible builds. Update deliberately.
-    image: lscr.io/linuxserver/grocy:4.6.0
+    image: lscr.io/linuxserver/grocy:4.6.0@sha256:7e84250a8549975fe0a3e305a1edac187005d65e9dc33f21932632d7f845e4e2
     container_name: grocy
     environment:
       - PUID=1000
@@ -22,7 +22,7 @@ services:
 
   mealie:
     # SECURITY: Pin to a specific version for reproducible builds. Update deliberately.
-    image: ghcr.io/mealie-recipes/mealie:v3.14.0
+    image: ghcr.io/mealie-recipes/mealie:v3.14.0@sha256:b9fac07e6daaabd8c29d0dc97965c2f500ce7d6b188b0c51f494627f23ad32f2
     container_name: mealie
     ports:
       - 9000:9000
@@ -54,7 +54,7 @@ services:
     restart: unless-stopped
   postgres:
     container_name: postgres
-    image: postgres:15
+    image: postgres:15@sha256:29342cb52157b098821961d2c14eec3c019071f56a5d559e990cf07cf541ea9b
     restart: always
     volumes:
       - mealie-pgdata:/var/lib/postgresql/data
