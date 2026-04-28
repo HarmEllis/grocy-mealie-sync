@@ -40,6 +40,7 @@ vi.mock('../../mealie', () => ({
 vi.mock('../../settings', () => ({
   resolveShoppingListId: vi.fn(),
   resolveEnsureLowStockOnMealieList: vi.fn(),
+  resolveSyncSubProducts: vi.fn().mockResolvedValue(false),
 }));
 
 vi.mock('../state', () => ({

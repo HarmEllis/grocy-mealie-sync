@@ -4,9 +4,15 @@ import { getGrocyEntities, deleteGrocyEntity, getProductDetails, addProductStock
 import type { ShoppingListItemOut_Output } from '../mealie/client/models/ShoppingListItemOut_Output';
 import { log } from '../logger';
 import { resolveShoppingListId, resolveStockOnlyMinStock } from '../settings';
-import { getSyncState, saveSyncState } from './state';
+import { getSyncState, saveSyncState, type SyncStateData } from './state';
 import { fetchAllMealieShoppingItems } from './helpers';
 import { eq } from 'drizzle-orm';
+import {
+  GMS_ITEMS_KEY,
+  isValidSubProductItem,
+  parseSubProductNoteAmounts,
+  type SubProductItem,
+} from '../shopping-notes';
 
 export interface MealieToGrocySyncSummary {
   checkedItems: number;
@@ -78,20 +84,26 @@ export async function pollMealieForCheckedItems(): Promise<MealieToGrocyPollResu
         state.mealieCheckedAt[item.id] = new Date().toISOString();
       }
 
-      // If unchecked, clear the checked-at and synced timestamps
+      // If unchecked, clear the checked-at, synced and sub-restock progress
       if (!checked) {
         delete state.mealieCheckedAt[item.id];
         delete state.mealieItemsSyncedToGrocy[item.id];
+        delete state.mealieSubRestockProgress[item.id];
       }
 
       if (checked && wasChecked !== true) {
         try {
-          const grocyProductId = await processCheckedItem(item);
+          const grocyProductId = await processCheckedItem(item, state);
           if (grocyProductId !== null) {
             // Track that this product was restocked by sync, so Grocy→Mealie
             // won't remove it from the shopping list on the next poll
             state.syncRestockedProducts[String(grocyProductId)] = new Date().toISOString();
             state.mealieItemsSyncedToGrocy[item.id] = new Date().toISOString();
+            // Clear sub-restock progress here (not inside processCheckedItem) so that
+            // mealieCheckedItems and progress are committed atomically. This prevents
+            // double-restocking if the process crashes between the last per-item save
+            // and this outer saveSyncState.
+            delete state.mealieSubRestockProgress[item.id];
             summary.restockedProducts++;
           }
         } catch (err) {
@@ -126,7 +138,7 @@ export async function pollMealieForCheckedItems(): Promise<MealieToGrocyPollResu
 
 /** Process a checked item: add stock in Grocy and clean up Grocy shopping list.
  *  Returns the grocyProductId if stock was successfully added, or null if skipped. */
-async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<number | null> {
+async function processCheckedItem(item: ShoppingListItemOut_Output, state: SyncStateData): Promise<number | null> {
   const foodId = item.foodId;
   if (!foodId) {
     // Ad-hoc item without mapped food — skip gracefully (Scenario 11)
@@ -146,6 +158,73 @@ async function processCheckedItem(item: ShoppingListItemOut_Output): Promise<num
   }
 
   const mapping = mappings[0];
+
+  // Sub-product path: if this item was placed on the list by sub-product sync,
+  // restock each sub-product individually using note amounts (user-editable) with
+  // extras amounts as fallback. Sub-products were added because they were below
+  // min stock by construction, so STOCK_ONLY_MIN_STOCK is always satisfied.
+  const rawSubItems = (item.extras as Record<string, unknown> | undefined)?.[GMS_ITEMS_KEY];
+  if (Array.isArray(rawSubItems) && rawSubItems.length > 0 && rawSubItems.every(isValidSubProductItem)) {
+    const subItems = rawSubItems as SubProductItem[];
+    const names = subItems.map(s => s.name);
+    const hasDuplicateNames = new Set(names).size !== names.length;
+    if (hasDuplicateNames) {
+      log.info(`[Mealie→Grocy] Duplicate sub-product names in "${mapping.grocyProductName}" — note overrides disabled`);
+    }
+    const noteAmounts = hasDuplicateNames ? null : parseSubProductNoteAmounts(item.note);
+    const progress = state.mealieSubRestockProgress[item.id] ?? [];
+    const failed: string[] = [];
+
+    for (const sub of subItems) {
+      if (progress.includes(sub.grocyProductId)) {
+        log.info(`[Mealie→Grocy] "${sub.name}" already restocked in previous attempt — skipping`);
+        continue;
+      }
+      const amount = noteAmounts?.get(sub.name) ?? sub.amount;
+      const source = noteAmounts?.has(sub.name) ? 'note' : 'sync data';
+      try {
+        await addProductStock(sub.grocyProductId, amount);
+        log.info(`[Mealie→Grocy] Restocked "${sub.name}" qty=${amount} (from ${source})`);
+        progress.push(sub.grocyProductId);
+        state.mealieSubRestockProgress[item.id] = [...progress];
+        await saveSyncState(state);
+      } catch (err) {
+        log.error(`[Mealie→Grocy] Failed to restock sub-product "${sub.name}":`, err);
+        failed.push(sub.name);
+      }
+    }
+
+    if (failed.length > 0) {
+      throw new Error(`Sub-product restock failed for: ${failed.join(', ')}`);
+    }
+
+    // Do NOT clear mealieSubRestockProgress here. The outer poll clears it
+    // atomically with the final saveSyncState so that a crash between this
+    // point and the outer commit cannot cause a double-restock on the next poll.
+
+    // Clean up the parent product from Grocy shopping list (same as normal path)
+    try {
+      const grocyShoppingItems = await getGrocyEntities('shopping_list');
+      const matchingItems = grocyShoppingItems.filter(
+        si => Number(si.product_id) === mapping.grocyProductId
+      );
+      for (const si of matchingItems) {
+        if (si.id != null) {
+          await deleteGrocyEntity('shopping_list', si.id);
+          log.info(`[Mealie→Grocy] Removed "${mapping.grocyProductName}" from Grocy shopping list`);
+        }
+      }
+    } catch (error) {
+      log.warn(`[Mealie→Grocy] Could not clean Grocy shopping list for "${mapping.grocyProductName}":`, error);
+    }
+
+    return mapping.grocyProductId;
+  }
+
+  // Stale progress from a previous sub-product attempt is no longer applicable
+  // if the item now takes the normal path (e.g. extras changed/became invalid).
+  delete state.mealieSubRestockProgress[item.id];
+
   // Mealie can send 0 or omit quantity for checked shopping items.
   // We intentionally treat that as a purchase of 1 item to preserve the
   // "check off means bought one" workflow in Grocy.

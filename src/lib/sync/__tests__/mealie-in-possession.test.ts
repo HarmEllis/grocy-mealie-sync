@@ -170,6 +170,8 @@ describe('mealie in-possession sync', () => {
       mealieCheckedAt: {},
       mealieItemsSyncedToGrocy: {},
       lastCleanupRun: null,
+      grocyEffectiveParentByOriginalId: {},
+      mealieSubRestockProgress: {},
     };
 
     const result = await syncMealieInPossessionFromGrocy(state);
@@ -199,6 +201,8 @@ describe('mealie in-possession sync', () => {
       mealieCheckedAt: {},
       mealieItemsSyncedToGrocy: {},
       lastCleanupRun: null,
+      grocyEffectiveParentByOriginalId: {},
+      mealieSubRestockProgress: {},
     };
 
     const result = await syncMealieInPossessionFromGrocy(state);
@@ -225,6 +229,8 @@ describe('mealie in-possession sync', () => {
       mealieCheckedAt: {},
       mealieItemsSyncedToGrocy: {},
       lastCleanupRun: null,
+      grocyEffectiveParentByOriginalId: {},
+      mealieSubRestockProgress: {},
     };
 
     const result = await syncMealieInPossessionFromGrocy(state);
@@ -260,6 +266,8 @@ describe('mealie in-possession sync', () => {
       mealieCheckedAt: {},
       mealieItemsSyncedToGrocy: {},
       lastCleanupRun: null,
+      grocyEffectiveParentByOriginalId: {},
+      mealieSubRestockProgress: {},
     };
 
     const result = await syncMealieInPossessionFromGrocy(state);
@@ -291,6 +299,8 @@ describe('mealie in-possession sync', () => {
       mealieCheckedAt: {},
       mealieItemsSyncedToGrocy: {},
       lastCleanupRun: null,
+      grocyEffectiveParentByOriginalId: {},
+      mealieSubRestockProgress: {},
     };
 
     const result = await syncMealieInPossessionFromGrocy(state);
@@ -326,6 +336,8 @@ describe('mealie in-possession sync', () => {
       mealieCheckedAt: {},
       mealieItemsSyncedToGrocy: {},
       lastCleanupRun: null,
+      grocyEffectiveParentByOriginalId: {},
+      mealieSubRestockProgress: {},
     });
 
     const result = await reconcileMealieInPossessionFromGrocy();
@@ -368,6 +380,8 @@ describe('mealie in-possession sync', () => {
       mealieCheckedAt: {},
       mealieItemsSyncedToGrocy: {},
       lastCleanupRun: null,
+      grocyEffectiveParentByOriginalId: {},
+      mealieSubRestockProgress: {},
     };
 
     const result = await syncMealieInPossessionFromGrocy(state);

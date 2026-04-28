@@ -48,6 +48,7 @@ vi.mock('@/lib/settings', () => ({
   resolveStockOnlyMinStock: vi.fn(async () => true),
   resolveCleanupCheckedItemsAfterHours: vi.fn(async () => -1),
   resolveCleanupCheckedItemsMode: vi.fn(async () => 'all'),
+  resolveSyncSubProducts: vi.fn(async () => false),
   saveSettings: mockState.saveSettings,
 }));
 

@@ -22,6 +22,13 @@ export interface SyncStateData {
   mealieItemsSyncedToGrocy: Record<string, string>;
   /** ISO timestamp of the last cleanup run. Used to prevent re-running within the same day. */
   lastCleanupRun: string | null;
+  /** Snapshot of child product ID → parent product ID from the previous poll.
+   *  Used to build effectivePreviousMap without misattributing amounts when a product is re-parented. */
+  grocyEffectiveParentByOriginalId: Record<number, number>;
+  /** Per-item sub-product restock progress for idempotent retry.
+   *  Maps Mealie itemId → list of Grocy product IDs already successfully restocked.
+   *  Cleared when all sub-items for an item succeed or when the item becomes unchecked. */
+  mealieSubRestockProgress: Record<string, number[]>;
 }
 
 const STATE_ID = 'singleton';
@@ -36,6 +43,8 @@ const DEFAULT_STATE: SyncStateData = {
   mealieCheckedAt: {},
   mealieItemsSyncedToGrocy: {},
   lastCleanupRun: null,
+  grocyEffectiveParentByOriginalId: {},
+  mealieSubRestockProgress: {},
 };
 
 export async function getSyncState(): Promise<SyncStateData> {
@@ -62,6 +71,8 @@ export async function getSyncState(): Promise<SyncStateData> {
     mealieCheckedAt: (state.mealieCheckedAt as Record<string, string>) || {},
     mealieItemsSyncedToGrocy: (state.mealieItemsSyncedToGrocy as Record<string, string>) || {},
     lastCleanupRun: (state.lastCleanupRun as string) || null,
+    grocyEffectiveParentByOriginalId: (state.grocyEffectiveParentByOriginalId as Record<number, number>) || {},
+    mealieSubRestockProgress: (state.mealieSubRestockProgress as Record<string, number[]>) || {},
   };
 }
 
@@ -76,6 +87,8 @@ export async function saveSyncState(state: SyncStateData) {
     mealieCheckedAt: state.mealieCheckedAt,
     mealieItemsSyncedToGrocy: state.mealieItemsSyncedToGrocy,
     lastCleanupRun: state.lastCleanupRun,
+    grocyEffectiveParentByOriginalId: state.grocyEffectiveParentByOriginalId,
+    mealieSubRestockProgress: state.mealieSubRestockProgress,
   });
 
   await db.insert(syncState)

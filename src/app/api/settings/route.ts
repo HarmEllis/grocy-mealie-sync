@@ -15,6 +15,7 @@ import {
   resolveCleanupCheckedItemsAfterHours,
   resolveCleanupCheckedItemsMode,
   resolveStockOnlyMinStock,
+  resolveSyncSubProducts,
   saveSettings,
 } from '@/lib/settings';
 import { db } from '@/lib/db';
@@ -69,6 +70,7 @@ export async function GET() {
   const stockOnlyMinStock = await resolveStockOnlyMinStock();
   const cleanupCheckedItemsAfterHours = await resolveCleanupCheckedItemsAfterHours();
   const cleanupCheckedItemsMode = await resolveCleanupCheckedItemsMode();
+  const syncSubProducts = await resolveSyncSubProducts();
 
   let availableShoppingLists: { id: string; name: string }[] = [];
   try {
@@ -95,6 +97,7 @@ export async function GET() {
     stockOnlyMinStock,
     cleanupCheckedItemsAfterHours,
     cleanupCheckedItemsMode,
+    syncSubProducts,
     locks,
     availableUnits: activeUnits.map(u => ({
       id: u.id,
@@ -189,6 +192,10 @@ export async function PUT(request: Request) {
 
     if (data.cleanupCheckedItemsMode !== undefined) {
       settings.cleanupCheckedItemsMode = data.cleanupCheckedItemsMode;
+    }
+
+    if (data.syncSubProducts !== undefined) {
+      settings.syncSubProducts = data.syncSubProducts;
     }
 
     await saveSettings(settings);
