@@ -174,6 +174,13 @@ async function runMealieInPossessionSync(
         continue;
       }
 
+      if (Number(grocyProduct.no_own_stock) !== 0) {
+        log.info(
+          `[Grocy→Mealie] Skipping "In possession" for "${mapping.grocyProductName}" — product has no own stock in Grocy`,
+        );
+        continue;
+      }
+
       const rawStock = stockByProductId.get(mapping.grocyProductId) ?? 0;
       const openedStock = openedStockByProductId.get(mapping.grocyProductId) ?? 0;
       // Explicit finite-number check: Number(undefined)=NaN and NaN!==0 is true, so guard against that
