@@ -175,9 +175,12 @@ async function runMealieInPossessionSync(
       }
 
       if (Number(grocyProduct.no_own_stock) !== 0) {
-        log.info(
-          `[Grocy→Mealie] Skipping "In possession" for "${mapping.grocyProductName}" — product has no own stock in Grocy`,
-        );
+        if (previousKnown === undefined) {
+          log.info(
+            `[Grocy→Mealie] Skipping "In possession" for "${mapping.grocyProductName}" — product has no own stock in Grocy`,
+          );
+        }
+        nextTracked[trackingKey] = false;
         continue;
       }
 

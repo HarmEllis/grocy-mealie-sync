@@ -138,6 +138,9 @@ export async function pollGrocyForMissingStock(
         }
       }
 
+      // Build effective previous map using snapshot from last poll (avoids misattribution on re-parenting)
+      const prevEffectiveParents = state.grocyEffectiveParentByOriginalId ?? {};
+
       // Build effective current map (keyed by resolved parent ID)
       const effectiveCurrentMap = new Map<number, EffectiveMissingEntry>();
       for (const mp of missingProducts) {
@@ -148,12 +151,17 @@ export async function pollGrocyForMissingStock(
           entry.amount_missing += mp.amount_missing;
           if (isChild) {
             entry.subProducts.push({ name: mp.name, grocyProductId: mp.id, amount: mp.amount_missing });
-            log.info(`[Grocy→Mealie] Sub-product "${mp.name}" (ID ${mp.id}) → resolved to parent ID ${effectiveId}`);
+            if (!(mp.id in previousAmounts) || prevEffectiveParents[mp.id] !== effectiveId) {
+              log.info(`[Grocy→Mealie] Sub-product "${mp.name}" (ID ${mp.id}) → resolved to parent ID ${effectiveId}`);
+            }
           }
         } else {
           const effectiveName = isChild
             ? (grocyProductsById.get(effectiveId)?.name ?? `product #${effectiveId}`)
             : mp.name;
+          if (isChild && (!(mp.id in previousAmounts) || prevEffectiveParents[mp.id] !== effectiveId)) {
+            log.info(`[Grocy→Mealie] Sub-product "${mp.name}" (ID ${mp.id}) → resolved to parent ID ${effectiveId}`);
+          }
           effectiveCurrentMap.set(effectiveId, {
             effectiveId,
             effectiveName,
@@ -162,9 +170,6 @@ export async function pollGrocyForMissingStock(
           });
         }
       }
-
-      // Build effective previous map using snapshot from last poll (avoids misattribution on re-parenting)
-      const prevEffectiveParents = state.grocyEffectiveParentByOriginalId ?? {};
       const effectivePreviousMap = new Map<number, number>();
       for (const [origId, amount] of Object.entries(previousAmounts)) {
         const effectiveId = syncSubProducts
