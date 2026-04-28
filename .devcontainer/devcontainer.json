@@ -18,7 +18,7 @@
     "NEXT_TELEMETRY_DISABLED": "1",
     "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH": "/usr/bin/chromium"
   },
-  "postCreateCommand": "npm ci && mkdir -p data",
+  "postCreateCommand": "npm ci && mkdir -p data && npx playwright install chromium",
   "forwardPorts": [
     3000,
     "host-docker-internal:9000",
