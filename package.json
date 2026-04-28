@@ -65,6 +65,9 @@
     "vitest": "^4.1.2"
   },
   "overrides": {
-    "@esbuild-kit/esm-loader": "npm:tsx@4.21.0"
+    "@esbuild-kit/esm-loader": "npm:tsx@4.21.0",
+    "next": {
+      "postcss": "^8.5.10"
+    }
   }
 }
