@@ -416,9 +416,9 @@ async function adjustMealieShoppingItem(
       : newSegment;
     subProductExtras = {
       ...(existingItem?.extras ?? {}),
-      [GMS_NAMES_KEY]: options.subProducts.map(s => s.name),
+      [GMS_NAMES_KEY]: JSON.stringify(options.subProducts.map(s => s.name)),
       [GMS_NOTE_KEY]: newSegment ?? '',
-      [GMS_ITEMS_KEY]: options.subProducts,
+      [GMS_ITEMS_KEY]: JSON.stringify(options.subProducts),
     };
   }
 
@@ -427,9 +427,9 @@ async function adjustMealieShoppingItem(
       // Metadata-only update: refresh note/extras only when sub-product composition actually changed
       if (subProductExtras !== undefined) {
         const currentNote = existingItem.note ?? null;
-        const currentItems = JSON.stringify(existingItem.extras?.[GMS_ITEMS_KEY] ?? []);
+        const currentItems = (existingItem.extras?.[GMS_ITEMS_KEY] as string) ?? '[]';
         const currentNoteKey = (existingItem.extras?.[GMS_NOTE_KEY] as string) ?? '';
-        const newItems = JSON.stringify(subProductExtras[GMS_ITEMS_KEY]);
+        const newItems = subProductExtras[GMS_ITEMS_KEY] as string;
         const newNoteKey = (subProductExtras[GMS_NOTE_KEY] as string) ?? '';
         const metadataChanged =
           (subProductNote ?? null) !== currentNote ||

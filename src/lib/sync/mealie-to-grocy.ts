@@ -163,7 +163,10 @@ async function processCheckedItem(item: ShoppingListItemOut_Output, state: SyncS
   // restock each sub-product individually using note amounts (user-editable) with
   // extras amounts as fallback. Sub-products were added because they were below
   // min stock by construction, so STOCK_ONLY_MIN_STOCK is always satisfied.
-  const rawSubItems = (item.extras as Record<string, unknown> | undefined)?.[GMS_ITEMS_KEY];
+  const rawSubItemsValue = (item.extras as Record<string, unknown> | undefined)?.[GMS_ITEMS_KEY];
+  const rawSubItems: unknown = typeof rawSubItemsValue === 'string'
+    ? (() => { try { return JSON.parse(rawSubItemsValue); } catch { return null; } })()
+    : rawSubItemsValue;
   if (Array.isArray(rawSubItems) && rawSubItems.length > 0 && rawSubItems.every(isValidSubProductItem)) {
     const subItems = rawSubItems as SubProductItem[];
     const names = subItems.map(s => s.name);
