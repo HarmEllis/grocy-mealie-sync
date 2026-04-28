@@ -1,6 +1,7 @@
 import { db } from '../db';
 import { productMappings } from '../db/schema';
 import { getGrocyEntities, deleteGrocyEntity, getProductDetails, addProductStock } from '../grocy/types';
+import type { GrocyProductWithParent } from '../grocy/types';
 import type { ShoppingListItemOut_Output } from '../mealie/client/models/ShoppingListItemOut_Output';
 import { log } from '../logger';
 import { resolveShoppingListId, resolveStockOnlyMinStock } from '../settings';
@@ -52,6 +53,16 @@ export async function pollMealieForCheckedItems(): Promise<MealieToGrocyPollResu
     // Fetch all items on the configured shopping list (paginated)
     const items = await fetchAllMealieShoppingItems(shoppingListId);
     const state = await getSyncState();
+
+    let grocyProductsById = new Map<number, GrocyProductWithParent>();
+    try {
+      const grocyProducts = await getGrocyEntities('products');
+      grocyProductsById = new Map(
+        grocyProducts.map(product => [Number(product.id), product as GrocyProductWithParent]),
+      );
+    } catch (error) {
+      log.warn('[Mealie→Grocy] Could not fetch Grocy products for no-own-stock check:', error);
+    }
     const previousCheckedState = state.mealieCheckedItems;
     const newCheckedState: Record<string, boolean> = {};
     const isBootstrapPoll = state.lastMealiePoll === null;
@@ -93,7 +104,7 @@ export async function pollMealieForCheckedItems(): Promise<MealieToGrocyPollResu
 
       if (checked && wasChecked !== true) {
         try {
-          const grocyProductId = await processCheckedItem(item, state);
+          const grocyProductId = await processCheckedItem(item, state, grocyProductsById);
           if (grocyProductId !== null) {
             // Track that this product was restocked by sync, so Grocy→Mealie
             // won't remove it from the shopping list on the next poll
@@ -138,7 +149,7 @@ export async function pollMealieForCheckedItems(): Promise<MealieToGrocyPollResu
 
 /** Process a checked item: add stock in Grocy and clean up Grocy shopping list.
  *  Returns the grocyProductId if stock was successfully added, or null if skipped. */
-async function processCheckedItem(item: ShoppingListItemOut_Output, state: SyncStateData): Promise<number | null> {
+async function processCheckedItem(item: ShoppingListItemOut_Output, state: SyncStateData, grocyProductsById: Map<number, GrocyProductWithParent>): Promise<number | null> {
   const foodId = item.foodId;
   if (!foodId) {
     // Ad-hoc item without mapped food — skip gracefully (Scenario 11)
@@ -181,6 +192,13 @@ async function processCheckedItem(item: ShoppingListItemOut_Output, state: SyncS
     for (const sub of subItems) {
       if (progress.includes(sub.grocyProductId)) {
         log.info(`[Mealie→Grocy] "${sub.name}" already restocked in previous attempt — skipping`);
+        continue;
+      }
+      const subProduct = grocyProductsById.get(sub.grocyProductId);
+      if (subProduct && Number(subProduct.no_own_stock) !== 0) {
+        log.info(`[Mealie→Grocy] Skipping "${sub.name}" — product has no own stock in Grocy`);
+        progress.push(sub.grocyProductId);
+        state.mealieSubRestockProgress[item.id] = [...progress];
         continue;
       }
       const amount = noteAmounts?.get(sub.name) ?? sub.amount;
@@ -232,6 +250,12 @@ async function processCheckedItem(item: ShoppingListItemOut_Output, state: SyncS
   // We intentionally treat that as a purchase of 1 item to preserve the
   // "check off means bought one" workflow in Grocy.
   const quantity = item.quantity || 1;
+
+  const grocyProduct = grocyProductsById.get(mapping.grocyProductId);
+  if (grocyProduct && Number(grocyProduct.no_own_stock) !== 0) {
+    log.info(`[Mealie→Grocy] Skipping "${mapping.grocyProductName}" — product has no own stock in Grocy`);
+    return null;
+  }
 
   // Check if we should only add stock for products with min_stock_amount > 0
   if (await resolveStockOnlyMinStock()) {
