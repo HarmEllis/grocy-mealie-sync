@@ -173,14 +173,6 @@ export async function pollGrocyForMissingStock(
         effectivePreviousMap.set(effectiveId, (effectivePreviousMap.get(effectiveId) ?? 0) + amount);
       }
 
-      // Log combined sub-product entries
-      for (const entry of effectiveCurrentMap.values()) {
-        if (entry.subProducts.length > 1) {
-          const names = entry.subProducts.map(s => `${s.amount}× ${s.name}`).join(', ');
-          log.info(`[Grocy→Mealie] ${entry.subProducts.length} sub-products of parent ID ${entry.effectiveId} combined into 1 list item: "${names}"`);
-        }
-      }
-
       // 1. Newly missing → add to Mealie
       const newlyMissing = [...effectiveCurrentMap.values()].filter(
         e => !effectivePreviousMap.has(e.effectiveId),
@@ -365,6 +357,12 @@ export async function ensureGrocyMissingStockOnMealie(
   });
 }
 
+function logCombinedSubProducts(grocyProductId: number, subProducts: SubProductItem[] | undefined): void {
+  if (!subProducts || subProducts.length <= 1) return;
+  const names = subProducts.map(s => `${s.amount}× ${s.name}`).join(', ');
+  log.info(`[Grocy→Mealie] ${subProducts.length} sub-products of parent ID ${grocyProductId} combined into 1 list item: "${names}"`);
+}
+
 /**
  * Adjust a Mealie shopping list item's quantity by a delta.
  * Positive delta: increase quantity (or create item).
@@ -436,6 +434,7 @@ async function adjustMealieShoppingItem(
           newItems !== currentItems ||
           newNoteKey !== currentNoteKey;
         if (metadataChanged) {
+          logCombinedSubProducts(grocyProductId, options.subProducts);
           await HouseholdsShoppingListItemsService.updateOneApiHouseholdsShoppingItemsItemIdPut(
             existingItem.id,
             {
@@ -461,6 +460,7 @@ async function adjustMealieShoppingItem(
       log.info(`[Grocy→Mealie] Removed "${mapping.mealieFoodName}" from list (qty ${currentQty} → 0)`);
     } else {
       // Update quantity (and note/extras if sub-products are tracked)
+      logCombinedSubProducts(grocyProductId, options.subProducts);
       log.info(`[Grocy→Mealie] Adjusting "${mapping.mealieFoodName}" quantity: ${currentQty} → ${newQty} (delta: ${delta > 0 ? '+' : ''}${delta})`);
       await HouseholdsShoppingListItemsService.updateOneApiHouseholdsShoppingItemsItemIdPut(
         existingItem.id,
@@ -481,6 +481,7 @@ async function adjustMealieShoppingItem(
     }
 
     // No existing item, create new one
+    logCombinedSubProducts(grocyProductId, options.subProducts);
     log.info(`[Grocy→Mealie] Adding "${mapping.mealieFoodName}" to Mealie shopping list (qty: ${createQuantity})`);
     await HouseholdsShoppingListItemsService.createOneApiHouseholdsShoppingItemsPost({
       shoppingListId: shoppingListId,
