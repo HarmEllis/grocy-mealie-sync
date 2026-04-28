@@ -174,7 +174,8 @@ async function runMealieInPossessionSync(
         continue;
       }
 
-      if (Number(grocyProduct.no_own_stock) !== 0) {
+      const noOwnStockRaw = Number(grocyProduct.no_own_stock);
+      if (Number.isFinite(noOwnStockRaw) && noOwnStockRaw !== 0) {
         if (previousKnown === undefined) {
           log.info(
             `[Grocy→Mealie] Skipping "In possession" for "${mapping.grocyProductName}" — product has no own stock in Grocy`,

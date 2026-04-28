@@ -392,4 +392,91 @@ describe('mealie in-possession sync', () => {
     }));
     expect(state.mealieInPossessionByGrocyProduct).toEqual({ '101': false });
   });
+
+  // -------------------------------------------------------------------------
+  // no_own_stock guard
+  // -------------------------------------------------------------------------
+
+  it('skips in-possession sync for product with no_own_stock=1 without calling Mealie', async () => {
+    mockState.grocyProducts = [
+      { id: 101, name: 'Milk', min_stock_amount: 1, no_own_stock: 1 },
+    ];
+
+    const state = {
+      lastGrocyPoll: null,
+      lastMealiePoll: null,
+      grocyBelowMinStock: {},
+      mealieCheckedItems: {},
+      mealieInPossessionByGrocyProduct: {},
+      syncRestockedProducts: {},
+      mealieCheckedAt: {},
+      mealieItemsSyncedToGrocy: {},
+      lastCleanupRun: null,
+      grocyEffectiveParentByOriginalId: {},
+      mealieSubRestockProgress: {},
+    };
+
+    const result = await syncMealieInPossessionFromGrocy(state);
+
+    expect(result.summary.updatedProducts).toBe(0);
+    expect(mockState.updateFood).not.toHaveBeenCalled();
+    expect(mockState.logInfo).toHaveBeenCalledWith(
+      expect.stringContaining('no own stock'),
+    );
+    // Marker stored so subsequent polls stay silent
+    expect(state.mealieInPossessionByGrocyProduct).toEqual({ '101': false });
+  });
+
+  it('logs no-own-stock skip only on first encounter, silent on re-poll', async () => {
+    mockState.grocyProducts = [
+      { id: 101, name: 'Milk', min_stock_amount: 1, no_own_stock: 1 },
+    ];
+
+    const state = {
+      lastGrocyPoll: null,
+      lastMealiePoll: null,
+      grocyBelowMinStock: {},
+      mealieCheckedItems: {},
+      // previousKnown is already set — simulates a re-poll
+      mealieInPossessionByGrocyProduct: { '101': false },
+      syncRestockedProducts: {},
+      mealieCheckedAt: {},
+      mealieItemsSyncedToGrocy: {},
+      lastCleanupRun: null,
+      grocyEffectiveParentByOriginalId: {},
+      mealieSubRestockProgress: {},
+    };
+
+    await syncMealieInPossessionFromGrocy(state);
+
+    expect(mockState.logInfo).not.toHaveBeenCalledWith(
+      expect.stringContaining('no own stock'),
+    );
+  });
+
+  it('does not skip product when no_own_stock is absent (NaN guard)', async () => {
+    // no_own_stock not set — should fall through to normal in-possession logic
+    mockState.grocyProducts = [
+      { id: 101, name: 'Milk', min_stock_amount: 1 },
+    ];
+
+    const state = {
+      lastGrocyPoll: null,
+      lastMealiePoll: null,
+      grocyBelowMinStock: {},
+      mealieCheckedItems: {},
+      mealieInPossessionByGrocyProduct: {},
+      syncRestockedProducts: {},
+      mealieCheckedAt: {},
+      mealieItemsSyncedToGrocy: {},
+      lastCleanupRun: null,
+      grocyEffectiveParentByOriginalId: {},
+      mealieSubRestockProgress: {},
+    };
+
+    await syncMealieInPossessionFromGrocy(state);
+
+    // Normal path reached — Mealie food update attempted
+    expect(mockState.updateFood).toHaveBeenCalled();
+  });
 });

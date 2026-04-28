@@ -195,7 +195,8 @@ async function processCheckedItem(item: ShoppingListItemOut_Output, state: SyncS
         continue;
       }
       const subProduct = grocyProductsById.get(sub.grocyProductId);
-      if (subProduct && Number(subProduct.no_own_stock) !== 0) {
+      const subNoOwnStockRaw = Number(subProduct?.no_own_stock);
+      if (subProduct && Number.isFinite(subNoOwnStockRaw) && subNoOwnStockRaw !== 0) {
         log.info(`[Mealie→Grocy] Skipping "${sub.name}" — product has no own stock in Grocy`);
         progress.push(sub.grocyProductId);
         state.mealieSubRestockProgress[item.id] = [...progress];
@@ -252,7 +253,8 @@ async function processCheckedItem(item: ShoppingListItemOut_Output, state: SyncS
   const quantity = item.quantity || 1;
 
   const grocyProduct = grocyProductsById.get(mapping.grocyProductId);
-  if (grocyProduct && Number(grocyProduct.no_own_stock) !== 0) {
+  const noOwnStockRaw = Number(grocyProduct?.no_own_stock);
+  if (grocyProduct && Number.isFinite(noOwnStockRaw) && noOwnStockRaw !== 0) {
     log.info(`[Mealie→Grocy] Skipping "${mapping.grocyProductName}" — product has no own stock in Grocy`);
     return null;
   }

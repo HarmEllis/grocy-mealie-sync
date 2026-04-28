@@ -837,4 +837,72 @@ describe('pollMealieForCheckedItems', () => {
     const savedState = mockedSaveSyncState.mock.calls[0][0];
     expect(savedState.mealieSubRestockProgress).not.toHaveProperty('item-1');
   });
+
+  // -------------------------------------------------------------------------
+  // no_own_stock guard
+  // -------------------------------------------------------------------------
+
+  it('skips stock add for product with no_own_stock=1 on normal path', async () => {
+    const item = mockMealieShoppingItem({ id: 'no-own', checked: true, foodId: 'food-1', quantity: 1 });
+    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 101 });
+
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mapping]);
+    mockedGetGrocyEntities.mockImplementation(async (entity: string) => {
+      if (entity === 'products') return [{ id: 101, name: 'Milk', no_own_stock: 1 }] as any;
+      return [];
+    });
+
+    await pollMealieForCheckedItems();
+
+    expect(mockedAddProductStock).not.toHaveBeenCalled();
+    const savedState = mockedSaveSyncState.mock.calls[0][0];
+    expect(savedState.syncRestockedProducts).toEqual({});
+  });
+
+  it('does not skip stock add when no_own_stock is absent (NaN guard)', async () => {
+    const item = mockMealieShoppingItem({ id: 'own-ok', checked: true, foodId: 'food-1', quantity: 1 });
+    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 101 });
+
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mapping]);
+    mockedGetGrocyEntities.mockImplementation(async (entity: string) => {
+      if (entity === 'products') return [{ id: 101, name: 'Milk' }] as any;
+      return [];
+    });
+
+    await pollMealieForCheckedItems();
+
+    expect(mockedAddProductStock).toHaveBeenCalledWith(101, 1);
+  });
+
+  it('skips sub-product restock when sub has no_own_stock=1', async () => {
+    const subItems = [
+      { name: 'Volle Melk', grocyProductId: 201, amount: 2 },
+      { name: 'Halfvolle Melk', grocyProductId: 202, amount: 1 },
+    ];
+    const item = mockMealieShoppingItem({
+      id: 'sub-no-own',
+      checked: true,
+      foodId: 'food-1',
+      extras: { grocy_sync_subproduct_items: subItems } as any,
+    });
+    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 100, grocyProductName: 'Melk' });
+
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mapping]);
+    mockedGetGrocyEntities.mockImplementation(async (entity: string) => {
+      if (entity === 'products') return [
+        { id: 201, name: 'Volle Melk', no_own_stock: 1 },
+        { id: 202, name: 'Halfvolle Melk' },
+      ] as any;
+      return [];
+    });
+
+    await pollMealieForCheckedItems();
+
+    // 201 is skipped, 202 is restocked
+    expect(mockedAddProductStock).toHaveBeenCalledTimes(1);
+    expect(mockedAddProductStock).toHaveBeenCalledWith(202, 1);
+  });
 });
