@@ -256,6 +256,8 @@ export const config = {
     'MAPPING_WIZARD_MIN_STOCK_STEP',
   ),
   stockOnlyMinStock: parseBooleanEnv(process.env.STOCK_ONLY_MIN_STOCK, false, 'STOCK_ONLY_MIN_STOCK'),
+  syncSubProducts: parseBooleanEnv(process.env.SYNC_SUB_PRODUCTS, false, 'SYNC_SUB_PRODUCTS'),
+  syncParentOwnStock: parseBooleanEnv(process.env.SYNC_PARENT_OWN_STOCK, false, 'SYNC_PARENT_OWN_STOCK'),
   cleanupCheckedItemsAfterHours: parseCleanupCheckedItemsAfterHoursEnv(
     process.env.CLEANUP_CHECKED_ITEMS_AFTER_HOURS,
     'CLEANUP_CHECKED_ITEMS_AFTER_HOURS',
@@ -289,6 +291,8 @@ export const config = {
     stockOnlyMinStock: hasConfiguredValue(process.env.STOCK_ONLY_MIN_STOCK),
     cleanupCheckedItemsAfterHours: hasConfiguredValue(process.env.CLEANUP_CHECKED_ITEMS_AFTER_HOURS),
     cleanupCheckedItemsMode: hasConfiguredValue(process.env.CLEANUP_CHECKED_ITEMS_MODE),
+    syncSubProducts: hasConfiguredValue(process.env.SYNC_SUB_PRODUCTS),
+    syncParentOwnStock: hasConfiguredValue(process.env.SYNC_PARENT_OWN_STOCK),
   },
   envRaw: {
     mealieShoppingListId: process.env.MEALIE_SHOPPING_LIST_ID?.trim() || null,
@@ -302,5 +306,7 @@ export const config = {
     stockOnlyMinStock: process.env.STOCK_ONLY_MIN_STOCK?.trim() || null,
     cleanupCheckedItemsAfterHours: process.env.CLEANUP_CHECKED_ITEMS_AFTER_HOURS?.trim() || null,
     cleanupCheckedItemsMode: process.env.CLEANUP_CHECKED_ITEMS_MODE?.trim() || null,
+    syncSubProducts: process.env.SYNC_SUB_PRODUCTS?.trim() || null,
+    syncParentOwnStock: process.env.SYNC_PARENT_OWN_STOCK?.trim() || null,
   },
 };

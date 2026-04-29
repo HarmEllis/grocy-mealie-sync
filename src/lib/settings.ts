@@ -17,6 +17,8 @@ export interface AppSettings {
   stockOnlyMinStock: boolean;
   cleanupCheckedItemsAfterHours: number;
   cleanupCheckedItemsMode: CleanupCheckedItemsMode;
+  syncSubProducts: boolean;
+  syncParentOwnStock: boolean;
 }
 
 export interface SettingsLocks {
@@ -31,6 +33,8 @@ export interface SettingsLocks {
   stockOnlyMinStock: SettingLock;
   cleanupCheckedItemsAfterHours: SettingLock;
   cleanupCheckedItemsMode: SettingLock;
+  syncSubProducts: SettingLock;
+  syncParentOwnStock: SettingLock;
 }
 
 export interface SettingLock {
@@ -53,6 +57,8 @@ const SETTING_ENV_VARS: Record<SettingKey, string> = {
   stockOnlyMinStock: 'STOCK_ONLY_MIN_STOCK',
   cleanupCheckedItemsAfterHours: 'CLEANUP_CHECKED_ITEMS_AFTER_HOURS',
   cleanupCheckedItemsMode: 'CLEANUP_CHECKED_ITEMS_MODE',
+  syncSubProducts: 'SYNC_SUB_PRODUCTS',
+  syncParentOwnStock: 'SYNC_PARENT_OWN_STOCK',
 };
 
 const SETTINGS_ID = 'settings';
@@ -69,6 +75,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   stockOnlyMinStock: true,
   cleanupCheckedItemsAfterHours: -1,
   cleanupCheckedItemsMode: 'all' as CleanupCheckedItemsMode,
+  syncSubProducts: false,
+  syncParentOwnStock: false,
 };
 
 export async function getSettings(): Promise<AppSettings> {
@@ -115,6 +123,8 @@ export async function getSettings(): Promise<AppSettings> {
     cleanupCheckedItemsMode: (data.cleanupCheckedItemsMode === 'all' || data.cleanupCheckedItemsMode === 'synced_only')
       ? data.cleanupCheckedItemsMode
       : DEFAULT_SETTINGS.cleanupCheckedItemsMode,
+    syncSubProducts: typeof data.syncSubProducts === 'boolean' ? data.syncSubProducts : false,
+    syncParentOwnStock: typeof data.syncParentOwnStock === 'boolean' ? data.syncParentOwnStock : false,
   };
 }
 
@@ -174,6 +184,16 @@ export function getSettingsLocks(): SettingsLocks {
       locked: config.envOverrides.cleanupCheckedItemsMode,
       envVar: SETTING_ENV_VARS.cleanupCheckedItemsMode,
       envValue: config.envRaw.cleanupCheckedItemsMode,
+    },
+    syncSubProducts: {
+      locked: config.envOverrides.syncSubProducts,
+      envVar: SETTING_ENV_VARS.syncSubProducts,
+      envValue: config.envRaw.syncSubProducts,
+    },
+    syncParentOwnStock: {
+      locked: config.envOverrides.syncParentOwnStock,
+      envVar: SETTING_ENV_VARS.syncParentOwnStock,
+      envValue: config.envRaw.syncParentOwnStock,
     },
   };
 }
@@ -324,6 +344,24 @@ export async function resolveCleanupCheckedItemsMode(): Promise<CleanupCheckedIt
 
   const settings = await getSettings();
   return settings.cleanupCheckedItemsMode;
+}
+
+export async function resolveSyncSubProducts(): Promise<boolean> {
+  if (config.envOverrides.syncSubProducts) {
+    return config.syncSubProducts;
+  }
+
+  const settings = await getSettings();
+  return settings.syncSubProducts;
+}
+
+export async function resolveSyncParentOwnStock(): Promise<boolean> {
+  if (config.envOverrides.syncParentOwnStock) {
+    return config.syncParentOwnStock;
+  }
+
+  const settings = await getSettings();
+  return settings.syncParentOwnStock;
 }
 
 export async function saveSettings(settings: AppSettings): Promise<void> {

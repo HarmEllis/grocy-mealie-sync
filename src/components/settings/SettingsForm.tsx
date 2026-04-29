@@ -43,6 +43,8 @@ interface SettingsData {
   stockOnlyMinStock: boolean;
   cleanupCheckedItemsAfterHours: number;
   cleanupCheckedItemsMode: 'all' | 'synced_only';
+  syncSubProducts: boolean;
+  syncParentOwnStock: boolean;
   locks: {
     defaultUnitMappingId: SettingLock;
     mealieShoppingListId: SettingLock;
@@ -55,6 +57,8 @@ interface SettingsData {
     stockOnlyMinStock: SettingLock;
     cleanupCheckedItemsAfterHours: SettingLock;
     cleanupCheckedItemsMode: SettingLock;
+    syncSubProducts: SettingLock;
+    syncParentOwnStock: SettingLock;
   };
   availableUnits: UnitOption[];
   availableShoppingLists: ShoppingListOption[];
@@ -180,6 +184,16 @@ export function SettingsForm() {
   async function handleEnsureLowStockOnMealieListChange(value: boolean) {
     const ok = await saveSetting({ ensureLowStockOnMealieList: value });
     if (ok) setSettings(s => s ? { ...s, ensureLowStockOnMealieList: value } : s);
+  }
+
+  async function handleSyncSubProductsChange(value: boolean) {
+    const ok = await saveSetting({ syncSubProducts: value });
+    if (ok) setSettings(s => s ? { ...s, syncSubProducts: value } : s);
+  }
+
+  async function handleSyncParentOwnStockChange(value: boolean) {
+    const ok = await saveSetting({ syncParentOwnStock: value });
+    if (ok) setSettings(s => s ? { ...s, syncParentOwnStock: value } : s);
   }
 
   async function handleSyncMealieInPossessionChange(value: boolean) {
@@ -339,6 +353,42 @@ export function SettingsForm() {
           </div>
           <p className="pl-6 text-xs text-muted-foreground">
             When enabled, each Grocy poll checks whether every mapped below-minimum product still exists as an unchecked item on the selected Mealie shopping list, and recreates it if needed.
+          </p>
+          <div className="flex items-center gap-2.5">
+            <Checkbox
+              id="sync-sub-products"
+              checked={settings.syncSubProducts}
+              disabled={settings.locks.syncSubProducts.locked}
+              onCheckedChange={(checked: boolean) => handleSyncSubProductsChange(checked)}
+            />
+            <label
+              htmlFor="sync-sub-products"
+              className={`text-sm ${settings.locks.syncSubProducts.locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+            >
+              Sync sub-products via parent product
+            </label>
+            <LockBadge lock={settings.locks.syncSubProducts} />
+          </div>
+          <p className="pl-6 text-xs text-muted-foreground">
+            When enabled, missing Grocy sub-products are added to the Mealie shopping list under their parent product. The sub-product name is shown as a note so you know which variant to buy.
+          </p>
+          <div className="flex items-center gap-2.5">
+            <Checkbox
+              id="sync-parent-own-stock"
+              checked={settings.syncParentOwnStock}
+              disabled={settings.locks.syncParentOwnStock.locked || !settings.syncSubProducts}
+              onCheckedChange={(checked: boolean) => handleSyncParentOwnStockChange(checked)}
+            />
+            <label
+              htmlFor="sync-parent-own-stock"
+              className={`text-sm ${(settings.locks.syncParentOwnStock.locked || !settings.syncSubProducts) ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+            >
+              Track parent product own stock independently
+            </label>
+            <LockBadge lock={settings.locks.syncParentOwnStock} />
+          </div>
+          <p className="pl-6 text-xs text-muted-foreground">
+            When enabled, the parent product is added to the shopping list if its own stock falls below its minimum — even when sub-products have enough stock to satisfy Grocy&apos;s aggregate minimum. Requires sub-product sync to be enabled.
           </p>
         </div>
 

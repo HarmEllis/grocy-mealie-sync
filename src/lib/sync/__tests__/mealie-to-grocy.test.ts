@@ -600,4 +600,309 @@ describe('pollMealieForCheckedItems', () => {
     expect(savedState.mealieCheckedAt).not.toHaveProperty('fail-item');
     expect(savedState.mealieItemsSyncedToGrocy).not.toHaveProperty('fail-item');
   });
+
+  // -------------------------------------------------------------------------
+  // Sub-product return path
+  // -------------------------------------------------------------------------
+
+  it('restocks each sub-product individually when GMS_ITEMS_KEY extras are present', async () => {
+    const subItems = [
+      { name: 'Volle Melk', grocyProductId: 201, amount: 2 },
+      { name: 'Halfvolle Melk', grocyProductId: 202, amount: 1 },
+    ];
+    const item = mockMealieShoppingItem({
+      id: 'sub-item',
+      checked: true,
+      foodId: 'food-1',
+      note: null,
+      extras: { grocy_sync_subproduct_items: subItems } as any,
+    });
+    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 100, grocyProductName: 'Melk' });
+
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mapping]);
+    mockedGetGrocyEntities.mockResolvedValue([]);
+
+    await pollMealieForCheckedItems();
+
+    expect(mockedAddProductStock).toHaveBeenCalledTimes(2);
+    expect(mockedAddProductStock).toHaveBeenCalledWith(201, 2);
+    expect(mockedAddProductStock).toHaveBeenCalledWith(202, 1);
+  });
+
+  it('uses note amounts over extras amounts when note has matching segments', async () => {
+    const subItems = [
+      { name: 'Volle Melk', grocyProductId: 201, amount: 2 },
+      { name: 'Halfvolle Melk', grocyProductId: 202, amount: 1 },
+    ];
+    const item = mockMealieShoppingItem({
+      id: 'sub-note',
+      checked: true,
+      foodId: 'food-1',
+      note: '3× Volle Melk | 2× Halfvolle Melk',
+      extras: { grocy_sync_subproduct_items: subItems } as any,
+    });
+    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 100, grocyProductName: 'Melk' });
+
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mapping]);
+    mockedGetGrocyEntities.mockResolvedValue([]);
+
+    await pollMealieForCheckedItems();
+
+    expect(mockedAddProductStock).toHaveBeenCalledWith(201, 3);
+    expect(mockedAddProductStock).toHaveBeenCalledWith(202, 2);
+  });
+
+  it('falls back to extras amount for sub-products not present in note', async () => {
+    const subItems = [
+      { name: 'Volle Melk', grocyProductId: 201, amount: 2 },
+      { name: 'Halfvolle Melk', grocyProductId: 202, amount: 1 },
+    ];
+    const item = mockMealieShoppingItem({
+      id: 'sub-partial-note',
+      checked: true,
+      foodId: 'food-1',
+      note: '3× Volle Melk',
+      extras: { grocy_sync_subproduct_items: subItems } as any,
+    });
+    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 100, grocyProductName: 'Melk' });
+
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mapping]);
+    mockedGetGrocyEntities.mockResolvedValue([]);
+
+    await pollMealieForCheckedItems();
+
+    expect(mockedAddProductStock).toHaveBeenCalledWith(201, 3); // from note
+    expect(mockedAddProductStock).toHaveBeenCalledWith(202, 1); // from extras
+  });
+
+  it('disables note overrides when sub-products have duplicate names', async () => {
+    const subItems = [
+      { name: 'Melk', grocyProductId: 201, amount: 2 },
+      { name: 'Melk', grocyProductId: 202, amount: 1 },
+    ];
+    const item = mockMealieShoppingItem({
+      id: 'sub-dup',
+      checked: true,
+      foodId: 'food-1',
+      note: '5× Melk',
+      extras: { grocy_sync_subproduct_items: subItems } as any,
+    });
+    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 100, grocyProductName: 'Melk' });
+
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mapping]);
+    mockedGetGrocyEntities.mockResolvedValue([]);
+
+    await pollMealieForCheckedItems();
+
+    // Note overrides disabled — use extras amounts
+    expect(mockedAddProductStock).toHaveBeenCalledWith(201, 2);
+    expect(mockedAddProductStock).toHaveBeenCalledWith(202, 1);
+  });
+
+  it('skips already-restocked sub-products on retry using mealieSubRestockProgress', async () => {
+    const subItems = [
+      { name: 'Volle Melk', grocyProductId: 201, amount: 2 },
+      { name: 'Halfvolle Melk', grocyProductId: 202, amount: 1 },
+    ];
+    const item = mockMealieShoppingItem({
+      id: 'sub-retry',
+      checked: true,
+      foodId: 'food-1',
+      extras: { grocy_sync_subproduct_items: subItems } as any,
+    });
+    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 100 });
+    const state = mockSyncState({
+      lastMealiePoll: new Date('2026-03-27T12:00:00.000Z'),
+      // 201 already done in a previous attempt
+      mealieSubRestockProgress: { 'sub-retry': [201] },
+    });
+
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mapping]);
+    mockedGetSyncState.mockResolvedValue(state);
+    mockedGetGrocyEntities.mockResolvedValue([]);
+
+    await pollMealieForCheckedItems();
+
+    // Only 202 should be restocked; 201 was already done
+    expect(mockedAddProductStock).toHaveBeenCalledTimes(1);
+    expect(mockedAddProductStock).toHaveBeenCalledWith(202, 1);
+  });
+
+  it('treats checked item with invalid GMS_ITEMS_KEY as a normal item (falls through to standard path)', async () => {
+    const item = mockMealieShoppingItem({
+      id: 'sub-invalid',
+      checked: true,
+      foodId: 'food-1',
+      quantity: 1,
+      extras: { grocy_sync_subproduct_items: [{ bad: true }] } as any,
+    });
+    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 101, grocyProductName: 'Milk' });
+
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mapping]);
+    mockedGetGrocyEntities.mockResolvedValue([]);
+
+    await pollMealieForCheckedItems();
+
+    // Falls through to normal path — restocks the parent product with quantity 1
+    expect(mockedAddProductStock).toHaveBeenCalledWith(101, 1);
+  });
+
+  it('removes parent product from Grocy shopping list after sub-product restock', async () => {
+    const subItems = [{ name: 'Volle Melk', grocyProductId: 201, amount: 1 }];
+    const item = mockMealieShoppingItem({
+      id: 'sub-cleanup',
+      checked: true,
+      foodId: 'food-1',
+      extras: { grocy_sync_subproduct_items: subItems } as any,
+    });
+    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 100, grocyProductName: 'Melk' });
+    const grocySi = mockGrocyShoppingItem({ id: 99, product_id: 100 });
+
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mapping]);
+    mockedGetGrocyEntities.mockResolvedValue([grocySi] as any);
+
+    await pollMealieForCheckedItems();
+
+    expect(mockedDeleteGrocyEntity).toHaveBeenCalledWith('shopping_list', 99);
+  });
+
+  it('marks item for retry and does not commit progress when a sub-product restock fails', async () => {
+    const subItems = [
+      { name: 'Volle Melk', grocyProductId: 201, amount: 2 },
+      { name: 'Halfvolle Melk', grocyProductId: 202, amount: 1 },
+    ];
+    const item = mockMealieShoppingItem({
+      id: 'sub-fail',
+      checked: true,
+      foodId: 'food-1',
+      extras: { grocy_sync_subproduct_items: subItems } as any,
+    });
+    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 100 });
+
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mapping]);
+    mockedAddProductStock
+      .mockResolvedValueOnce([]) // 201 succeeds
+      .mockRejectedValueOnce(new Error('Grocy 500')); // 202 fails
+
+    await pollMealieForCheckedItems();
+
+    // Item removed from newCheckedState for retry
+    const finalSave = mockedSaveSyncState.mock.calls.at(-1)![0];
+    expect(finalSave.mealieCheckedItems).not.toHaveProperty('sub-fail');
+    // No syncRestockedProducts entry
+    expect(finalSave.syncRestockedProducts).not.toHaveProperty('100');
+  });
+
+  it('clears mealieSubRestockProgress after successful sub-product restock commit', async () => {
+    const subItems = [{ name: 'Volle Melk', grocyProductId: 201, amount: 1 }];
+    const item = mockMealieShoppingItem({
+      id: 'sub-clear',
+      checked: true,
+      foodId: 'food-1',
+      extras: { grocy_sync_subproduct_items: subItems } as any,
+    });
+    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 100 });
+
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mapping]);
+    mockedGetGrocyEntities.mockResolvedValue([]);
+
+    await pollMealieForCheckedItems();
+
+    const finalSave = mockedSaveSyncState.mock.calls.at(-1)![0];
+    expect(finalSave.mealieSubRestockProgress).not.toHaveProperty('sub-clear');
+  });
+
+  it('clears mealieSubRestockProgress when item becomes unchecked', async () => {
+    mockedGetSyncState.mockResolvedValue(
+      mockSyncState({
+        lastMealiePoll: new Date(),
+        mealieCheckedItems: { 'item-1': true },
+        mealieSubRestockProgress: { 'item-1': [201] },
+      }),
+    );
+    const item = mockMealieShoppingItem({ id: 'item-1', checked: false, foodId: 'food-1' });
+    mockedFetchAll.mockResolvedValue([item]);
+
+    await pollMealieForCheckedItems();
+
+    const savedState = mockedSaveSyncState.mock.calls[0][0];
+    expect(savedState.mealieSubRestockProgress).not.toHaveProperty('item-1');
+  });
+
+  // -------------------------------------------------------------------------
+  // no_own_stock guard
+  // -------------------------------------------------------------------------
+
+  it('skips stock add for product with no_own_stock=1 on normal path', async () => {
+    const item = mockMealieShoppingItem({ id: 'no-own', checked: true, foodId: 'food-1', quantity: 1 });
+    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 101 });
+
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mapping]);
+    mockedGetGrocyEntities.mockImplementation(async (entity: string) => {
+      if (entity === 'products') return [{ id: 101, name: 'Milk', no_own_stock: 1 }] as any;
+      return [];
+    });
+
+    await pollMealieForCheckedItems();
+
+    expect(mockedAddProductStock).not.toHaveBeenCalled();
+    const savedState = mockedSaveSyncState.mock.calls[0][0];
+    expect(savedState.syncRestockedProducts).toEqual({});
+  });
+
+  it('does not skip stock add when no_own_stock is absent (NaN guard)', async () => {
+    const item = mockMealieShoppingItem({ id: 'own-ok', checked: true, foodId: 'food-1', quantity: 1 });
+    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 101 });
+
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mapping]);
+    mockedGetGrocyEntities.mockImplementation(async (entity: string) => {
+      if (entity === 'products') return [{ id: 101, name: 'Milk' }] as any;
+      return [];
+    });
+
+    await pollMealieForCheckedItems();
+
+    expect(mockedAddProductStock).toHaveBeenCalledWith(101, 1);
+  });
+
+  it('skips sub-product restock when sub has no_own_stock=1', async () => {
+    const subItems = [
+      { name: 'Volle Melk', grocyProductId: 201, amount: 2 },
+      { name: 'Halfvolle Melk', grocyProductId: 202, amount: 1 },
+    ];
+    const item = mockMealieShoppingItem({
+      id: 'sub-no-own',
+      checked: true,
+      foodId: 'food-1',
+      extras: { grocy_sync_subproduct_items: subItems } as any,
+    });
+    const mapping = mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 100, grocyProductName: 'Melk' });
+
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mapping]);
+    mockedGetGrocyEntities.mockImplementation(async (entity: string) => {
+      if (entity === 'products') return [
+        { id: 201, name: 'Volle Melk', no_own_stock: 1 },
+        { id: 202, name: 'Halfvolle Melk' },
+      ] as any;
+      return [];
+    });
+
+    await pollMealieForCheckedItems();
+
+    // 201 is skipped, 202 is restocked
+    expect(mockedAddProductStock).toHaveBeenCalledTimes(1);
+    expect(mockedAddProductStock).toHaveBeenCalledWith(202, 1);
+  });
 });

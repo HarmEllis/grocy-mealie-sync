@@ -174,6 +174,17 @@ async function runMealieInPossessionSync(
         continue;
       }
 
+      const noOwnStockRaw = Number(grocyProduct.no_own_stock);
+      if (Number.isFinite(noOwnStockRaw) && noOwnStockRaw !== 0) {
+        if (previousKnown === undefined) {
+          log.info(
+            `[Grocy→Mealie] Skipping "In possession" for "${mapping.grocyProductName}" — product has no own stock in Grocy`,
+          );
+        }
+        nextTracked[trackingKey] = false;
+        continue;
+      }
+
       const rawStock = stockByProductId.get(mapping.grocyProductId) ?? 0;
       const openedStock = openedStockByProductId.get(mapping.grocyProductId) ?? 0;
       // Explicit finite-number check: Number(undefined)=NaN and NaN!==0 is true, so guard against that

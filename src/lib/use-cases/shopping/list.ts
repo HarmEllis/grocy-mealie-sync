@@ -4,6 +4,7 @@ import type { ShoppingListItemsCollectionOut } from '@/lib/mealie/client/models/
 import type { ShoppingListItemUpdate } from '@/lib/mealie/client/models/ShoppingListItemUpdate';
 import type { MealieShoppingItem } from '@/lib/mealie/types';
 import { normalizeMatchText, rankVariantMatches } from '@/lib/fuzzy-match';
+import { splitShoppingNoteSegments, mergeShoppingNotes } from '@/lib/shopping-notes';
 import { resolveShoppingListId } from '@/lib/settings';
 import { fetchAllMealieShoppingItems } from '@/lib/sync/helpers';
 import { getProductOverview, type ProductOverview } from '@/lib/use-cases/products/catalog';
@@ -213,31 +214,6 @@ function getCreatedOrThrowItem(collection: ShoppingListItemsCollectionOut): Shop
   return toShoppingListItemSummary(created);
 }
 
-function splitShoppingNoteSegments(note: string | null | undefined): string[] {
-  return (note ?? '')
-    .split('|')
-    .map(segment => segment.trim())
-    .filter(Boolean);
-}
-
-function mergeShoppingNotes(...notes: Array<string | null | undefined>): string | null {
-  const segments: string[] = [];
-  const seen = new Set<string>();
-
-  for (const note of notes) {
-    for (const segment of splitShoppingNoteSegments(note)) {
-      const normalizedSegment = normalizeMatchText(segment);
-      if (!normalizedSegment || seen.has(normalizedSegment)) {
-        continue;
-      }
-
-      seen.add(normalizedSegment);
-      segments.push(segment);
-    }
-  }
-
-  return segments.length > 0 ? segments.join(' | ') : null;
-}
 
 function isUnknownProductRefError(error: unknown): error is Error {
   return error instanceof Error && error.message.startsWith('Unknown product ref:');

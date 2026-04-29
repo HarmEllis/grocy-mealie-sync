@@ -20,6 +20,10 @@ function createDeps(overrides: Partial<ResourceReadModelDeps> = {}): ResourceRea
       mealieCheckedAt: {},
       mealieItemsSyncedToGrocy: {},
       lastCleanupRun: null,
+      grocyEffectiveParentByOriginalId: {},
+      mealieSubRestockProgress: {},
+      grocyParentOwnStockDeficit: {},
+      grocySkippedRestockAmounts: {},
     }),
     listProductMappings: async () => [
       {

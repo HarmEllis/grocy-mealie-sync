@@ -27,6 +27,11 @@ import { StockTransactionType } from './client/models/StockTransactionType';
 
 export const GROCY_NO_BEST_BEFORE_DATE = '2999-12-31';
 
+/** Local extension — Grocy returns parent_product_id in API responses but the generated client type omits it. */
+export type GrocyProductWithParent = Product & {
+  parent_product_id?: number | null;
+};
+
 function serializeGrocyBestBeforeDate(bestBeforeDate?: string | null): string | undefined {
   if (bestBeforeDate === null) {
     return GROCY_NO_BEST_BEFORE_DATE;
