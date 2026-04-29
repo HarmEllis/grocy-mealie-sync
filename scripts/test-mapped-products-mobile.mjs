@@ -19,6 +19,7 @@ const settingsBody = {
   mappingWizardMinStockStep: '1',
   stockOnlyMinStock: false,
   syncSubProducts: false,
+  syncParentOwnStock: false,
   locks: {
     defaultUnitMappingId: { locked: false, envVar: 'GROCY_DEFAULT_UNIT_ID', envValue: null },
     mealieShoppingListId: { locked: false, envVar: 'MEALIE_SHOPPING_LIST_ID', envValue: null },
@@ -36,6 +37,7 @@ const settingsBody = {
     cleanupCheckedItemsAfterHours: { locked: false, envVar: 'CLEANUP_CHECKED_ITEMS_AFTER_HOURS', envValue: null },
     cleanupCheckedItemsMode: { locked: false, envVar: 'CLEANUP_CHECKED_ITEMS_MODE', envValue: null },
     syncSubProducts: { locked: false, envVar: 'SYNC_SUB_PRODUCTS', envValue: null },
+    syncParentOwnStock: { locked: false, envVar: 'SYNC_PARENT_OWN_STOCK', envValue: null },
   },
   cleanupCheckedItemsAfterHours: -1,
   cleanupCheckedItemsMode: 'all',
