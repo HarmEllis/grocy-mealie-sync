@@ -172,6 +172,7 @@ describe('mealie in-possession sync', () => {
       lastCleanupRun: null,
       grocyEffectiveParentByOriginalId: {},
       mealieSubRestockProgress: {},
+        grocyParentOwnStockDeficit: {},
     };
 
     const result = await syncMealieInPossessionFromGrocy(state);
@@ -203,6 +204,7 @@ describe('mealie in-possession sync', () => {
       lastCleanupRun: null,
       grocyEffectiveParentByOriginalId: {},
       mealieSubRestockProgress: {},
+        grocyParentOwnStockDeficit: {},
     };
 
     const result = await syncMealieInPossessionFromGrocy(state);
@@ -231,6 +233,7 @@ describe('mealie in-possession sync', () => {
       lastCleanupRun: null,
       grocyEffectiveParentByOriginalId: {},
       mealieSubRestockProgress: {},
+        grocyParentOwnStockDeficit: {},
     };
 
     const result = await syncMealieInPossessionFromGrocy(state);
@@ -268,6 +271,7 @@ describe('mealie in-possession sync', () => {
       lastCleanupRun: null,
       grocyEffectiveParentByOriginalId: {},
       mealieSubRestockProgress: {},
+        grocyParentOwnStockDeficit: {},
     };
 
     const result = await syncMealieInPossessionFromGrocy(state);
@@ -301,6 +305,7 @@ describe('mealie in-possession sync', () => {
       lastCleanupRun: null,
       grocyEffectiveParentByOriginalId: {},
       mealieSubRestockProgress: {},
+        grocyParentOwnStockDeficit: {},
     };
 
     const result = await syncMealieInPossessionFromGrocy(state);
@@ -338,6 +343,7 @@ describe('mealie in-possession sync', () => {
       lastCleanupRun: null,
       grocyEffectiveParentByOriginalId: {},
       mealieSubRestockProgress: {},
+        grocyParentOwnStockDeficit: {},
     });
 
     const result = await reconcileMealieInPossessionFromGrocy();
@@ -382,6 +388,7 @@ describe('mealie in-possession sync', () => {
       lastCleanupRun: null,
       grocyEffectiveParentByOriginalId: {},
       mealieSubRestockProgress: {},
+        grocyParentOwnStockDeficit: {},
     };
 
     const result = await syncMealieInPossessionFromGrocy(state);
@@ -414,6 +421,7 @@ describe('mealie in-possession sync', () => {
       lastCleanupRun: null,
       grocyEffectiveParentByOriginalId: {},
       mealieSubRestockProgress: {},
+        grocyParentOwnStockDeficit: {},
     };
 
     const result = await syncMealieInPossessionFromGrocy(state);
@@ -445,6 +453,7 @@ describe('mealie in-possession sync', () => {
       lastCleanupRun: null,
       grocyEffectiveParentByOriginalId: {},
       mealieSubRestockProgress: {},
+        grocyParentOwnStockDeficit: {},
     };
 
     await syncMealieInPossessionFromGrocy(state);
@@ -472,6 +481,7 @@ describe('mealie in-possession sync', () => {
       lastCleanupRun: null,
       grocyEffectiveParentByOriginalId: {},
       mealieSubRestockProgress: {},
+        grocyParentOwnStockDeficit: {},
     };
 
     await syncMealieInPossessionFromGrocy(state);

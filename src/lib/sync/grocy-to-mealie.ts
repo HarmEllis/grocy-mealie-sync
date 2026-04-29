@@ -1,6 +1,6 @@
 import { db } from '../db';
 import { productMappings, unitMappings } from '../db/schema';
-import { getGrocyEntities, getVolatileStock } from '../grocy/types';
+import { getGrocyEntities, getVolatileStock, getCurrentStock } from '../grocy/types';
 import type { GrocyMissingProduct, GrocyProductWithParent } from '../grocy/types';
 import { HouseholdsShoppingListItemsService } from '../mealie';
 import type { MealieShoppingItem } from '../mealie/types';
@@ -9,6 +9,7 @@ import {
   resolveEnsureLowStockOnMealieList,
   resolveShoppingListId,
   resolveSyncSubProducts,
+  resolveSyncParentOwnStock,
 } from '../settings';
 import { syncMealieInPossessionFromGrocy, type MealieInPossessionSyncResult } from './mealie-in-possession';
 import { getSyncState, saveSyncState } from './state';
@@ -150,10 +151,22 @@ export async function pollGrocyForMissingStock(
         if (entry) {
           entry.amount_missing += mp.amount_missing;
           if (isChild) {
+            // If the entry was created for the parent product itself (no sub-products yet),
+            // retroactively add the parent's own contribution before adding this sub-product.
+            if (entry.subProducts.length === 0) {
+              const parentOwnAmount = entry.amount_missing - mp.amount_missing;
+              if (parentOwnAmount > 0) {
+                const parentProduct = grocyProductsById.get(effectiveId);
+                entry.subProducts.push({ name: parentProduct?.name ?? entry.effectiveName, grocyProductId: effectiveId, amount: parentOwnAmount });
+              }
+            }
             entry.subProducts.push({ name: mp.name, grocyProductId: mp.id, amount: mp.amount_missing });
             if (!(mp.id in previousAmounts) || prevEffectiveParents[mp.id] !== effectiveId) {
               log.info(`[Grocy→Mealie] Sub-product "${mp.name}" → resolved to parent "${grocyProductsById.get(effectiveId)?.name ?? `#${effectiveId}`}"`);
             }
+          } else if (entry.subProducts.length > 0) {
+            // Sub-product was processed before the parent: add the parent's own contribution now.
+            entry.subProducts.push({ name: mp.name, grocyProductId: mp.id, amount: mp.amount_missing });
           }
         } else {
           const effectiveName = isChild
@@ -170,6 +183,53 @@ export async function pollGrocyForMissingStock(
           });
         }
       }
+      // Parent own-stock check: detect when a parent product's own inventory falls below
+      // its minimum even though Grocy's aggregate stock (own + children) is still fine.
+      // Only runs when both syncSubProducts and syncParentOwnStock are enabled.
+      const syncParentOwnStock = syncSubProducts && await resolveSyncParentOwnStock();
+      const parentOwnStockCurrentDeficit = new Map<number, number>();
+      let parentOwnStockCheckFailed = false;
+      if (syncParentOwnStock && parentByProductId.size > 0) {
+        try {
+          const currentStock = await getCurrentStock();
+          const ownStockMap = new Map<number, number>();
+          for (const s of currentStock) {
+            if (s.product_id != null) {
+              ownStockMap.set(Number(s.product_id), s.amount ?? 0);
+            }
+          }
+          const parentIds = new Set(parentByProductId.values());
+          for (const parentId of parentIds) {
+            // Skip parents that Grocy already reports as missing (aggregate already below min).
+            // Their deficit is tracked via the normal missing_products path.
+            if (parentId in currentAmounts) continue;
+            const parent = grocyProductsById.get(parentId);
+            if (!parent) continue;
+            const minStock = Number(parent.min_stock_amount ?? 0);
+            if (minStock <= 0) continue;
+            const ownStock = ownStockMap.get(parentId) ?? 0;
+            if (ownStock >= minStock) continue;
+            const deficit = minStock - ownStock;
+            parentOwnStockCurrentDeficit.set(parentId, deficit);
+            const existing = effectiveCurrentMap.get(parentId);
+            if (existing) {
+              existing.amount_missing += deficit;
+              existing.subProducts.push({ name: parent.name ?? `product #${parentId}`, grocyProductId: parentId, amount: deficit });
+            } else {
+              effectiveCurrentMap.set(parentId, {
+                effectiveId: parentId,
+                effectiveName: parent.name ?? `product #${parentId}`,
+                amount_missing: deficit,
+                subProducts: [],
+              });
+            }
+          }
+        } catch (error) {
+          parentOwnStockCheckFailed = true;
+          log.warn('[Grocy→Mealie] Could not check parent product own stock:', error);
+        }
+      }
+
       const effectivePreviousMap = new Map<number, number>();
       for (const [origId, amount] of Object.entries(previousAmounts)) {
         const effectiveId = syncSubProducts
@@ -177,6 +237,23 @@ export async function pollGrocyForMissingStock(
           : Number(origId);
         effectivePreviousMap.set(effectiveId, (effectivePreviousMap.get(effectiveId) ?? 0) + amount);
       }
+      // Inject previous parent own-stock deficits so the delta logic sees the full picture.
+      // Skip on failure: injecting stale data without current data would make items look
+      // "no longer missing" and trigger incorrect removals from the shopping list.
+      if (!parentOwnStockCheckFailed) {
+        for (const [parentId, deficit] of Object.entries(state.grocyParentOwnStockDeficit ?? {})) {
+          const id = Number(parentId);
+          effectivePreviousMap.set(id, (effectivePreviousMap.get(id) ?? 0) + deficit);
+        }
+      }
+      // Incorporate amounts skipped in the previous poll (syncRestockedProducts guard), then
+      // reset so the current poll can record fresh skips. This prevents stale item quantities
+      // from appearing as a clean slate on the next poll after a restock-skip cycle.
+      for (const [productId, amount] of Object.entries(state.grocySkippedRestockAmounts)) {
+        const id = Number(productId);
+        effectivePreviousMap.set(id, (effectivePreviousMap.get(id) ?? 0) + amount);
+      }
+      state.grocySkippedRestockAmounts = {};
 
       // 1. Newly missing → add to Mealie
       const newlyMissing = [...effectiveCurrentMap.values()].filter(
@@ -260,6 +337,11 @@ export async function pollGrocyForMissingStock(
           const name = await resolveGrocyProductName(effectiveId);
           log.info(`[Grocy→Mealie] Skipping removal for "${name}" — restocked by sync, not manually`);
           delete state.syncRestockedProducts[effectiveId];
+          // Save the skipped amount so the next poll can account for this item's stale quantity.
+          const skippedAmount = effectivePreviousMap.get(effectiveId) ?? 0;
+          if (skippedAmount > 0) {
+            state.grocySkippedRestockAmounts[effectiveId] = skippedAmount;
+          }
           skippedSyncRestocked++;
           continue;
         }
@@ -298,10 +380,15 @@ export async function pollGrocyForMissingStock(
         }
       }
 
-      // Save snapshot of child→parent for next poll
+      // Save snapshot of child→parent and parent own-stock deficits for next poll
       state.grocyEffectiveParentByOriginalId = syncSubProducts
         ? Object.fromEntries(parentByProductId)
         : {};
+      state.grocyParentOwnStockDeficit = !syncParentOwnStock
+        ? {}
+        : parentOwnStockCheckFailed
+          ? state.grocyParentOwnStockDeficit
+          : Object.fromEntries(parentOwnStockCurrentDeficit);
     } else {
       log.warn('[Grocy→Mealie] No shopping list configured — skipping low-stock sync');
     }

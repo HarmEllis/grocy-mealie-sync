@@ -61,6 +61,8 @@ export function mockSyncState(overrides: Partial<SyncStateData> = {}): SyncState
     lastCleanupRun: null,
     grocyEffectiveParentByOriginalId: {},
     mealieSubRestockProgress: {},
+    grocyParentOwnStockDeficit: {},
+    grocySkippedRestockAmounts: {},
     ...overrides,
   };
 }

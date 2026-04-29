@@ -75,6 +75,7 @@ export const settingsUpdateSchema = z.object({
   cleanupCheckedItemsAfterHours: z.number().int().min(-1).optional(),
   cleanupCheckedItemsMode: z.enum(['all', 'synced_only']).optional(),
   syncSubProducts: z.boolean().optional(),
+  syncParentOwnStock: z.boolean().optional(),
 });
 
 // --- Orphan Deletion ---

@@ -27,6 +27,7 @@ vi.mock('../../db', () => ({
 vi.mock('../../grocy/types', () => ({
   getVolatileStock: vi.fn(),
   getGrocyEntities: vi.fn(),
+  getCurrentStock: vi.fn(),
 }));
 
 vi.mock('../../mealie', () => ({
@@ -41,6 +42,7 @@ vi.mock('../../settings', () => ({
   resolveShoppingListId: vi.fn(),
   resolveEnsureLowStockOnMealieList: vi.fn(),
   resolveSyncSubProducts: vi.fn().mockResolvedValue(false),
+  resolveSyncParentOwnStock: vi.fn().mockResolvedValue(false),
 }));
 
 vi.mock('../state', () => ({
@@ -80,9 +82,9 @@ vi.mock('../../logger', () => ({
 // ---------------------------------------------------------------------------
 
 import { pollGrocyForMissingStock } from '../grocy-to-mealie';
-import { getGrocyEntities, getVolatileStock } from '../../grocy/types';
+import { getGrocyEntities, getVolatileStock, getCurrentStock } from '../../grocy/types';
 import { HouseholdsShoppingListItemsService } from '../../mealie';
-import { resolveEnsureLowStockOnMealieList, resolveShoppingListId, resolveSyncSubProducts } from '../../settings';
+import { resolveEnsureLowStockOnMealieList, resolveShoppingListId, resolveSyncSubProducts, resolveSyncParentOwnStock } from '../../settings';
 import { getSyncState, saveSyncState } from '../state';
 import { fetchAllMealieShoppingItems } from '../helpers';
 import { syncMealieInPossessionFromGrocy } from '../mealie-in-possession';
@@ -91,9 +93,11 @@ import { log } from '../../logger';
 // Type-safe mock accessors
 const mockedGetGrocyEntities = vi.mocked(getGrocyEntities);
 const mockedGetVolatileStock = vi.mocked(getVolatileStock);
+const mockedGetCurrentStock = vi.mocked(getCurrentStock);
 const mockedResolveShoppingListId = vi.mocked(resolveShoppingListId);
 const mockedResolveEnsureLowStockOnMealieList = vi.mocked(resolveEnsureLowStockOnMealieList);
 const mockedResolveSyncSubProducts = vi.mocked(resolveSyncSubProducts);
+const mockedResolveSyncParentOwnStock = vi.mocked(resolveSyncParentOwnStock);
 const mockedGetSyncState = vi.mocked(getSyncState);
 const mockedSaveSyncState = vi.mocked(saveSyncState);
 const mockedFetchItems = vi.mocked(fetchAllMealieShoppingItems);
@@ -151,6 +155,7 @@ describe('pollGrocyForMissingStock', () => {
     mockedSaveSyncState.mockResolvedValue(undefined);
     mockedFetchItems.mockResolvedValue([]);
     mockedGetVolatileStock.mockResolvedValue({ missing_products: [] });
+    mockedGetCurrentStock.mockResolvedValue([]);
     mockedGetGrocyEntities.mockResolvedValue([
       { id: 101, name: 'Milk', qu_id_purchase: 10 },
     ] as any);
@@ -373,6 +378,56 @@ describe('pollGrocyForMissingStock', () => {
       expect(mockedSaveSyncState).toHaveBeenCalledOnce();
       const savedState = mockedSaveSyncState.mock.calls[0][0];
       expect(savedState.syncRestockedProducts).toEqual({});
+    });
+
+    it('saves skipped amount to grocySkippedRestockAmounts when removal is skipped', async () => {
+      mockedGetSyncState.mockResolvedValue(
+        mockSyncState({
+          grocyBelowMinStock: { 101: 4 },
+          syncRestockedProducts: { '101': new Date().toISOString() },
+        }),
+      );
+      mockedGetVolatileStock.mockResolvedValue({ missing_products: [] });
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedSaveSyncState).toHaveBeenCalledOnce();
+      const savedState = mockedSaveSyncState.mock.calls[0][0];
+      expect(savedState.grocySkippedRestockAmounts).toEqual({ 101: 4 });
+    });
+
+    it('uses grocySkippedRestockAmounts to correctly adjust stale item qty when product goes missing again', async () => {
+      // Simulate the scenario:
+      // - Previous poll: Melk had qty=4 (combined sub-products), was restocked, removal skipped
+      //   → grocySkippedRestockAmounts = { 101: 4 }, grocyBelowMinStock = {} (not missing)
+      // - Current poll: Melk is missing again at amount=1 (user consumed it)
+      // Expected: existing stale item at qty=4 is adjusted to qty=1 (delta=-3), NOT 4+1=5
+      const staleItem = mockMealieShoppingItem({
+        id: 'mealie-item-1',
+        foodId: 'food-1',
+        quantity: 4,
+        checked: false,
+      });
+      mockedGetSyncState.mockResolvedValue(
+        mockSyncState({
+          grocyBelowMinStock: {},
+          grocySkippedRestockAmounts: { 101: 4 },
+        }),
+      );
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 1 })],
+      });
+      mockedFetchItems.mockResolvedValue([staleItem]);
+
+      await pollGrocyForMissingStock();
+
+      // Delta = 1 - 4 = -3, so existing qty 4 → 1
+      expect(mockedUpdate).toHaveBeenCalledOnce();
+      expect(mockedUpdate).toHaveBeenCalledWith(
+        'mealie-item-1',
+        expect.objectContaining({ quantity: 1 }),
+      );
+      expect(mockedCreate).not.toHaveBeenCalled();
     });
 
     it('handles mix: sync-restocked product skipped + manually restocked product removed', async () => {
@@ -1035,6 +1090,104 @@ describe('pollGrocyForMissingStock', () => {
   });
 
   // -------------------------------------------------------------------------
+  // syncParentOwnStock behaviour
+  // -------------------------------------------------------------------------
+
+  describe('syncParentOwnStock', () => {
+    beforeEach(() => {
+      mockedResolveSyncSubProducts.mockResolvedValue(true);
+      mockedResolveSyncParentOwnStock.mockResolvedValue(true);
+      setupDbMock([DEFAULT_MAPPING], []);
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Milk', qu_id_purchase: null, parent_product_id: null, min_stock_amount: 2 },
+        { id: 104, name: 'Volle Melk', qu_id_purchase: null, parent_product_id: 101, min_stock_amount: 0 },
+      ] as any);
+    });
+
+    it('adds parent to shopping list when own stock is below min and aggregate is not missing', async () => {
+      // Nothing aggregate-missing; parent own stock is 0 vs min 2
+      mockedGetVolatileStock.mockResolvedValue({ missing_products: [] });
+      mockedGetCurrentStock.mockResolvedValue([{ product_id: 101, amount: 0 }] as any);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedCreate).toHaveBeenCalledOnce();
+      expect(mockedCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ foodId: 'food-1', quantity: 2 }),
+      );
+    });
+
+    it('applies cross-poll delta using previous grocyParentOwnStockDeficit', async () => {
+      // Previous poll stored a deficit of 2 for parent 101; now own stock rose to 1 → deficit 1
+      mockedGetSyncState.mockResolvedValue(
+        mockSyncState({ grocyParentOwnStockDeficit: { 101: 2 } }),
+      );
+      mockedGetVolatileStock.mockResolvedValue({ missing_products: [] });
+      mockedGetCurrentStock.mockResolvedValue([{ product_id: 101, amount: 1 }] as any);
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'mealie-item-1', foodId: 'food-1', quantity: 2, checked: false }),
+      ]);
+
+      await pollGrocyForMissingStock();
+
+      // effectiveCurrent=1, effectivePrevious=2, delta=-1, existing qty=2 → new qty=1
+      expect(mockedUpdate).toHaveBeenCalledOnce();
+      expect(mockedUpdate).toHaveBeenCalledWith('mealie-item-1', expect.objectContaining({ quantity: 1 }));
+    });
+
+    it('removes prior own-stock contribution and clears stored deficit when feature is disabled', async () => {
+      // Feature was on last poll (deficit=2 stored); now turned off
+      mockedResolveSyncParentOwnStock.mockResolvedValue(false);
+      mockedGetSyncState.mockResolvedValue(
+        mockSyncState({ grocyParentOwnStockDeficit: { 101: 2 } }),
+      );
+      mockedGetVolatileStock.mockResolvedValue({ missing_products: [] });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'mealie-item-1', foodId: 'food-1', quantity: 2, checked: false }),
+      ]);
+
+      await pollGrocyForMissingStock();
+
+      // Previous deficit (2) treated as "was missing", nothing currently missing → delta -2 → delete
+      expect(mockedDelete).toHaveBeenCalledOnce();
+      expect(mockedDelete).toHaveBeenCalledWith('mealie-item-1');
+
+      // Stored deficit must be cleared
+      expect(mockedSaveSyncState).toHaveBeenCalledOnce();
+      const savedState = mockedSaveSyncState.mock.calls[0][0];
+      expect(savedState.grocyParentOwnStockDeficit).toEqual({});
+    });
+
+    it('preserves grocyParentOwnStockDeficit and makes no quantity changes when getCurrentStock throws', async () => {
+      mockedGetSyncState.mockResolvedValue(
+        mockSyncState({ grocyParentOwnStockDeficit: { 101: 2 } }),
+      );
+      mockedGetVolatileStock.mockResolvedValue({ missing_products: [] });
+      mockedGetCurrentStock.mockRejectedValue(new Error('stock API down'));
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'mealie-item-1', foodId: 'food-1', quantity: 2, checked: false }),
+      ]);
+
+      await pollGrocyForMissingStock();
+
+      // No quantity changes — the item should not be removed or adjusted
+      expect(mockedCreate).not.toHaveBeenCalled();
+      expect(mockedUpdate).not.toHaveBeenCalled();
+      expect(mockedDelete).not.toHaveBeenCalled();
+
+      // Stored deficit must be preserved for the next poll
+      expect(mockedSaveSyncState).toHaveBeenCalledOnce();
+      const savedState = mockedSaveSyncState.mock.calls[0][0];
+      expect(savedState.grocyParentOwnStockDeficit).toEqual({ 101: 2 });
+
+      expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
+        expect.stringContaining('Could not check parent product own stock'),
+        expect.any(Error),
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Sub-product log behaviour
   // -------------------------------------------------------------------------
 
@@ -1106,6 +1259,58 @@ describe('pollGrocyForMissingStock', () => {
       );
     });
 
+    it('includes parent product in note when parent and sub-product are both missing (parent first in list)', async () => {
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Milk', qu_id_purchase: null, parent_product_id: null },
+        { id: 104, name: 'Volle Melk', qu_id_purchase: null, parent_product_id: 101 },
+      ] as any);
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [
+          // Parent first, then child
+          { id: 101, name: 'Milk', amount_missing: 1, is_partly_in_stock: 0 },
+          { id: 104, name: 'Volle Melk', amount_missing: 2, is_partly_in_stock: 0 },
+        ],
+      });
+      mockedFetchItems.mockResolvedValue([]);
+      mockedCreate.mockResolvedValue({} as any);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedCreate).toHaveBeenCalledOnce();
+      expect(mockedCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          quantity: 3,
+          note: '1× Milk | 2× Volle Melk',
+        }),
+      );
+    });
+
+    it('includes parent product in note when parent and sub-product are both missing (sub-product first in list)', async () => {
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Milk', qu_id_purchase: null, parent_product_id: null },
+        { id: 104, name: 'Volle Melk', qu_id_purchase: null, parent_product_id: 101 },
+      ] as any);
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [
+          // Child first, then parent
+          { id: 104, name: 'Volle Melk', amount_missing: 2, is_partly_in_stock: 0 },
+          { id: 101, name: 'Milk', amount_missing: 1, is_partly_in_stock: 0 },
+        ],
+      });
+      mockedFetchItems.mockResolvedValue([]);
+      mockedCreate.mockResolvedValue({} as any);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedCreate).toHaveBeenCalledOnce();
+      expect(mockedCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          quantity: 3,
+          note: expect.stringContaining('1× Milk'),
+        }),
+      );
+    });
+
     it('does not log "combined" message on unchanged subsequent poll', async () => {
       const existingItem = mockMealieShoppingItem({
         id: 'mealie-milk',
@@ -1139,4 +1344,5 @@ describe('pollGrocyForMissingStock', () => {
       );
     });
   });
+
 });

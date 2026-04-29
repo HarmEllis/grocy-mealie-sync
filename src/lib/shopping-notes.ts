@@ -84,10 +84,13 @@ export function replaceSubProductNote(
     // accidentally removing matching user-authored text earlier in the note.
     if (base === prevWrittenSegment) {
       base = '';
+    } else if (base.endsWith(` | ${prevWrittenSegment}`)) {
+      base = base.slice(0, -(prevWrittenSegment.length + 3)).trim();
     } else if (base.endsWith(` ${prevWrittenSegment}`)) {
+      // legacy: strip space-joined segment written before the pipe delimiter was introduced
       base = base.slice(0, -(prevWrittenSegment.length + 1)).trim();
     }
   }
-  const result = [base, newSegment].filter(Boolean).join(' ');
+  const result = [base, newSegment].filter(Boolean).join(' | ');
   return result || null;
 }

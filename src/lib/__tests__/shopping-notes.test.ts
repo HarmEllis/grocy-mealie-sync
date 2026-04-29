@@ -117,16 +117,28 @@ describe('replaceSubProductNote', () => {
     expect(replaceSubProductNote(null, null, '2× Milk')).toBe('2× Milk');
   });
 
-  it('replaces a previously written segment at the end', () => {
-    expect(replaceSubProductNote('user note 2× Milk', '2× Milk', '3× Milk')).toBe('user note 3× Milk');
+  it('replaces a pipe-joined segment at the end', () => {
+    expect(replaceSubProductNote('user note | 2× Milk', '2× Milk', '3× Milk')).toBe('user note | 3× Milk');
   });
 
-  it('removes the managed segment when newSegment is null', () => {
+  it('removes a pipe-joined managed segment when newSegment is null', () => {
+    expect(replaceSubProductNote('user note | 2× Milk', '2× Milk', null)).toBe('user note');
+  });
+
+  it('appends new segment with pipe separator when user text is present', () => {
+    expect(replaceSubProductNote('user note', null, '2× Milk')).toBe('user note | 2× Milk');
+  });
+
+  it('strips legacy space-joined segment and re-joins with pipe (upgrade path)', () => {
+    expect(replaceSubProductNote('user note 2× Milk', '2× Milk', '3× Milk')).toBe('user note | 3× Milk');
+  });
+
+  it('removes legacy space-joined managed segment when newSegment is null', () => {
     expect(replaceSubProductNote('user note 2× Milk', '2× Milk', null)).toBe('user note');
   });
 
   it('does not remove segment that appears earlier but not at the end', () => {
     const result = replaceSubProductNote('2× Milk | user note', '2× Milk', '3× Milk');
-    expect(result).toBe('2× Milk | user note 3× Milk');
+    expect(result).toBe('2× Milk | user note | 3× Milk');
   });
 });

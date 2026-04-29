@@ -29,6 +29,15 @@ export interface SyncStateData {
    *  Maps Mealie itemId → list of Grocy product IDs already successfully restocked.
    *  Cleared when all sub-items for an item succeed or when the item becomes unchecked. */
   mealieSubRestockProgress: Record<string, number[]>;
+  /** Own-stock deficit for parent products from the last poll (productId → deficit).
+   *  Tracks deficits detected by SYNC_PARENT_OWN_STOCK, separate from Grocy's
+   *  aggregate-based missing_products report. */
+  grocyParentOwnStockDeficit: Record<number, number>;
+  /** Effective missing amounts that were skipped (not removed from Mealie) in the previous poll
+   *  because the product was restocked by sync (syncRestockedProducts guard).
+   *  Incorporated into effectivePreviousMap at the start of the next poll so that
+   *  quantity adjustments remain accurate. Keyed by effectiveId; reset each poll. */
+  grocySkippedRestockAmounts: Record<number, number>;
 }
 
 const STATE_ID = 'singleton';
@@ -45,6 +54,8 @@ const DEFAULT_STATE: SyncStateData = {
   lastCleanupRun: null,
   grocyEffectiveParentByOriginalId: {},
   mealieSubRestockProgress: {},
+  grocyParentOwnStockDeficit: {},
+  grocySkippedRestockAmounts: {},
 };
 
 export async function getSyncState(): Promise<SyncStateData> {
@@ -73,6 +84,8 @@ export async function getSyncState(): Promise<SyncStateData> {
     lastCleanupRun: (state.lastCleanupRun as string) || null,
     grocyEffectiveParentByOriginalId: (state.grocyEffectiveParentByOriginalId as Record<number, number>) || {},
     mealieSubRestockProgress: (state.mealieSubRestockProgress as Record<string, number[]>) || {},
+    grocyParentOwnStockDeficit: (state.grocyParentOwnStockDeficit as Record<number, number>) || {},
+    grocySkippedRestockAmounts: (state.grocySkippedRestockAmounts as Record<number, number>) || {},
   };
 }
 
@@ -89,6 +102,8 @@ export async function saveSyncState(state: SyncStateData) {
     lastCleanupRun: state.lastCleanupRun,
     grocyEffectiveParentByOriginalId: state.grocyEffectiveParentByOriginalId,
     mealieSubRestockProgress: state.mealieSubRestockProgress,
+    grocyParentOwnStockDeficit: state.grocyParentOwnStockDeficit,
+    grocySkippedRestockAmounts: state.grocySkippedRestockAmounts,
   });
 
   await db.insert(syncState)
