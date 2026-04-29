@@ -1058,7 +1058,7 @@ describe('pollGrocyForMissingStock', () => {
       await pollGrocyForMissingStock();
 
       expect(vi.mocked(log.info)).toHaveBeenCalledWith(
-        expect.stringContaining('resolved to parent ID 101'),
+        expect.stringContaining('resolved to parent "Milk"'),
       );
     });
 

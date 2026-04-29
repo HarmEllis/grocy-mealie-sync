@@ -152,7 +152,7 @@ export async function pollGrocyForMissingStock(
           if (isChild) {
             entry.subProducts.push({ name: mp.name, grocyProductId: mp.id, amount: mp.amount_missing });
             if (!(mp.id in previousAmounts) || prevEffectiveParents[mp.id] !== effectiveId) {
-              log.info(`[Grocy→Mealie] Sub-product "${mp.name}" (ID ${mp.id}) → resolved to parent ID ${effectiveId}`);
+              log.info(`[Grocy→Mealie] Sub-product "${mp.name}" → resolved to parent "${grocyProductsById.get(effectiveId)?.name ?? `#${effectiveId}`}"`);
             }
           }
         } else {
@@ -160,7 +160,7 @@ export async function pollGrocyForMissingStock(
             ? (grocyProductsById.get(effectiveId)?.name ?? `product #${effectiveId}`)
             : mp.name;
           if (isChild && (!(mp.id in previousAmounts) || prevEffectiveParents[mp.id] !== effectiveId)) {
-            log.info(`[Grocy→Mealie] Sub-product "${mp.name}" (ID ${mp.id}) → resolved to parent ID ${effectiveId}`);
+            log.info(`[Grocy→Mealie] Sub-product "${mp.name}" → resolved to parent "${grocyProductsById.get(effectiveId)?.name ?? `#${effectiveId}`}"`);
           }
           effectiveCurrentMap.set(effectiveId, {
             effectiveId,
@@ -362,10 +362,10 @@ export async function ensureGrocyMissingStockOnMealie(
   });
 }
 
-function logCombinedSubProducts(grocyProductId: number, subProducts: SubProductItem[] | undefined): void {
+function logCombinedSubProducts(parentName: string, subProducts: SubProductItem[] | undefined): void {
   if (!subProducts || subProducts.length <= 1) return;
   const names = subProducts.map(s => `${s.amount}× ${s.name}`).join(', ');
-  log.info(`[Grocy→Mealie] ${subProducts.length} sub-products of parent ID ${grocyProductId} combined into 1 list item: "${names}"`);
+  log.info(`[Grocy→Mealie] ${subProducts.length} sub-products of "${parentName}" combined into 1 list item: "${names}"`);
 }
 
 /**
@@ -439,7 +439,7 @@ async function adjustMealieShoppingItem(
           newItems !== currentItems ||
           newNoteKey !== currentNoteKey;
         if (metadataChanged) {
-          logCombinedSubProducts(grocyProductId, options.subProducts);
+          logCombinedSubProducts(options.grocyProductName ?? grocyProductsById.get(grocyProductId)?.name ?? `#${grocyProductId}`, options.subProducts);
           await HouseholdsShoppingListItemsService.updateOneApiHouseholdsShoppingItemsItemIdPut(
             existingItem.id,
             {
@@ -465,7 +465,7 @@ async function adjustMealieShoppingItem(
       log.info(`[Grocy→Mealie] Removed "${mapping.mealieFoodName}" from list (qty ${currentQty} → 0)`);
     } else {
       // Update quantity (and note/extras if sub-products are tracked)
-      logCombinedSubProducts(grocyProductId, options.subProducts);
+      logCombinedSubProducts(options.grocyProductName ?? grocyProductsById.get(grocyProductId)?.name ?? `#${grocyProductId}`, options.subProducts);
       log.info(`[Grocy→Mealie] Adjusting "${mapping.mealieFoodName}" quantity: ${currentQty} → ${newQty} (delta: ${delta > 0 ? '+' : ''}${delta})`);
       await HouseholdsShoppingListItemsService.updateOneApiHouseholdsShoppingItemsItemIdPut(
         existingItem.id,
@@ -486,7 +486,7 @@ async function adjustMealieShoppingItem(
     }
 
     // No existing item, create new one
-    logCombinedSubProducts(grocyProductId, options.subProducts);
+    logCombinedSubProducts(options.grocyProductName ?? grocyProductsById.get(grocyProductId)?.name ?? `#${grocyProductId}`, options.subProducts);
     log.info(`[Grocy→Mealie] Adding "${mapping.mealieFoodName}" to Mealie shopping list (qty: ${createQuantity})`);
     await HouseholdsShoppingListItemsService.createOneApiHouseholdsShoppingItemsPost({
       shoppingListId: shoppingListId,
