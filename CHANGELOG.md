@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.10.0] - 2026-04-29
+
+This minor release adds sub-product sync between Grocy and Mealie shopping lists, guards against invalid stock operations on no-own-stock products, and patches a postcss XSS vulnerability.
+
+### Added
+
+- Sub-product sync: Grocy sub-products are grouped under their parent product on the Mealie shopping list; checking off a Mealie item restocks each sub-product individually in Grocy.
+- `syncParentOwnStock` setting to control whether parent product own-stock is tracked independently from its sub-products.
+
+### Changed
+
+- Log messages for sub-product resolution and combinations now only appear when state is new or changed, suppressing repeated messages on subsequent polls.
+- Parent product name is now shown instead of the raw product ID in sub-product log messages.
+
+### Fixed
+
+- Products with `no_own_stock=1` in Grocy are now skipped during the in-possession sync and the Mealie→Grocy stock-add flow, with a one-time log message per product.
+- Extras arrays are now serialized as JSON strings for Mealie API compatibility.
+- Overrode postcss to ≥ 8.5.10 in the `next` dependency to resolve CVE GHSA-qx2v-qp2m-jg93 (XSS via unescaped `</style>`).
+
 ## [1.9.0] - 2026-04-05
 
 This minor release adds MCP inventory-entry creation and hardens the Grocy stock-entry resolution path so create-entry mutations remain accurate under concurrent writes and merged stock batches.
@@ -224,6 +244,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.10.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.8.1...v1.9.0
 [1.8.1]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.7.0...v1.8.0
