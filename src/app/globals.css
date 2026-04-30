@@ -50,18 +50,23 @@
 :root {
   color-scheme: dark;
 
-  --bg-0: #0d1117;
-  --bg-1: #161b22;
-  --bg-2: #21262d;
-  --bg-3: #30363d;
-  --border-color: #30363d;
+  --bg-0: #060b14;
+  --bg-1: rgba(255, 255, 255, 0.04);
+  --bg-2: rgba(255, 255, 255, 0.06);
+  --bg-3: rgba(255, 255, 255, 0.12);
+  --card-bg: rgba(255, 255, 255, 0.04);
+  --card-border: rgba(255, 255, 255, 0.08);
+  --sidebar-bg: rgba(6, 11, 20, 0.95);
+  --topbar-bg: rgba(6, 11, 20, 0.85);
+  --border-color: rgba(255, 255, 255, 0.08);
   --text-1: #e6edf3;
   --text-2: #8b949e;
-  --text-3: #6e7681;
+  --text-3: #4a5568;
 
   --accent: #2dd4bf;
   --accent-hover: #22b4a1;
   --accent-fg: #0d1117;
+  --accent-glow: rgba(45, 212, 191, 0.45);
   --accent-subtle: rgba(45, 212, 191, 0.08);
 
   --badge-success-bg: rgba(63, 185, 80, 0.15);
@@ -75,22 +80,22 @@
 
   --background: var(--bg-0);
   --foreground: var(--text-1);
-  --card: var(--bg-1);
+  --card: var(--card-bg);
   --card-foreground: var(--text-1);
-  --popover: var(--bg-1);
+  --popover: color-mix(in oklab, var(--bg-0) 82%, white 18%);
   --popover-foreground: var(--text-1);
   --primary: var(--accent);
   --primary-foreground: var(--accent-fg);
-  --secondary: var(--bg-2);
+  --secondary: color-mix(in oklab, var(--bg-0) 68%, white 32%);
   --secondary-foreground: var(--text-1);
-  --muted: var(--bg-2);
+  --muted: color-mix(in oklab, var(--bg-0) 66%, white 34%);
   --muted-foreground: var(--text-2);
-  --accent-ui: var(--bg-2);
+  --accent-ui: color-mix(in oklab, var(--bg-0) 72%, white 28%);
   --accent-ui-foreground: var(--text-1);
   --destructive: #f85149;
   --destructive-foreground: #ffffff;
-  --border: var(--border-color);
-  --input: var(--bg-2);
+  --border: var(--card-border);
+  --input: rgba(255, 255, 255, 0.04);
   --ring: color-mix(in oklab, var(--accent) 70%, white);
   --success: var(--badge-success-text);
   --success-foreground: #ffffff;
@@ -105,26 +110,33 @@
 [data-theme="light"] {
   color-scheme: light;
 
-  --bg-0: #f6f8fa;
-  --bg-1: #ffffff;
-  --bg-2: #f6f8fa;
-  --bg-3: #eaeef2;
-  --border-color: #d0d7de;
-  --text-1: #1f2328;
-  --text-2: #636c76;
-  --text-3: #8c959f;
+  --bg-0: #eef2f7;
+  --bg-1: rgba(255, 255, 255, 0.85);
+  --bg-2: rgba(255, 255, 255, 0.92);
+  --bg-3: rgba(15, 23, 42, 0.08);
+  --card-bg: rgba(255, 255, 255, 0.85);
+  --card-border: rgba(0, 0, 0, 0.08);
+  --sidebar-bg: rgba(248, 250, 252, 0.95);
+  --topbar-bg: rgba(248, 250, 252, 0.85);
+  --border-color: rgba(0, 0, 0, 0.08);
+  --text-1: #0f172a;
+  --text-2: #475569;
+  --text-3: #94a3b8;
 
   --accent-subtle: rgba(45, 212, 191, 0.1);
   --accent-fg: #0d1117;
 
   --destructive-foreground: #ffffff;
   --ring: color-mix(in oklab, var(--accent) 65%, black);
+  --popover: rgba(255, 255, 255, 0.95);
+  --input: rgba(255, 255, 255, 0.95);
 }
 
 [data-accent="teal"] {
   --accent: #2dd4bf;
   --accent-hover: #22b4a1;
   --accent-fg: #0d1117;
+  --accent-glow: rgba(45, 212, 191, 0.45);
   --accent-subtle: rgba(45, 212, 191, 0.08);
   --badge-accent-bg: rgba(45, 212, 191, 0.15);
   --badge-accent-text: #2dd4bf;
@@ -134,6 +146,7 @@
   --accent: #a78bfa;
   --accent-hover: #8b5cf6;
   --accent-fg: #ffffff;
+  --accent-glow: rgba(167, 139, 250, 0.45);
   --accent-subtle: rgba(167, 139, 250, 0.08);
   --badge-accent-bg: rgba(167, 139, 250, 0.15);
   --badge-accent-text: #a78bfa;
@@ -143,6 +156,7 @@
   --accent: #fbbf24;
   --accent-hover: #f59e0b;
   --accent-fg: #1f1f1f;
+  --accent-glow: rgba(251, 191, 36, 0.45);
   --accent-subtle: rgba(251, 191, 36, 0.08);
   --badge-accent-bg: rgba(251, 191, 36, 0.15);
   --badge-accent-text: #fbbf24;
@@ -159,8 +173,32 @@
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply text-foreground antialiased;
+    background: var(--bg-0);
+    background-image:
+      radial-gradient(ellipse 900px 600px at 60% -5%, color-mix(in oklab, var(--accent) 16%, transparent) 0%, transparent 70%),
+      radial-gradient(ellipse 600px 500px at 5% 80%, rgba(99, 102, 241, 0.08) 0%, transparent 70%);
+    background-attachment: fixed;
     font-family: var(--font-sans), sans-serif;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image: radial-gradient(circle, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+
+  [data-theme="light"] body::before {
+    background-image: radial-gradient(circle, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+  }
+
+  body > * {
+    position: relative;
+    z-index: 1;
   }
 
   code,
@@ -189,6 +227,14 @@
 
   [data-slot="card"] {
     padding: var(--card-pad-y) var(--card-pad-x);
+    background: var(--card-bg);
+    border-color: var(--card-border);
+    border-radius: 16px;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow:
+      0 4px 24px rgba(0, 0, 0, 0.25),
+      0 1px 0 rgba(255, 255, 255, 0.05) inset;
   }
 
   [data-slot="table-head"] {
@@ -207,7 +253,40 @@
   }
 
   [data-slot="table-row"]:hover {
-    background: color-mix(in oklab, var(--bg-2) 70%, transparent);
+    background: rgba(255, 255, 255, 0.04);
+  }
+}
+
+.page-enter {
+  animation: pageFadeIn 0.2s ease;
+}
+
+@keyframes pageFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulseRing {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+
+  70% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
   }
 }
 

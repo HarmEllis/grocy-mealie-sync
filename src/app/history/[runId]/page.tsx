@@ -102,30 +102,33 @@ export default async function HistoryDetailPage({ params }: HistoryDetailPagePro
       </AppCard>
 
       {schedulerSteps.length > 0 ? (
-        <AppCard className="overflow-hidden p-0">
-          <div className="border-b border-border px-4 py-3">
-            <h2 className="text-base font-bold tracking-tight">Scheduler steps</h2>
-            <p className="text-sm text-text-2">Per-step result for this scheduler cycle.</p>
-          </div>
+        <AppCard>
+          <h2 className="text-base font-bold tracking-tight">Scheduler steps</h2>
+          <p className="mb-3 text-sm text-text-2">Per-step result for this scheduler cycle.</p>
 
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Step</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Error</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {schedulerSteps.map(step => (
-                <TableRow key={step.name}>
-                  <TableCell className="font-semibold">{formatSchedulerStepNameLabel(step.name)}</TableCell>
-                  <TableCell><HistoryStatusBadge status={step.status} /></TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{step.error ?? 'No error'}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <div className="flex flex-wrap items-stretch gap-2">
+            {schedulerSteps.map((step, index) => {
+              const success = step.status === 'success' || step.status === 'partial';
+
+              return (
+                <div key={step.name} className="contents">
+                  <div className="min-w-[220px] flex-1 rounded-lg border border-success/25 bg-success/8 p-3">
+                    <div className="mb-1 flex items-center gap-2">
+                      <span className="inline-flex size-5 items-center justify-center rounded-full bg-success/20 text-xs">
+                        {success ? '✓' : '!'}
+                      </span>
+                      <span className="text-sm font-semibold text-text-1">{formatSchedulerStepNameLabel(step.name)}</span>
+                    </div>
+                    <HistoryStatusBadge status={step.status} />
+                    <p className="mt-1 text-xs text-text-3">{step.error ?? 'No error'}</p>
+                  </div>
+                  {index < schedulerSteps.length - 1 ? (
+                    <span className="hidden self-center px-0.5 text-text-3 md:inline">→</span>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
         </AppCard>
       ) : null}
 

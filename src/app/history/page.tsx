@@ -41,6 +41,7 @@ export default async function HistoryPage({
   }
 
   const { search, action, trigger, status, dateFrom, dateTo, hasFilters } = resolveHistoryFilters(await searchParams);
+  const recentRunsForChart = await listHistoryRuns(20);
   const runs = await listHistoryRuns(100, {
     search,
     action,
@@ -125,6 +126,23 @@ export default async function HistoryPage({
         )}
       </AppCard>
 
+      <AppCard>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-bold tracking-[0.05em] text-text-2 uppercase">Last 20 runs</p>
+          <div className="flex items-center gap-3 text-[11px] text-text-3">
+            <span className="inline-flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-[2px] bg-[rgba(74,222,128,0.6)]" />
+              Success
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-[2px] bg-[rgba(248,113,113,0.8)]" />
+              Failed
+            </span>
+          </div>
+        </div>
+        <MiniChart runs={recentRunsForChart} />
+      </AppCard>
+
       <div className="flex">
         <Link href="/" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
           <HistoryIcon className="size-4" />
@@ -132,5 +150,39 @@ export default async function HistoryPage({
         </Link>
       </div>
     </div>
+  );
+}
+
+function MiniChart({ runs }: { runs: Awaited<ReturnType<typeof listHistoryRuns>> }) {
+  const maxWidth = 460;
+  const barGap = 2;
+  const chartHeight = 36;
+  const barWidth = Math.max(4, Math.floor((maxWidth / Math.max(1, runs.length)) - barGap));
+
+  if (runs.length === 0) {
+    return <p className="text-xs text-text-3">No data yet.</p>;
+  }
+
+  return (
+    <svg width="100%" viewBox={`0 0 ${maxWidth} ${chartHeight}`} className="h-9 w-full max-w-[460px]">
+      {runs.map((run, index) => {
+        const ok = run.status === 'success' || run.status === 'partial';
+        const x = index * (barWidth + barGap);
+        const height = ok ? 28 : 36;
+        const y = chartHeight - height;
+
+        return (
+          <rect
+            key={run.id}
+            x={x}
+            y={y}
+            width={barWidth}
+            height={height}
+            rx={2}
+            fill={ok ? 'rgba(74,222,128,0.5)' : 'rgba(248,113,113,0.7)'}
+          />
+        );
+      })}
+    </svg>
   );
 }

@@ -17,6 +17,7 @@ import { Loader2, Link, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
+import { AppBadge, AppButton, ProgressRing } from '@/components/redesign/primitives';
 import { ConflictsTab } from './ConflictsTab';
 import { GrocyMinStockProductsTab } from './GrocyMinStockProductsTab';
 import { MappedProductsTab } from './MappedProductsTab';
@@ -117,6 +118,8 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
   const [unitFilter, setUnitFilter] = useState<'unmapped' | 'mapped' | 'all'>('unmapped');
   const [showOnlyGrocyMinStockBelowMinimum, setShowOnlyGrocyMinStockBelowMinimum] = useState(false);
   const [showOnlyMappedProductsBelowMinimum, setShowOnlyMappedProductsBelowMinimum] = useState(false);
+  const [dismissedUnitSuggestions, setDismissedUnitSuggestions] = useState<string[]>([]);
+  const [dismissedProductSuggestions, setDismissedProductSuggestions] = useState<string[]>([]);
   const [bulkSuggestionTab, setBulkSuggestionTab] = useState<'units' | 'products' | 'grocy-min-stock' | null>(null);
   const [bulkSuggestionThreshold, setBulkSuggestionThreshold] = useState('90');
   const [remapConflict, setRemapConflict] = useState<MappingConflictRow | null>(null);
@@ -586,6 +589,56 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
     [unitMaps],
   );
 
+  const unitBannerSuggestions = useMemo(() => {
+    if (!unitsData) {
+      return [];
+    }
+
+    return unitsData.unmappedMealieUnits
+      .map(unit => ({
+        id: unit.id,
+        mealieLabel: unit.name,
+        suggestion: unitsData.unitSuggestions[unit.id],
+      }))
+      .filter(item =>
+        item.suggestion
+        && item.suggestion.score >= 70
+        && unitMaps[item.id]?.grocyUnitId === null
+        && !dismissedUnitSuggestions.includes(item.id),
+      )
+      .map(item => ({
+        id: item.id,
+        mealieLabel: item.mealieLabel,
+        targetLabel: item.suggestion!.grocyUnitName,
+        score: item.suggestion!.score,
+      }));
+  }, [dismissedUnitSuggestions, unitMaps, unitsData]);
+
+  const productBannerSuggestions = useMemo(() => {
+    if (!productsData) {
+      return [];
+    }
+
+    return productsData.unmappedMealieFoods
+      .map(food => ({
+        id: food.id,
+        mealieLabel: food.name,
+        suggestion: productsData.productSuggestions[food.id],
+      }))
+      .filter(item =>
+        item.suggestion
+        && item.suggestion.score >= 70
+        && productMaps[item.id]?.grocyProductId === null
+        && !dismissedProductSuggestions.includes(item.id),
+      )
+      .map(item => ({
+        id: item.id,
+        mealieLabel: item.mealieLabel,
+        targetLabel: item.suggestion!.grocyProductName,
+        score: item.suggestion!.score,
+      }));
+  }, [dismissedProductSuggestions, productMaps, productsData]);
+
   function acceptProductSuggestion(id: string) {
     const suggestion = productsData?.productSuggestions[id];
     if (!suggestion) {
@@ -614,6 +667,7 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
       delete next[id];
       return next;
     });
+    setDismissedProductSuggestions(prev => [...prev, id]);
   }
 
   function acceptGrocyMinStockProductSuggestion(grocyProductId: number) {
@@ -672,6 +726,49 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
       delete next[id];
       return next;
     });
+    setDismissedUnitSuggestions(prev => [...prev, id]);
+  }
+
+  function dismissUnitSuggestion(id: string) {
+    setDismissedUnitSuggestions(prev => (prev.includes(id) ? prev : [...prev, id]));
+  }
+
+  function dismissAllUnitSuggestions() {
+    setDismissedUnitSuggestions(prev => {
+      const merged = new Set(prev);
+      for (const suggestion of unitBannerSuggestions) {
+        merged.add(suggestion.id);
+      }
+
+      return Array.from(merged);
+    });
+  }
+
+  function acceptAllUnitSuggestions() {
+    for (const suggestion of unitBannerSuggestions) {
+      acceptUnitSuggestion(suggestion.id);
+    }
+  }
+
+  function dismissProductSuggestion(id: string) {
+    setDismissedProductSuggestions(prev => (prev.includes(id) ? prev : [...prev, id]));
+  }
+
+  function dismissAllProductSuggestions() {
+    setDismissedProductSuggestions(prev => {
+      const merged = new Set(prev);
+      for (const suggestion of productBannerSuggestions) {
+        merged.add(suggestion.id);
+      }
+
+      return Array.from(merged);
+    });
+  }
+
+  function acceptAllProductSuggestions() {
+    for (const suggestion of productBannerSuggestions) {
+      acceptProductSuggestion(suggestion.id);
+    }
   }
 
   function applyBulkProductSuggestions(threshold: number) {
@@ -1270,6 +1367,26 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
           ? mappedProductsData
           : conflictsData;
   const isRunning = !!actionRunning;
+  const mappingProgress = [
+    {
+      key: 'units',
+      label: 'Units',
+      remaining: unitsData?.unmappedMealieUnits.length ?? 0,
+      mapped: Object.values(unitMaps).filter(mapping => mapping.grocyUnitId !== null).length,
+    },
+    {
+      key: 'products',
+      label: 'Products',
+      remaining: productsData?.unmappedMealieFoods.length ?? 0,
+      mapped: Object.values(productMaps).filter(mapping => mapping.grocyProductId !== null).length,
+    },
+    {
+      key: 'grocy-min-stock',
+      label: 'Min Stock',
+      remaining: grocyMinStockData?.unmappedGrocyMinStockProducts.length ?? 0,
+      mapped: Object.values(grocyMinStockProductMaps).filter(mapping => mapping.mealieFoodId !== null).length,
+    },
+  ] as const;
 
   async function updateGrocyProductMinStock(grocyProductId: number, minStockAmount: number) {
     const res = await fetch('/api/mapping-wizard/products/mapped', {
@@ -1533,6 +1650,23 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
     <>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Tabs className="flex min-h-0 min-w-0 flex-1" value={tab} onValueChange={value => setTab(value as WizardTab)}>
+          <div className="mb-4 flex flex-wrap gap-4">
+            {mappingProgress.map(item => (
+              <div key={item.key} className="flex items-center gap-2">
+                <ProgressRing
+                  value={item.mapped}
+                  max={item.mapped + item.remaining}
+                  size={44}
+                  color={item.remaining > 0 ? '#fbbf24' : '#4ade80'}
+                />
+                <div>
+                  <p className="text-xs font-bold text-text-1">{item.label}</p>
+                  <p className="text-[11px] text-text-3">{item.remaining} remaining</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
           <div className="-mx-2 overflow-x-auto border-b border-border px-2 pb-0.5">
             <TabsList variant="line" className="min-w-max gap-0 bg-transparent p-0">
               <TabsTrigger value="units" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary">
@@ -1553,8 +1687,30 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
             </TabsList>
           </div>
 
-          <TabsContent value={tab} className="mt-4 flex min-h-0 min-w-0 flex-1">
-            {renderCurrentTab()}
+          <TabsContent value={tab} className="mt-4 flex min-h-0 min-w-0 flex-1 flex-col">
+            {tab === 'units' && unitBannerSuggestions.length > 0 ? (
+              <SuggestionBanner
+                suggestions={unitBannerSuggestions}
+                onAccept={acceptUnitSuggestion}
+                onAcceptAll={acceptAllUnitSuggestions}
+                onDismiss={dismissUnitSuggestion}
+                onDismissAll={dismissAllUnitSuggestions}
+              />
+            ) : null}
+
+            {tab === 'products' && productBannerSuggestions.length > 0 ? (
+              <SuggestionBanner
+                suggestions={productBannerSuggestions}
+                onAccept={acceptProductSuggestion}
+                onAcceptAll={acceptAllProductSuggestions}
+                onDismiss={dismissProductSuggestion}
+                onDismissAll={dismissAllProductSuggestions}
+              />
+            ) : null}
+
+            <div className="flex min-h-0 min-w-0 flex-1">
+              {renderCurrentTab()}
+            </div>
           </TabsContent>
         </Tabs>
       </div>
@@ -1747,6 +1903,66 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+function SuggestionBanner({
+  suggestions,
+  onAccept,
+  onAcceptAll,
+  onDismiss,
+  onDismissAll,
+}: {
+  suggestions: Array<{ id: string; mealieLabel: string; targetLabel: string; score: number }>;
+  onAccept: (id: string) => void;
+  onAcceptAll: () => void;
+  onDismiss: (id: string) => void;
+  onDismissAll: () => void;
+}) {
+  return (
+    <div className="mb-4 rounded-xl border border-primary/30 bg-primary/10 p-3 shadow-[0_0_20px_color-mix(in_oklab,var(--accent)_20%,transparent)]">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm">⚡</span>
+          <span className="text-sm font-bold text-primary">{suggestions.length} high-confidence suggestions</span>
+          <AppBadge tone="accent" small>≥ 70% match</AppBadge>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <AppButton variant="secondary" size="sm" onClick={onAcceptAll}>
+            Accept all ({suggestions.length})
+          </AppButton>
+          <AppButton variant="ghost" size="sm" onClick={onDismissAll}>Dismiss</AppButton>
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        {suggestions.slice(0, 5).map(suggestion => (
+          <div
+            key={suggestion.id}
+            className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-white/4 px-2.5 py-2"
+          >
+            <span className="min-w-[132px] text-sm font-semibold text-text-1">{suggestion.mealieLabel}</span>
+            <span className="text-xs text-text-3">→</span>
+            <span className="text-sm font-semibold text-primary">{suggestion.targetLabel}</span>
+            <AppBadge tone="success" small>{suggestion.score}%</AppBadge>
+
+            <div className="ml-auto flex items-center gap-1">
+              <AppButton variant="secondary" size="xs" onClick={() => onAccept(suggestion.id)}>
+                ✓ Accept
+              </AppButton>
+              <AppButton variant="ghost" size="xs" onClick={() => onDismiss(suggestion.id)}>✗</AppButton>
+            </div>
+          </div>
+        ))}
+
+        {suggestions.length > 5 ? (
+          <p className="py-0.5 text-center text-xs text-text-3">
+            +{suggestions.length - 5} more suggestions in the table below
+          </p>
+        ) : null}
+      </div>
+    </div>
   );
 }
 

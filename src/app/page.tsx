@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { Link2 } from 'lucide-react';
 import { count } from 'drizzle-orm';
-import { AppBadge, AppCard, AppStatusDot } from '@/components/redesign/primitives';
+import { AnimatedCounter, AppBadge, AppCard, AppStatusDot } from '@/components/redesign/primitives';
 import { buttonVariants } from '@/components/ui/button-styles';
 import { db } from '@/lib/db';
 import { productMappings, unitMappings } from '@/lib/db/schema';
@@ -91,7 +91,7 @@ export default async function Home() {
       <AppCard>
         <div className="flex flex-wrap items-center justify-between gap-6">
           <div className="flex items-center gap-2">
-            <AppStatusDot status={status ? 'success' : 'warning'} />
+            <AppStatusDot status={status ? 'success' : 'warning'} pulse={status !== null} />
             <span className="text-sm font-semibold text-text-1">
               {status ? 'Sync healthy' : 'Status unavailable'}
             </span>
@@ -179,7 +179,7 @@ export default async function Home() {
                 href="/history"
                 className={cn(
                   buttonVariants({ variant: 'outline', size: 'sm' }),
-                  'w-full justify-center border-border bg-transparent text-text-2 hover:bg-bg-2 hover:text-text-1',
+                  'w-full justify-center border-white/20 bg-transparent text-text-2 shadow-none hover:border-white/30 hover:bg-white/8 hover:text-text-1',
                 )}
               >
                 View full history →
@@ -242,7 +242,9 @@ function StatCard({
   return (
     <AppCard className="px-5 py-4">
       <p className="text-2xl">{icon}</p>
-      <p className={cn('font-mono text-3xl font-bold leading-tight', valueClass)}>{value}</p>
+      <p className={cn('font-mono text-3xl font-bold leading-tight', valueClass)}>
+        <AnimatedCounter value={value} />
+      </p>
       <p className="mt-1 text-xs text-text-2">{label}</p>
     </AppCard>
   );

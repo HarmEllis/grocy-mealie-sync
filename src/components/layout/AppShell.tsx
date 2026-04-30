@@ -6,16 +6,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeftRight, History, LayoutDashboard, Link2, Moon, Server, Settings2, Sun } from 'lucide-react';
 import { LogoutButton } from '@/components/auth/LogoutButton';
 import { AppVersion } from '@/components/app/AppVersion';
-import { AppBadge, AppButton, AppStatusDot } from '@/components/redesign/primitives';
-import { SearchableSelect } from '@/components/shared/SearchableSelect';
+import { AppButton, AppSelect, AppStatusDot } from '@/components/redesign/primitives';
 import { useThemePreferences } from '@/components/theme/ThemeProvider';
 import { cn } from '@/lib/utils';
 
 interface ShellStatus {
   lastGrocyPoll: string | null;
   lastMealiePoll: string | null;
-  productMappings: number;
-  unitMappings: number;
 }
 
 interface AppShellProps {
@@ -124,10 +121,10 @@ export function AppShell({ children, authEnabled }: AppShellProps) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-bg-0 text-text-1">
-      <aside className="hidden w-[220px] shrink-0 flex-col border-r border-border bg-bg-1 lg:flex">
+      <aside className="hidden w-[220px] shrink-0 flex-col border-r border-border bg-[var(--sidebar-bg)] backdrop-blur-[20px] lg:flex">
         <div className="border-b border-border px-4 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <div className="flex size-8 items-center justify-center rounded-lg bg-[linear-gradient(135deg,var(--accent),var(--accent-hover))] text-primary-foreground shadow-[0_0_16px_var(--accent-glow)]">
               <ArrowLeftRight className="size-4" />
             </div>
             <div className="min-w-0">
@@ -145,15 +142,14 @@ export function AppShell({ children, authEnabled }: AppShellProps) {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  'flex items-center gap-2 rounded-[10px] px-3 py-2 text-sm font-semibold transition-colors',
-                  active ? 'bg-accent-subtle text-primary' : 'text-text-2 hover:bg-bg-2 hover:text-text-1',
+                  'flex items-center gap-2 rounded-[10px] px-3 py-2 text-sm font-semibold transition-all',
+                  active
+                    ? 'bg-accent-subtle text-primary shadow-[inset_3px_0_0_var(--accent)]'
+                    : 'text-text-2 hover:bg-white/8 hover:text-text-1',
                 )}
               >
                 <item.icon className="size-4" />
                 <span>{item.label}</span>
-                {item.href === '/mapping' && status ? (
-                  <AppBadge tone="warning" small className="ml-auto">{status.productMappings}</AppBadge>
-                ) : null}
               </Link>
             );
           })}
@@ -165,8 +161,8 @@ export function AppShell({ children, authEnabled }: AppShellProps) {
             className={cn(
               'flex w-full items-center gap-2 rounded-[10px] px-3 py-2 text-sm font-semibold transition-colors',
               navActive(pathname, '/api-endpoints')
-                ? 'bg-accent-subtle text-primary'
-                : 'text-text-2 hover:bg-bg-2 hover:text-text-1',
+                ? 'bg-accent-subtle text-primary shadow-[inset_3px_0_0_var(--accent)]'
+                : 'text-text-2 hover:bg-white/8 hover:text-text-1',
             )}
           >
             <Server className="size-4" />
@@ -184,13 +180,13 @@ export function AppShell({ children, authEnabled }: AppShellProps) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex h-[52px] shrink-0 items-center justify-between border-b border-border bg-bg-1 px-3 lg:px-6">
+        <header className="flex h-[52px] shrink-0 items-center justify-between border-b border-border bg-[var(--topbar-bg)] px-3 backdrop-blur-[20px] lg:px-6">
           <div className="flex items-center gap-2">
             <h1 className="text-sm font-bold lg:text-base">{pageTitle(pathname)}</h1>
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="hidden items-center gap-2 rounded-lg border border-border bg-bg-2 px-2 py-1 lg:flex">
+            <div className="hidden items-center gap-2 rounded-lg border border-border bg-white/6 px-2 py-1 lg:flex">
               <AppButton
                 size="icon-xs"
                 variant={theme === 'dark' ? 'default' : 'ghost'}
@@ -211,28 +207,29 @@ export function AppShell({ children, authEnabled }: AppShellProps) {
               >
                 <Sun className="size-3" />
               </AppButton>
-              <SearchableSelect
-                options={ACCENT_OPTIONS}
+              <AppSelect
                 value={accent}
-                onChange={value => {
+                onChange={event => {
+                  const value = event.target.value;
                   if (value === 'teal' || value === 'violet' || value === 'amber') {
                     setAccent(value);
                   }
                 }}
-                placeholder="Accent"
-                searchPlaceholder="Search accent..."
-                clearable={false}
                 className="w-[110px]"
-              />
+              >
+                {ACCENT_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </AppSelect>
             </div>
             {authEnabled ? <LogoutButton /> : null}
           </div>
         </header>
 
-        <main className="main-content flex-1 overflow-auto bg-bg-0 px-3 py-4 lg:px-6 lg:py-6">{children}</main>
+        <main className="main-content page-enter flex-1 overflow-auto bg-transparent px-3 py-4 lg:px-6 lg:py-6">{children}</main>
       </div>
 
-      <nav className="bottom-nav fixed inset-x-0 bottom-0 z-50 flex border-t border-border bg-bg-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 lg:hidden">
+      <nav className="bottom-nav fixed inset-x-0 bottom-0 z-50 flex border-t border-border bg-[var(--sidebar-bg)] pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-[20px] lg:hidden">
         {NAV_ITEMS.map(item => {
           const active = navActive(pathname, item.href);
           return (

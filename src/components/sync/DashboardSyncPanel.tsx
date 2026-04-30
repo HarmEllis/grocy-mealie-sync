@@ -1,10 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { openMappingWizard } from '@/components/mapping-wizard/events';
 import { AppButton } from '@/components/redesign/primitives';
+import { cn } from '@/lib/utils';
 import { getPartialToastConfig, hasSyncActionError, type SyncActionResponse } from './toast';
 
 const FULL_SYNC_STEPS = [
@@ -47,6 +48,13 @@ const STEP_ACTIONS = [
     subtitle: 'Remove checked items',
     endpoint: '/api/sync/shopping-cleanup',
   },
+] as const;
+
+const STEP_TRACKER = [
+  { id: 'products', icon: '📦', endpoints: ['/api/sync/products'] },
+  { id: 'ensure', icon: '✅', endpoints: ['/api/sync/grocy-to-mealie', '/api/sync/grocy-to-mealie/ensure'] },
+  { id: 'reconcile', icon: '🔄', endpoints: ['/api/sync/grocy-to-mealie/in-possession', '/api/sync/mealie-to-grocy'] },
+  { id: 'cleanup', icon: '🧹', endpoints: ['/api/sync/shopping-cleanup'] },
 ] as const;
 
 const UI_SYNC_TRIGGER_HEADERS = {
@@ -101,6 +109,8 @@ async function runSyncRequest(endpoint: string, label: string): Promise<boolean>
 
 export function DashboardSyncPanel() {
   const [runningKey, setRunningKey] = useState<string | null>(null);
+  const [activeStep, setActiveStep] = useState<string | null>(null);
+  const [completedSteps, setCompletedSteps] = useState<string[]>([]);
 
   async function runFullSync() {
     if (runningKey) {
@@ -108,10 +118,16 @@ export function DashboardSyncPanel() {
     }
 
     setRunningKey('full-sync');
+    setCompletedSteps([]);
+    setActiveStep(null);
 
     try {
       for (const endpoint of FULL_SYNC_STEPS) {
+        setActiveStep(endpoint);
         const ok = await runSyncRequest(endpoint, 'Full sync');
+        if (ok) {
+          setCompletedSteps(prev => (prev.includes(endpoint) ? prev : [...prev, endpoint]));
+        }
         if (!ok) {
           break;
         }
@@ -120,6 +136,7 @@ export function DashboardSyncPanel() {
       toast.error('Full sync failed', { description: 'Network request failed' });
     } finally {
       setRunningKey(null);
+      setActiveStep(null);
     }
   }
 
@@ -129,32 +146,85 @@ export function DashboardSyncPanel() {
     }
 
     setRunningKey(endpoint);
+    setCompletedSteps([]);
+    setActiveStep(endpoint);
 
     try {
-      await runSyncRequest(endpoint, label);
+      const ok = await runSyncRequest(endpoint, label);
+      if (ok) {
+        setCompletedSteps([endpoint]);
+      }
     } catch {
       toast.error(`${label} failed`, { description: 'Network request failed' });
     } finally {
       setRunningKey(null);
+      setActiveStep(null);
     }
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3.5">
       <AppButton
-        className="h-11 w-full justify-center gap-2 text-sm"
+        className={cn(
+          'h-11 w-full justify-center gap-2 text-sm',
+          'bg-primary text-primary-foreground hover:bg-primary/95 hover:shadow-[0_0_24px_var(--accent-glow),0_4px_16px_color-mix(in_oklab,var(--accent)_30%,transparent)]',
+        )}
         onClick={() => { void runFullSync(); }}
         disabled={runningKey !== null}
       >
         {runningKey === 'full-sync' ? (
           <Loader2 className="size-4 animate-spin" />
         ) : (
-          <span className="text-base leading-none">▶</span>
+          <Play className="size-4 fill-current stroke-1" />
         )}
         {runningKey === 'full-sync' ? 'Running...' : 'Full sync'}
       </AppButton>
 
-      <div className="border-t border-border" />
+      {(runningKey !== null || completedSteps.length > 0) ? (
+        <div className="space-y-1">
+          <div className="flex items-center gap-1">
+            {STEP_TRACKER.map((step, index) => {
+              const isDone = step.endpoints.every(endpoint => completedSteps.includes(endpoint));
+              const isActive = activeStep !== null && step.endpoints.some(endpoint => endpoint === activeStep);
+
+              return (
+                <div key={step.id} className="flex flex-1 items-center gap-1">
+                  <span
+                    className={cn(
+                      'h-1 flex-1 rounded-full transition-all',
+                      isDone
+                        ? 'bg-primary shadow-[0_0_8px_var(--accent-glow)]'
+                        : isActive
+                          ? 'bg-primary/40'
+                          : 'bg-white/8',
+                    )}
+                  />
+                  {index < STEP_TRACKER.length - 1 ? <span className="w-1" /> : null}
+                </div>
+              );
+            })}
+          </div>
+          <div className="grid grid-cols-4 gap-1">
+            {STEP_TRACKER.map(step => {
+              const isDone = completedSteps.includes(step.id);
+              const isActive = activeStep === step.id;
+              return (
+                <span
+                  key={`${step.id}-label`}
+                  className={cn(
+                    'text-center text-[10px]',
+                    isDone ? 'text-primary' : isActive ? 'text-text-1' : 'text-text-3',
+                  )}
+                >
+                  {isDone ? '✓' : isActive ? '⟳' : '·'} {step.icon}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="border-t border-white/10" />
 
       <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
         {STEP_ACTIONS.map(action => {
@@ -164,7 +234,11 @@ export function DashboardSyncPanel() {
             <AppButton
               key={action.endpoint}
               variant="outline"
-              className="h-auto items-start justify-start rounded-lg border-border bg-bg-2 px-3 py-2 text-left hover:bg-bg-3/60"
+              className={cn(
+                'h-auto cursor-pointer items-start justify-start rounded-lg border-white/10 bg-white/4 px-3 py-2 text-left',
+                'hover:-translate-y-0.5 hover:bg-white/10',
+                isRunning && 'border-primary/40 bg-primary/10',
+              )}
               onClick={() => { void runSingleSync(action.endpoint, action.label); }}
               disabled={runningKey !== null}
             >
