@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { AppCard } from '@/components/redesign/primitives';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { buttonVariants } from '@/components/ui/button-styles';
 import { config } from '@/lib/config';
@@ -66,147 +66,147 @@ export default async function HistoryDetailPage({ params }: HistoryDetailPagePro
   const schedulerSteps = getSchedulerSteps(details.run.summary);
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-6">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-semibold">{formatHistoryActionLabel(details.run.action)}</h1>
-            <p className="text-sm text-muted-foreground">{details.run.id}</p>
-          </div>
-          <Link href="/history" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-            <ArrowLeft className="size-4" />
-            Back to History
-          </Link>
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-extrabold tracking-tight text-text-1">{formatHistoryActionLabel(details.run.action)}</h1>
+          <p className="mt-1 font-mono text-xs text-text-3">{details.run.id}</p>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Run Summary</CardTitle>
-            <CardDescription>{details.run.message ?? 'No summary message recorded.'}</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-1">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Action</p>
-              <p className="text-sm font-medium">{formatHistoryActionLabel(details.run.action)}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Trigger</p>
-              <p className="text-sm font-medium">{formatHistoryTriggerLabel(details.run.trigger)}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Status</p>
-              <HistoryStatusBadge status={details.run.status} />
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Duration</p>
-              <p className="text-sm font-medium">{formatDurationMs(durationMs)}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Started</p>
-              <p className="text-sm font-medium">{formatDateTime(details.run.startedAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Finished</p>
-              <p className="text-sm font-medium">{formatDateTime(details.run.finishedAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {schedulerSteps.length > 0 ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Scheduler Steps</CardTitle>
-              <CardDescription>Per-step result for this scheduler cycle.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Step</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Error</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {schedulerSteps.map(step => (
-                    <TableRow key={step.name}>
-                      <TableCell>{formatSchedulerStepNameLabel(step.name)}</TableCell>
-                      <TableCell><HistoryStatusBadge status={step.status} /></TableCell>
-                      <TableCell className="max-w-md whitespace-normal text-sm text-muted-foreground">
-                        {step.error ?? 'No error'}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        ) : null}
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Summary Data</CardTitle>
-            <CardDescription>Stored run payload for auditing and debugging.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <details className="rounded-md border bg-muted/30 p-2">
-              <summary className="cursor-pointer text-xs font-medium">View summary payload</summary>
-              <div className="mt-2">
-                <JsonBlock value={details.run.summary} />
-              </div>
-            </details>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Events</CardTitle>
-            <CardDescription>
-              {visibleEvents.length} event{visibleEvents.length === 1 ? '' : 's'} shown for this run
-              {hiddenEventCount > 0 ? ` (${hiddenEventCount} generic step entr${hiddenEventCount === 1 ? 'y' : 'ies'} hidden).` : '.'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {visibleEvents.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No detail events were recorded for this run.</p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Time</TableHead>
-                    <TableHead>Level</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Message</TableHead>
-                    <TableHead>Details</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {visibleEvents.map(event => (
-                    <TableRow key={event.id}>
-                      <TableCell>{formatDateTime(event.createdAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}</TableCell>
-                      <TableCell className="uppercase text-xs text-muted-foreground">{event.level}</TableCell>
-                      <TableCell>{event.category}</TableCell>
-                      <TableCell className="max-w-md whitespace-normal">{normalizeHistoryEventMessage(event.message)}</TableCell>
-                      <TableCell className="max-w-md whitespace-normal">
-                        {event.details === null ? (
-                          <span className="text-xs text-muted-foreground">No details</span>
-                        ) : (
-                          <details className="rounded-md border bg-muted/30 p-2">
-                            <summary className="cursor-pointer text-xs font-medium">View payload</summary>
-                            <div className="mt-2">
-                              <JsonBlock value={event.details} />
-                            </div>
-                          </details>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+        <Link href="/history" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+          <ArrowLeft className="size-4" />
+          Back to history
+        </Link>
       </div>
+
+      <AppCard>
+        <h2 className="text-base font-bold tracking-tight">Run summary</h2>
+        <p className="mt-1 text-sm text-text-2">{details.run.message ?? 'No summary message recorded.'}</p>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <SummaryItem label="Action" value={formatHistoryActionLabel(details.run.action)} />
+          <SummaryItem label="Trigger" value={formatHistoryTriggerLabel(details.run.trigger)} />
+          <SummaryItem label="Status" value={<HistoryStatusBadge status={details.run.status} />} />
+          <SummaryItem label="Duration" value={formatDurationMs(durationMs)} mono />
+          <SummaryItem
+            label="Started"
+            value={formatDateTime(details.run.startedAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}
+            mono
+          />
+          <SummaryItem
+            label="Finished"
+            value={formatDateTime(details.run.finishedAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}
+            mono
+          />
+        </div>
+      </AppCard>
+
+      {schedulerSteps.length > 0 ? (
+        <AppCard className="overflow-hidden p-0">
+          <div className="border-b border-border px-4 py-3">
+            <h2 className="text-base font-bold tracking-tight">Scheduler steps</h2>
+            <p className="text-sm text-text-2">Per-step result for this scheduler cycle.</p>
+          </div>
+
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Step</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Error</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {schedulerSteps.map(step => (
+                <TableRow key={step.name}>
+                  <TableCell className="font-semibold">{formatSchedulerStepNameLabel(step.name)}</TableCell>
+                  <TableCell><HistoryStatusBadge status={step.status} /></TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{step.error ?? 'No error'}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </AppCard>
+      ) : null}
+
+      <AppCard>
+        <h2 className="text-base font-bold tracking-tight">Summary data</h2>
+        <p className="mt-1 text-sm text-text-2">Stored run payload for auditing and debugging.</p>
+
+        <details className="mt-3 rounded-md border border-border bg-bg-2 p-2">
+          <summary className="cursor-pointer text-xs font-semibold">View summary payload</summary>
+          <div className="mt-2">
+            <JsonBlock value={details.run.summary} />
+          </div>
+        </details>
+      </AppCard>
+
+      <AppCard className="overflow-hidden p-0">
+        <div className="border-b border-border px-4 py-3">
+          <h2 className="text-base font-bold tracking-tight">Events</h2>
+          <p className="text-sm text-text-2">
+            {visibleEvents.length} event{visibleEvents.length === 1 ? '' : 's'} shown
+            {hiddenEventCount > 0 ? ` (${hiddenEventCount} generic step entries hidden)` : ''}.
+          </p>
+        </div>
+
+        {visibleEvents.length === 0 ? (
+          <p className="px-4 py-6 text-sm text-muted-foreground">No detail events were recorded for this run.</p>
+        ) : (
+          <Table className="min-w-[1040px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Time</TableHead>
+                <TableHead>Level</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Message</TableHead>
+                <TableHead>Details</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visibleEvents.map(event => (
+                <TableRow key={event.id}>
+                  <TableCell className="font-mono text-xs text-text-2">
+                    {formatDateTime(event.createdAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}
+                  </TableCell>
+                  <TableCell className="uppercase text-xs text-muted-foreground">{event.level}</TableCell>
+                  <TableCell>{event.category}</TableCell>
+                  <TableCell className="max-w-md whitespace-normal">{normalizeHistoryEventMessage(event.message)}</TableCell>
+                  <TableCell className="max-w-md whitespace-normal">
+                    {event.details === null ? (
+                      <span className="text-xs text-muted-foreground">No details</span>
+                    ) : (
+                      <details className="rounded-md border border-border bg-bg-2 p-2">
+                        <summary className="cursor-pointer text-xs font-semibold">View payload</summary>
+                        <div className="mt-2">
+                          <JsonBlock value={event.details} />
+                        </div>
+                      </details>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </AppCard>
+    </div>
+  );
+}
+
+function SummaryItem({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: React.ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <div>
+      <p className="text-[11px] font-bold tracking-[0.06em] text-text-3 uppercase">{label}</p>
+      <div className={mono ? 'mt-1 font-mono text-sm text-text-1' : 'mt-1 text-sm font-semibold text-text-1'}>{value}</div>
     </div>
   );
 }

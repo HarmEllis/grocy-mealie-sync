@@ -254,10 +254,9 @@ async function main() {
 
       await configureRoutes(page);
 
-      await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
+      await page.goto(`${targetUrl}/mapping`, { waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(3_000);
 
-      await page.getByRole('button', { name: 'Mapping Wizard' }).click();
       await page.getByRole('tab', { name: 'Mapped Products' }).click();
 
       const row = page.locator('tr', { hasText: 'Milk' }).first();

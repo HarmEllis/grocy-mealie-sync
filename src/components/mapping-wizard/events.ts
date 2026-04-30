@@ -11,5 +11,12 @@ export function openMappingWizard(detail: OpenMappingWizardDetail = {}): void {
     return;
   }
 
-  window.dispatchEvent(new CustomEvent<OpenMappingWizardDetail>(OPEN_MAPPING_WIZARD_EVENT, { detail }));
+  const params = new URLSearchParams();
+  if (detail.tab) {
+    params.set('tab', detail.tab);
+  }
+
+  const query = params.toString();
+  const target = query ? `/mapping?${query}` : '/mapping';
+  window.location.assign(target);
 }

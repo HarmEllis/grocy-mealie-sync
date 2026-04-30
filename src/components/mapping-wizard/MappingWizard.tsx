@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Wand2, Loader2, Link, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Loader2, Link, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
@@ -46,7 +46,6 @@ import {
   mergeUnitMaps,
   type WizardTab,
 } from './state';
-import { OPEN_MAPPING_WIZARD_EVENT } from './events';
 import { applyBulkSuggestions, isSuggestionTargetAvailable } from './suggestion-actions';
 
 interface FetchTabDataOptions {
@@ -97,11 +96,11 @@ const INITIAL_DIRTY_TABS: Record<WizardTab, boolean> = {
 interface MappingWizardProps {
   timeZone: string | null;
   timeZoneLocale: string | null;
+  initialTab?: WizardTab;
 }
 
-export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) {
-  const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<WizardTab>('units');
+export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }: MappingWizardProps) {
+  const [tab, setTab] = useState<WizardTab>(initialTab);
   const [unitsData, setUnitsData] = useState<UnitsTabData | null>(null);
   const [productsData, setProductsData] = useState<ProductsTabData | null>(null);
   const [grocyMinStockData, setGrocyMinStockData] = useState<GrocyMinStockTabData | null>(null);
@@ -159,21 +158,6 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
   useEffect(() => {
     return () => {
       if (messageTimeoutRef.current) clearTimeout(messageTimeoutRef.current);
-    };
-  }, []);
-
-  useEffect(() => {
-    const handleOpenMappingWizard = (event: Event) => {
-      const customEvent = event as CustomEvent<{ tab?: WizardTab }>;
-      const targetTab = customEvent.detail?.tab ?? 'units';
-
-      setTab(targetTab);
-      setOpen(true);
-    };
-
-    window.addEventListener(OPEN_MAPPING_WIZARD_EVENT, handleOpenMappingWizard);
-    return () => {
-      window.removeEventListener(OPEN_MAPPING_WIZARD_EVENT, handleOpenMappingWizard);
     };
   }, []);
 
@@ -305,12 +289,12 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
   }, [fetchTabData]);
 
   useEffect(() => {
-    if (!open) {
-      return;
-    }
-
     void ensureTabDataLoaded(tab);
-  }, [open, tab, ensureTabDataLoaded]);
+  }, [tab, ensureTabDataLoaded]);
+
+  useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab]);
 
   function markOtherLoadedTabsDirty(activeTab: WizardTab) {
     setDirtyTabs(prev => ({
@@ -1547,84 +1531,70 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
 
   return (
     <>
-      <Button onClick={() => setOpen(true)} className={open ? 'opacity-70' : ''}>
-        <Wand2 className="size-4" />
-        {open ? 'Mapping Wizard (Open)' : 'Mapping Wizard'}
-      </Button>
-
-      <Dialog open={open} onOpenChange={value => { if (!value && !isRunning) setOpen(false); }}>
-        <DialogContent className="flex h-[85vh] max-h-[85vh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden sm:max-w-7xl">
-          <DialogHeader>
-            <DialogTitle>Mapping Wizard</DialogTitle>
-            <DialogDescription>
-              Map Mealie items to existing Grocy items, or create new ones. Start with units, then products.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <Tabs className="flex min-h-0 min-w-0 flex-1" value={tab} onValueChange={value => setTab(value as WizardTab)}>
-              <div className="-mx-1 overflow-x-auto pb-1">
-                <TabsList variant="line" className="min-w-max px-1">
-                  <TabsTrigger value="units">
-                    Units{unitsData ? ` (${unitsData.unmappedMealieUnits.length} unmapped)` : ''}
-                  </TabsTrigger>
-                  <TabsTrigger value="products">
-                    Products{productsData ? ` (${productsData.unmappedMealieFoods.length} unmapped)` : ''}
-                  </TabsTrigger>
-                  <TabsTrigger value="grocy-min-stock">
-                    Grocy Min Stock{grocyMinStockData ? ` (${grocyMinStockData.unmappedGrocyMinStockProducts.length} unmapped)` : ''}
-                  </TabsTrigger>
-                  <TabsTrigger value="mapped-products">
-                    Mapped Products{mappedProductsData ? ` (${mappedProductsData.mappedProducts.length})` : ''}
-                  </TabsTrigger>
-                  <TabsTrigger value="conflicts">
-                    Conflicts{conflictsData ? ` (${conflictsData.conflicts.length} open)` : ''}
-                  </TabsTrigger>
-                </TabsList>
-              </div>
-
-              <TabsContent value={tab} className="mt-4 flex min-h-0 min-w-0 flex-1">
-                {renderCurrentTab()}
-              </TabsContent>
-            </Tabs>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <Tabs className="flex min-h-0 min-w-0 flex-1" value={tab} onValueChange={value => setTab(value as WizardTab)}>
+          <div className="-mx-2 overflow-x-auto border-b border-border px-2 pb-0.5">
+            <TabsList variant="line" className="min-w-max gap-0 bg-transparent p-0">
+              <TabsTrigger value="units" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary">
+                Units{unitsData ? ` (${unitsData.unmappedMealieUnits.length} unmapped)` : ''}
+              </TabsTrigger>
+              <TabsTrigger value="products" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary">
+                Products{productsData ? ` (${productsData.unmappedMealieFoods.length} unmapped)` : ''}
+              </TabsTrigger>
+              <TabsTrigger value="grocy-min-stock" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary">
+                Grocy Min Stock{grocyMinStockData ? ` (${grocyMinStockData.unmappedGrocyMinStockProducts.length} unmapped)` : ''}
+              </TabsTrigger>
+              <TabsTrigger value="mapped-products" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary">
+                Mapped Products{mappedProductsData ? ` (${mappedProductsData.mappedProducts.length})` : ''}
+              </TabsTrigger>
+              <TabsTrigger value="conflicts" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary">
+                Conflicts{conflictsData ? ` (${conflictsData.conflicts.length} open)` : ''}
+              </TabsTrigger>
+            </TabsList>
           </div>
 
-          <WizardFooter
-            tab={tab}
-            tabLabel={currentTabLabel}
-            actionRunning={actionRunning}
-            currentTabLoading={currentTabLoading}
-            unitMappedCount={unitsData ? getPendingUnitMappings(unitsData, unitMaps).length : 0}
-            checkedUnitCount={unmappedUnitIds.filter(id => createUnitChecked[id]).length}
-            orphanUnitCount={unitsData?.orphanGrocyUnitCount ?? 0}
-            productMappedCount={Object.values(productMaps).filter(mapping => mapping.grocyProductId !== null).length}
-            checkedProductCount={unmappedProductIds.filter(id => createProductChecked[id]).length}
-            orphanProductCount={productsData?.orphanGrocyProductCount ?? 0}
-            grocyMinStockProductMappedCount={Object.values(grocyMinStockProductMaps).filter(mapping => mapping.mealieFoodId !== null).length}
-            checkedGrocyMinStockProductCount={unmappedGrocyMinStockProductIds.filter(id => createMealieProductChecked[id]).length}
-            defaultCreateUnitId={defaultCreateUnitId}
-            onRefreshTab={() => { void refreshTab(tab); }}
-            onSyncUnits={syncUnits}
-            onCreateUnits={createUnmappedUnits}
-            onDeleteOrphanUnits={handleDeleteOrphanUnits}
-            onSyncProducts={syncProducts}
-            onCreateProducts={createUnmappedProducts}
-            onDeleteOrphanProducts={handleDeleteOrphanProducts}
-            onSyncGrocyMinStockProducts={syncGrocyMinStockProducts}
-            onCreateMealieProducts={createMealieProductsFromGrocy}
-          />
+          <TabsContent value={tab} className="mt-4 flex min-h-0 min-w-0 flex-1">
+            {renderCurrentTab()}
+          </TabsContent>
+        </Tabs>
+      </div>
 
-          <ConfirmDialog
-            open={confirmAction !== null}
-            onClose={closeConfirm}
-            onConfirm={() => confirmCallback?.()}
-            title={confirmTitle}
-            description={confirmDescription}
-            itemNames={confirmItemNames}
-            running={isRunning}
-          />
-        </DialogContent>
-      </Dialog>
+      <div className="sticky bottom-0 z-20 mt-4 border-t border-border bg-bg-0/95 pb-1 pt-2 backdrop-blur">
+        <WizardFooter
+          tab={tab}
+          tabLabel={currentTabLabel}
+          actionRunning={actionRunning}
+          currentTabLoading={currentTabLoading}
+          unitMappedCount={unitsData ? getPendingUnitMappings(unitsData, unitMaps).length : 0}
+          checkedUnitCount={unmappedUnitIds.filter(id => createUnitChecked[id]).length}
+          orphanUnitCount={unitsData?.orphanGrocyUnitCount ?? 0}
+          productMappedCount={Object.values(productMaps).filter(mapping => mapping.grocyProductId !== null).length}
+          checkedProductCount={unmappedProductIds.filter(id => createProductChecked[id]).length}
+          orphanProductCount={productsData?.orphanGrocyProductCount ?? 0}
+          grocyMinStockProductMappedCount={Object.values(grocyMinStockProductMaps).filter(mapping => mapping.mealieFoodId !== null).length}
+          checkedGrocyMinStockProductCount={unmappedGrocyMinStockProductIds.filter(id => createMealieProductChecked[id]).length}
+          defaultCreateUnitId={defaultCreateUnitId}
+          onRefreshTab={() => { void refreshTab(tab); }}
+          onSyncUnits={syncUnits}
+          onCreateUnits={createUnmappedUnits}
+          onDeleteOrphanUnits={handleDeleteOrphanUnits}
+          onSyncProducts={syncProducts}
+          onCreateProducts={createUnmappedProducts}
+          onDeleteOrphanProducts={handleDeleteOrphanProducts}
+          onSyncGrocyMinStockProducts={syncGrocyMinStockProducts}
+          onCreateMealieProducts={createMealieProductsFromGrocy}
+        />
+      </div>
+
+      <ConfirmDialog
+        open={confirmAction !== null}
+        onClose={closeConfirm}
+        onConfirm={() => confirmCallback?.()}
+        title={confirmTitle}
+        description={confirmDescription}
+        itemNames={confirmItemNames}
+        running={isRunning}
+      />
 
       <Dialog
         open={remapConflict !== null}
@@ -1885,7 +1855,7 @@ function WizardFooter({
   }
 
   return (
-    <DialogFooter className="flex-row flex-wrap items-center justify-between gap-2 sm:justify-between">
+    <div className="flex flex-row flex-wrap items-center justify-between gap-2">
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
         {actions}
       </div>
@@ -1901,6 +1871,6 @@ function WizardFooter({
         {currentTabLoading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
         {currentTabLoading ? `Refreshing ${tabLabel}...` : `Refresh ${tabLabel}`}
       </Button>
-    </DialogFooter>
+    </div>
   );
 }

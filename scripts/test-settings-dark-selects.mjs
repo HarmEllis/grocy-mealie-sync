@@ -244,13 +244,13 @@ async function main() {
       const { getLastPutBody } = await configureRoutes(page);
 
       await page.addInitScript(() => {
-        window.localStorage.setItem('theme', 'dark');
+        window.localStorage.setItem('gms:theme', 'dark');
       });
 
-      await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
+      await page.goto(`${targetUrl}/settings`, { waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(3_000);
 
-      const nativeSelects = page.locator('select[data-slot="native-select"]');
+      const nativeSelects = page.locator('main select[data-slot="native-select"]');
       if (await nativeSelects.count() !== 0) {
         throw new Error('Expected the settings page to use custom dark-mode-safe selectors, but native selects are still rendered.');
       }

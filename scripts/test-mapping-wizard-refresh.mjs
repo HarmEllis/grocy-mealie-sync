@@ -361,7 +361,7 @@ async function openTab(page, tabName, endpointPath) {
 }
 
 async function refreshCurrentTab(page, buttonName, endpointPath, getCount, expectedCount) {
-  const refreshButton = page.locator('[data-slot="dialog-footer"]').first().getByRole('button', { name: buttonName });
+  const refreshButton = page.getByRole('button', { name: buttonName });
   await refreshButton.waitFor();
 
   await Promise.all([
@@ -394,12 +394,9 @@ async function main() {
 
       const requestCounts = await configureRoutes(page);
 
-      await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(3_000);
-
       await Promise.all([
         waitForGet(page, '/api/mapping-wizard/data?tab=units'),
-        page.getByRole('button', { name: 'Mapping Wizard' }).click(),
+        page.goto(`${targetUrl}/mapping`, { waitUntil: 'domcontentloaded' }),
       ]);
 
       await refreshCurrentTab(
