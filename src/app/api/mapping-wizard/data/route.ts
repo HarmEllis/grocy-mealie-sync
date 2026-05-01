@@ -303,6 +303,30 @@ function buildUnmappedGrocyMinStockProducts(
     }));
 }
 
+function buildGrocyMinStockCoverage(
+  grocyProducts: GrocyProduct[],
+  existingProductMappings: ProductMappingRow[],
+): {
+  totalMinStockProducts: number;
+  mappedMinStockProducts: number;
+} {
+  const minStockProductIds = new Set(
+    grocyProducts
+      .filter(product => product.minStockAmount > 0)
+      .map(product => product.id),
+  );
+  const mappedMinStockProductIds = new Set(
+    existingProductMappings
+      .map(mapping => mapping.grocyProductId)
+      .filter(grocyProductId => minStockProductIds.has(grocyProductId)),
+  );
+
+  return {
+    totalMinStockProducts: minStockProductIds.size,
+    mappedMinStockProducts: mappedMinStockProductIds.size,
+  };
+}
+
 function buildLowStockGrocyProductSuggestions(
   unmappedGrocyMinStockProducts: GrocyMinStockProduct[],
   unmappedMealieFoods: SuggestibleMealieFood[],
@@ -431,9 +455,17 @@ async function loadGrocyMinStockTabData(): Promise<GrocyMinStockTabData> {
     stockByProductId,
     missingProductIds,
   );
+  const { totalMinStockProducts, mappedMinStockProducts } = buildGrocyMinStockCoverage(
+    grocyProducts,
+    existingProductMappings,
+  );
+  const urgentUnmappedMinStockProducts = unmappedGrocyMinStockProducts.filter(product => product.isBelowMinimum).length;
 
   return {
     minStockStep,
+    totalMinStockProducts,
+    mappedMinStockProducts,
+    urgentUnmappedMinStockProducts,
     unmappedMealieFoods: toPublicMealieFoods(unmappedMealieFoods),
     grocyUnits: toPublicGrocyUnits(grocyUnits),
     unmappedGrocyMinStockProducts,

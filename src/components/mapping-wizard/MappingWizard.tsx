@@ -1392,24 +1392,36 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
           ? mappedProductsData
           : conflictsData;
   const isRunning = !!actionRunning;
+  const minStockTotal = grocyMinStockData?.totalMinStockProducts
+    ?? grocyMinStockData?.unmappedGrocyMinStockProducts.length
+    ?? 0;
+  const minStockMapped = grocyMinStockData?.mappedMinStockProducts ?? 0;
+  const minStockRemaining = Math.max(0, minStockTotal - minStockMapped);
+  const minStockUrgentUnmapped = grocyMinStockData?.urgentUnmappedMinStockProducts ?? 0;
   const mappingProgress = [
     {
       key: 'units',
       label: 'Units',
       remaining: unitsData?.unmappedMealieUnits.length ?? 0,
       mapped: Object.values(unitMaps).filter(mapping => mapping.grocyUnitId !== null).length,
+      remainingLabel: 'remaining',
+      urgent: 0,
     },
     {
       key: 'products',
       label: 'Products',
       remaining: productsData?.unmappedMealieFoods.length ?? 0,
       mapped: Object.values(productMaps).filter(mapping => mapping.grocyProductId !== null).length,
+      remainingLabel: 'remaining',
+      urgent: 0,
     },
     {
       key: 'grocy-min-stock',
       label: 'Min Stock',
-      remaining: grocyMinStockData?.unmappedGrocyMinStockProducts.length ?? 0,
-      mapped: Object.values(grocyMinStockProductMaps).filter(mapping => mapping.mealieFoodId !== null).length,
+      remaining: minStockRemaining,
+      mapped: minStockMapped,
+      remainingLabel: 'unmapped',
+      urgent: minStockUrgentUnmapped,
     },
   ] as const;
 
@@ -1685,8 +1697,11 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
                   color={item.remaining > 0 ? '#fbbf24' : '#4ade80'}
                 />
                 <div>
-                  <p className="text-xs font-bold text-text-1">{item.label}</p>
-                  <p className="text-[11px] text-text-3">{item.remaining} remaining</p>
+                  <div className="flex items-center gap-1">
+                    <p className="text-xs font-bold text-text-1">{item.label}</p>
+                    {item.urgent > 0 ? <AppBadge tone="warning" small>{item.urgent} urgent</AppBadge> : null}
+                  </div>
+                  <p className="text-[11px] text-text-3">{item.remaining} {item.remainingLabel}</p>
                 </div>
               </div>
             ))}

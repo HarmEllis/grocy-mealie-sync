@@ -83,6 +83,9 @@ export type GrocyMinStockTabData = Pick<
   'unmappedGrocyMinStockProducts' | 'grocyUnits' | 'unmappedMealieFoods' | 'lowStockGrocyProductSuggestions'
 > & {
   minStockStep: MinStockStep;
+  totalMinStockProducts: number;
+  mappedMinStockProducts: number;
+  urgentUnmappedMinStockProducts: number;
 };
 
 export interface MappedProductRow {
