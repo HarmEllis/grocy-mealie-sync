@@ -16,7 +16,7 @@ const THEME_STORAGE_KEY = 'gms:theme';
 const ACCENT_STORAGE_KEY = 'gms:accent';
 
 const DEFAULT_THEME: ThemeMode = 'dark';
-const DEFAULT_ACCENT: AccentMode = 'teal';
+const DEFAULT_ACCENT: AccentMode = 'amber';
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 

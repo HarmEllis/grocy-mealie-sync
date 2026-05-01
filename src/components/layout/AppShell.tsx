@@ -6,8 +6,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeftRight, History, LayoutDashboard, Link2, Moon, Server, Settings2, Sun } from 'lucide-react';
 import { LogoutButton } from '@/components/auth/LogoutButton';
 import { AppVersion } from '@/components/app/AppVersion';
-import { AppButton, AppSelect, AppStatusDot } from '@/components/redesign/primitives';
-import { useThemePreferences } from '@/components/theme/ThemeProvider';
+import { AppStatusDot } from '@/components/redesign/primitives';
+import { SearchableSelect } from '@/components/shared/SearchableSelect';
+import { type AccentMode, useThemePreferences } from '@/components/theme/ThemeProvider';
 import { cn } from '@/lib/utils';
 
 interface ShellStatus {
@@ -28,9 +29,9 @@ const NAV_ITEMS = [
 ] as const;
 
 const ACCENT_OPTIONS = [
+  { value: 'amber', label: 'Amber' },
   { value: 'teal', label: 'Teal' },
   { value: 'violet', label: 'Violet' },
-  { value: 'amber', label: 'Amber' },
 ] as const;
 
 const STATUS_POLL_MS = 60_000;
@@ -187,40 +188,55 @@ export function AppShell({ children, authEnabled }: AppShellProps) {
 
           <div className="flex items-center gap-2">
             <div className="hidden items-center gap-2 rounded-lg border border-border bg-white/6 px-2 py-1 lg:flex">
-              <AppButton
-                size="icon-xs"
-                variant={theme === 'dark' ? 'default' : 'ghost'}
-                className="size-6"
-                onClick={() => setTheme('dark')}
-                title="Dark theme"
-                aria-label="Dark theme"
-              >
-                <Moon className="size-3" />
-              </AppButton>
-              <AppButton
-                size="icon-xs"
-                variant={theme === 'light' ? 'default' : 'ghost'}
-                className="size-6"
-                onClick={() => setTheme('light')}
-                title="Light theme"
-                aria-label="Light theme"
-              >
-                <Sun className="size-3" />
-              </AppButton>
-              <AppSelect
+              <div className="relative flex items-center rounded-lg border border-border/70 bg-white/5 p-0.5">
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    'pointer-events-none absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded-md bg-primary shadow-[0_0_18px_var(--accent-glow),0_3px_12px_color-mix(in_oklab,var(--accent)_28%,transparent)] transition-transform duration-200',
+                    theme === 'light' ? 'translate-x-full' : 'translate-x-0',
+                  )}
+                />
+                <button
+                  type="button"
+                  onClick={() => setTheme('dark')}
+                  aria-label="Dark theme"
+                  aria-pressed={theme === 'dark'}
+                  title="Dark theme"
+                  className={cn(
+                    'relative z-10 flex h-6 w-12 items-center justify-center gap-1 rounded-md text-[11px] font-semibold transition-colors',
+                    theme === 'dark' ? 'text-primary-foreground' : 'text-text-2 hover:text-text-1',
+                  )}
+                >
+                  <Moon className="size-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTheme('light')}
+                  aria-label="Light theme"
+                  aria-pressed={theme === 'light'}
+                  title="Light theme"
+                  className={cn(
+                    'relative z-10 flex h-6 w-12 items-center justify-center gap-1 rounded-md text-[11px] font-semibold transition-colors',
+                    theme === 'light' ? 'text-primary-foreground' : 'text-text-2 hover:text-text-1',
+                  )}
+                >
+                  <Sun className="size-3" />
+                </button>
+              </div>
+              <SearchableSelect<AccentMode>
                 value={accent}
-                onChange={event => {
-                  const value = event.target.value;
-                  if (value === 'teal' || value === 'violet' || value === 'amber') {
+                onChange={value => {
+                  if (value) {
                     setAccent(value);
                   }
                 }}
-                className="w-[110px]"
-              >
-                {ACCENT_OPTIONS.map(option => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </AppSelect>
+                options={ACCENT_OPTIONS}
+                clearable={false}
+                placeholder="Accent"
+                ariaLabel="Accent color"
+                className="w-[120px]"
+                controlClassName="h-8 border-input bg-input/70 focus-visible:ring-2 focus-visible:ring-ring/60"
+              />
             </div>
             {authEnabled ? <LogoutButton /> : null}
           </div>

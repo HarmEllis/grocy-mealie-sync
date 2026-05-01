@@ -11,7 +11,7 @@ interface Option<T extends string | number> {
 }
 
 interface SearchableSelectProps<T extends string | number> {
-  options: Option<T>[];
+  options: ReadonlyArray<Option<T>>;
   value: T | null;
   onChange: (value: T | null) => void;
   placeholder?: string;

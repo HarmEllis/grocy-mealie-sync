@@ -52,6 +52,7 @@ import { applyBulkSuggestions, isSuggestionTargetAvailable } from './suggestion-
 interface FetchTabDataOptions {
   preserveWizardState?: boolean;
   showLoading?: boolean;
+  suppressErrorToast?: boolean;
 }
 
 const TAB_ENDPOINTS: Record<WizardTab, string> = {
@@ -169,6 +170,7 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
     {
       preserveWizardState = false,
       showLoading = true,
+      suppressErrorToast = false,
   }: FetchTabDataOptions = {},
   ): Promise<UnitsTabData | ProductsTabData | GrocyMinStockTabData | MappedProductsTabData | ConflictsTabData | null> => {
     if (showLoading) {
@@ -250,7 +252,9 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
       return parsedData;
     } catch {
       setTabErrors(prev => ({ ...prev, [targetTab]: 'Failed to load data. Check API connections.' }));
-      toast.error('Failed to load mapping data');
+      if (!suppressErrorToast) {
+        toast.error('Failed to load mapping data');
+      }
       return null;
     } finally {
       if (showLoading) {
@@ -294,6 +298,27 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
   useEffect(() => {
     void ensureTabDataLoaded(tab);
   }, [tab, ensureTabDataLoaded]);
+
+  const prefetchedProgressTabsRef = useRef<Set<WizardTab>>(new Set());
+  useEffect(() => {
+    const progressTabs: WizardTab[] = ['units', 'products', 'grocy-min-stock'];
+    const tabsToPrefetch = progressTabs.filter(targetTab =>
+      targetTab !== tab && !prefetchedProgressTabsRef.current.has(targetTab),
+    );
+
+    if (tabsToPrefetch.length === 0) {
+      return;
+    }
+
+    for (const targetTab of tabsToPrefetch) {
+      prefetchedProgressTabsRef.current.add(targetTab);
+      void fetchTabData(targetTab, {
+        preserveWizardState: false,
+        showLoading: false,
+        suppressErrorToast: true,
+      });
+    }
+  }, [tab, fetchTabData]);
 
   useEffect(() => {
     setTab(initialTab);

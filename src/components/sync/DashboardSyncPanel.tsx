@@ -235,8 +235,8 @@ export function DashboardSyncPanel() {
               key={action.endpoint}
               variant="outline"
               className={cn(
-                'h-auto cursor-pointer items-start justify-start rounded-lg border-white/10 bg-white/4 px-3 py-2 text-left',
-                'hover:-translate-y-0.5 hover:bg-white/10',
+                'h-auto cursor-pointer items-start justify-start rounded-lg border !border-border !bg-bg-2 dark:!bg-bg-2 px-3 py-2 text-left',
+                'hover:bg-bg-3',
                 isRunning && 'border-primary/40 bg-primary/10',
               )}
               onClick={() => { void runSingleSync(action.endpoint, action.label); }}
@@ -245,7 +245,7 @@ export function DashboardSyncPanel() {
               {isRunning ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : null}
               <span className="flex flex-col leading-tight">
                 <span className="text-[13px] font-semibold text-text-1">{action.label}</span>
-                <span className="text-[10px] font-normal text-text-3">{action.subtitle}</span>
+                <span className="text-[10px] font-normal text-text-2">{action.subtitle}</span>
               </span>
             </AppButton>
           );
