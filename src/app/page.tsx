@@ -5,6 +5,8 @@ import { AnimatedCounter, AppBadge, AppCard, AppStatusDot } from '@/components/r
 import { buttonVariants } from '@/components/ui/button-styles';
 import { db } from '@/lib/db';
 import { productMappings, unitMappings } from '@/lib/db/schema';
+import { RecipesFoodsService } from '@/lib/mealie';
+import { extractFoods } from '@/lib/mealie/types';
 import { config } from '@/lib/config';
 import { formatDateTime } from '@/lib/date-time';
 import { cn } from '@/lib/utils';
@@ -22,23 +24,51 @@ interface DashboardStatus {
   mealieTrackedItemsCount: number;
   productMappings: number;
   unitMappings: number;
+  unmappedMealieFoodsCount: number | null;
   nextCleanupRun: string | Date | null;
 }
 
 async function getStatus(): Promise<DashboardStatus | null> {
   try {
-    const state = await getSyncState();
-    const [productCount] = await db.select({ count: count() }).from(productMappings);
-    const [unitCount] = await db.select({ count: count() }).from(unitMappings);
+    const [state, mappings, [unitCount], nextCleanupRun] = await Promise.all([
+      getSyncState(),
+      db.select({
+        mealieFoodId: productMappings.mealieFoodId,
+      }).from(productMappings),
+      db.select({ count: count() }).from(unitMappings),
+      getNextCleanupRun(),
+    ]);
+
+    let unmappedMealieFoodsCount: number | null = null;
+    try {
+      const mealieFoodsRes = await RecipesFoodsService.getAllApiFoodsGet(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        1,
+        10000,
+      );
+      const mappedMealieFoodIds = new Set(mappings.map(mapping => mapping.mealieFoodId));
+      unmappedMealieFoodsCount = extractFoods(mealieFoodsRes)
+        .filter((food): food is typeof food & { id: string } => typeof food.id === 'string' && food.id.length > 0)
+        .filter(food => !mappedMealieFoodIds.has(food.id))
+        .length;
+    } catch {
+      unmappedMealieFoodsCount = null;
+    }
 
     return {
       lastGrocyPoll: state.lastGrocyPoll,
       lastMealiePoll: state.lastMealiePoll,
       grocyBelowMinStockCount: Object.keys(state.grocyBelowMinStock).length,
       mealieTrackedItemsCount: Object.keys(state.mealieCheckedItems).length,
-      productMappings: productCount.count,
+      productMappings: mappings.length,
       unitMappings: unitCount.count,
-      nextCleanupRun: await getNextCleanupRun(),
+      unmappedMealieFoodsCount,
+      nextCleanupRun,
     };
   } catch {
     return null;
@@ -85,6 +115,9 @@ export default async function Home() {
       .filter((value): value is string | Date => Boolean(value))
       .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null
     : null;
+  const unmappedProductsHeadline = status?.unmappedMealieFoodsCount !== null && status?.unmappedMealieFoodsCount !== undefined
+    ? `${status.unmappedMealieFoodsCount} ${status.unmappedMealieFoodsCount === 1 ? 'product' : 'products'} not yet mapped`
+    : 'Review product mappings';
 
   return (
     <div className="space-y-5">
@@ -193,9 +226,7 @@ export default async function Home() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-bold tracking-tight">
-              {(status?.grocyBelowMinStockCount ?? 0) > 0
-                ? `${status?.grocyBelowMinStockCount ?? 0} items currently below minimum stock`
-                : 'Review product mappings'}
+              {unmappedProductsHeadline}
             </h2>
             <p className="mt-1 text-sm text-text-2">
               Open the mapping workspace to review suggestions, resolve conflicts, and keep sync actions clean.
