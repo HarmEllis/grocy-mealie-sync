@@ -27,7 +27,30 @@ let productSyncTimer: ReturnType<typeof setInterval> | null = null;
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 let started = false;
 let schedulerLockHeld = false;
+let startupLockBlocked = false;
 let nextCleanupRun: Date | null = null;
+
+export type SchedulerRuntimeStatus = 'active' | 'passive_startup_lock' | 'inactive';
+
+export interface SchedulerRuntimeState {
+  status: SchedulerRuntimeStatus;
+  started: boolean;
+  schedulerLockHeld: boolean;
+}
+
+declare global {
+  // Shared process-wide runtime marker for UI/API status, independent of module instance boundaries.
+  // eslint-disable-next-line no-var
+  var __gmsSchedulerRuntimeStatus: SchedulerRuntimeStatus | undefined;
+}
+
+function setSchedulerRuntimeStatus(status: SchedulerRuntimeStatus): void {
+  globalThis.__gmsSchedulerRuntimeStatus = status;
+}
+
+function getSchedulerRuntimeStatus(): SchedulerRuntimeStatus {
+  return globalThis.__gmsSchedulerRuntimeStatus ?? 'inactive';
+}
 
 interface SchedulerStepExecutionResult {
   status?: SchedulerStepStatus;
@@ -195,8 +218,11 @@ async function runSchedulerCycle(
 export function startScheduler(): void {
   if (started) return;
   started = true;
+  startupLockBlocked = false;
 
   if (!acquireSchedulerLock()) {
+    startupLockBlocked = true;
+    setSchedulerRuntimeStatus('passive_startup_lock');
     log.info(
       '[Scheduler] Startup lock already held; remaining passive. If this is stale, clear it via the "Clear Sync Locks" UI action or POST /api/sync/unlock, then restart the app.',
     );
@@ -204,6 +230,8 @@ export function startScheduler(): void {
   }
 
   schedulerLockHeld = true;
+  startupLockBlocked = false;
+  setSchedulerRuntimeStatus('active');
 
   log.info('[Scheduler] Starting sync scheduler');
   log.info(`[Scheduler] Poll interval: ${config.pollIntervalSeconds}s`);
@@ -346,6 +374,8 @@ function startTimers(): void {
 
 export function stopScheduler(): void {
   started = false;
+  startupLockBlocked = false;
+  setSchedulerRuntimeStatus('inactive');
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
@@ -363,6 +393,27 @@ export function stopScheduler(): void {
     schedulerLockHeld = false;
   }
   log.info('[Scheduler] Stopped');
+}
+
+export function getSchedulerRuntimeState(): SchedulerRuntimeState {
+  const globalStatus = getSchedulerRuntimeStatus();
+  if (globalStatus === 'active') {
+    return { status: 'active', started, schedulerLockHeld };
+  }
+
+  if (globalStatus === 'passive_startup_lock') {
+    return { status: 'passive_startup_lock', started, schedulerLockHeld };
+  }
+
+  if (schedulerLockHeld) {
+    return { status: 'active', started, schedulerLockHeld };
+  }
+
+  if (startupLockBlocked) {
+    return { status: 'passive_startup_lock', started, schedulerLockHeld };
+  }
+
+  return { status: 'inactive', started, schedulerLockHeld };
 }
 
 export async function getNextCleanupRun(): Promise<Date | null> {

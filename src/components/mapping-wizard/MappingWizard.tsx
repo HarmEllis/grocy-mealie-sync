@@ -13,10 +13,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Wand2, Loader2, Link, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Loader2, Link, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
+import { AppBadge, AppButton, ProgressRing } from '@/components/redesign/primitives';
 import { ConflictsTab } from './ConflictsTab';
 import { GrocyMinStockProductsTab } from './GrocyMinStockProductsTab';
 import { MappedProductsTab } from './MappedProductsTab';
@@ -46,12 +47,12 @@ import {
   mergeUnitMaps,
   type WizardTab,
 } from './state';
-import { OPEN_MAPPING_WIZARD_EVENT } from './events';
 import { applyBulkSuggestions, isSuggestionTargetAvailable } from './suggestion-actions';
 
 interface FetchTabDataOptions {
   preserveWizardState?: boolean;
   showLoading?: boolean;
+  suppressErrorToast?: boolean;
 }
 
 const TAB_ENDPOINTS: Record<WizardTab, string> = {
@@ -97,11 +98,11 @@ const INITIAL_DIRTY_TABS: Record<WizardTab, boolean> = {
 interface MappingWizardProps {
   timeZone: string | null;
   timeZoneLocale: string | null;
+  initialTab?: WizardTab;
 }
 
-export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) {
-  const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<WizardTab>('units');
+export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }: MappingWizardProps) {
+  const [tab, setTab] = useState<WizardTab>(initialTab);
   const [unitsData, setUnitsData] = useState<UnitsTabData | null>(null);
   const [productsData, setProductsData] = useState<ProductsTabData | null>(null);
   const [grocyMinStockData, setGrocyMinStockData] = useState<GrocyMinStockTabData | null>(null);
@@ -118,6 +119,8 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
   const [unitFilter, setUnitFilter] = useState<'unmapped' | 'mapped' | 'all'>('unmapped');
   const [showOnlyGrocyMinStockBelowMinimum, setShowOnlyGrocyMinStockBelowMinimum] = useState(false);
   const [showOnlyMappedProductsBelowMinimum, setShowOnlyMappedProductsBelowMinimum] = useState(false);
+  const [dismissedUnitSuggestions, setDismissedUnitSuggestions] = useState<string[]>([]);
+  const [dismissedProductSuggestions, setDismissedProductSuggestions] = useState<string[]>([]);
   const [bulkSuggestionTab, setBulkSuggestionTab] = useState<'units' | 'products' | 'grocy-min-stock' | null>(null);
   const [bulkSuggestionThreshold, setBulkSuggestionThreshold] = useState('90');
   const [remapConflict, setRemapConflict] = useState<MappingConflictRow | null>(null);
@@ -162,26 +165,12 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
     };
   }, []);
 
-  useEffect(() => {
-    const handleOpenMappingWizard = (event: Event) => {
-      const customEvent = event as CustomEvent<{ tab?: WizardTab }>;
-      const targetTab = customEvent.detail?.tab ?? 'units';
-
-      setTab(targetTab);
-      setOpen(true);
-    };
-
-    window.addEventListener(OPEN_MAPPING_WIZARD_EVENT, handleOpenMappingWizard);
-    return () => {
-      window.removeEventListener(OPEN_MAPPING_WIZARD_EVENT, handleOpenMappingWizard);
-    };
-  }, []);
-
   const fetchTabData = useCallback(async (
     targetTab: WizardTab,
     {
       preserveWizardState = false,
       showLoading = true,
+      suppressErrorToast = false,
   }: FetchTabDataOptions = {},
   ): Promise<UnitsTabData | ProductsTabData | GrocyMinStockTabData | MappedProductsTabData | ConflictsTabData | null> => {
     if (showLoading) {
@@ -263,7 +252,9 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
       return parsedData;
     } catch {
       setTabErrors(prev => ({ ...prev, [targetTab]: 'Failed to load data. Check API connections.' }));
-      toast.error('Failed to load mapping data');
+      if (!suppressErrorToast) {
+        toast.error('Failed to load mapping data');
+      }
       return null;
     } finally {
       if (showLoading) {
@@ -305,12 +296,33 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
   }, [fetchTabData]);
 
   useEffect(() => {
-    if (!open) {
+    void ensureTabDataLoaded(tab);
+  }, [tab, ensureTabDataLoaded]);
+
+  const prefetchedProgressTabsRef = useRef<Set<WizardTab>>(new Set());
+  useEffect(() => {
+    const progressTabs: WizardTab[] = ['units', 'products', 'grocy-min-stock'];
+    const tabsToPrefetch = progressTabs.filter(targetTab =>
+      targetTab !== tab && !prefetchedProgressTabsRef.current.has(targetTab),
+    );
+
+    if (tabsToPrefetch.length === 0) {
       return;
     }
 
-    void ensureTabDataLoaded(tab);
-  }, [open, tab, ensureTabDataLoaded]);
+    for (const targetTab of tabsToPrefetch) {
+      prefetchedProgressTabsRef.current.add(targetTab);
+      void fetchTabData(targetTab, {
+        preserveWizardState: false,
+        showLoading: false,
+        suppressErrorToast: true,
+      });
+    }
+  }, [tab, fetchTabData]);
+
+  useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab]);
 
   function markOtherLoadedTabsDirty(activeTab: WizardTab) {
     setDirtyTabs(prev => ({
@@ -602,6 +614,56 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
     [unitMaps],
   );
 
+  const unitBannerSuggestions = useMemo(() => {
+    if (!unitsData) {
+      return [];
+    }
+
+    return unitsData.unmappedMealieUnits
+      .map(unit => ({
+        id: unit.id,
+        mealieLabel: unit.name,
+        suggestion: unitsData.unitSuggestions[unit.id],
+      }))
+      .filter(item =>
+        item.suggestion
+        && item.suggestion.score >= 70
+        && unitMaps[item.id]?.grocyUnitId === null
+        && !dismissedUnitSuggestions.includes(item.id),
+      )
+      .map(item => ({
+        id: item.id,
+        mealieLabel: item.mealieLabel,
+        targetLabel: item.suggestion!.grocyUnitName,
+        score: item.suggestion!.score,
+      }));
+  }, [dismissedUnitSuggestions, unitMaps, unitsData]);
+
+  const productBannerSuggestions = useMemo(() => {
+    if (!productsData) {
+      return [];
+    }
+
+    return productsData.unmappedMealieFoods
+      .map(food => ({
+        id: food.id,
+        mealieLabel: food.name,
+        suggestion: productsData.productSuggestions[food.id],
+      }))
+      .filter(item =>
+        item.suggestion
+        && item.suggestion.score >= 70
+        && productMaps[item.id]?.grocyProductId === null
+        && !dismissedProductSuggestions.includes(item.id),
+      )
+      .map(item => ({
+        id: item.id,
+        mealieLabel: item.mealieLabel,
+        targetLabel: item.suggestion!.grocyProductName,
+        score: item.suggestion!.score,
+      }));
+  }, [dismissedProductSuggestions, productMaps, productsData]);
+
   function acceptProductSuggestion(id: string) {
     const suggestion = productsData?.productSuggestions[id];
     if (!suggestion) {
@@ -630,6 +692,7 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
       delete next[id];
       return next;
     });
+    setDismissedProductSuggestions(prev => [...prev, id]);
   }
 
   function acceptGrocyMinStockProductSuggestion(grocyProductId: number) {
@@ -688,6 +751,49 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
       delete next[id];
       return next;
     });
+    setDismissedUnitSuggestions(prev => [...prev, id]);
+  }
+
+  function dismissUnitSuggestion(id: string) {
+    setDismissedUnitSuggestions(prev => (prev.includes(id) ? prev : [...prev, id]));
+  }
+
+  function dismissAllUnitSuggestions() {
+    setDismissedUnitSuggestions(prev => {
+      const merged = new Set(prev);
+      for (const suggestion of unitBannerSuggestions) {
+        merged.add(suggestion.id);
+      }
+
+      return Array.from(merged);
+    });
+  }
+
+  function acceptAllUnitSuggestions() {
+    for (const suggestion of unitBannerSuggestions) {
+      acceptUnitSuggestion(suggestion.id);
+    }
+  }
+
+  function dismissProductSuggestion(id: string) {
+    setDismissedProductSuggestions(prev => (prev.includes(id) ? prev : [...prev, id]));
+  }
+
+  function dismissAllProductSuggestions() {
+    setDismissedProductSuggestions(prev => {
+      const merged = new Set(prev);
+      for (const suggestion of productBannerSuggestions) {
+        merged.add(suggestion.id);
+      }
+
+      return Array.from(merged);
+    });
+  }
+
+  function acceptAllProductSuggestions() {
+    for (const suggestion of productBannerSuggestions) {
+      acceptProductSuggestion(suggestion.id);
+    }
   }
 
   function applyBulkProductSuggestions(threshold: number) {
@@ -1286,6 +1392,38 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
           ? mappedProductsData
           : conflictsData;
   const isRunning = !!actionRunning;
+  const minStockTotal = grocyMinStockData?.totalMinStockProducts
+    ?? grocyMinStockData?.unmappedGrocyMinStockProducts.length
+    ?? 0;
+  const minStockMapped = grocyMinStockData?.mappedMinStockProducts ?? 0;
+  const minStockRemaining = Math.max(0, minStockTotal - minStockMapped);
+  const minStockUrgentUnmapped = grocyMinStockData?.urgentUnmappedMinStockProducts ?? 0;
+  const mappingProgress = [
+    {
+      key: 'units',
+      label: 'Units',
+      remaining: unitsData?.unmappedMealieUnits.length ?? 0,
+      mapped: Object.values(unitMaps).filter(mapping => mapping.grocyUnitId !== null).length,
+      remainingLabel: 'remaining',
+      urgent: 0,
+    },
+    {
+      key: 'products',
+      label: 'Products',
+      remaining: productsData?.unmappedMealieFoods.length ?? 0,
+      mapped: productsData?.mappedMealieFoods ?? 0,
+      remainingLabel: 'remaining',
+      urgent: 0,
+    },
+    {
+      key: 'grocy-min-stock',
+      label: 'Min Stock',
+      remaining: minStockRemaining,
+      mapped: minStockMapped,
+      remainingLabel: 'unmapped',
+      urgent: minStockUrgentUnmapped,
+    },
+  ] as const;
 
   async function updateGrocyProductMinStock(grocyProductId: number, minStockAmount: number) {
     const res = await fetch('/api/mapping-wizard/products/mapped', {
@@ -1547,84 +1685,144 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
 
   return (
     <>
-      <Button onClick={() => setOpen(true)} className={open ? 'opacity-70' : ''}>
-        <Wand2 className="size-4" />
-        {open ? 'Mapping Wizard (Open)' : 'Mapping Wizard'}
-      </Button>
-
-      <Dialog open={open} onOpenChange={value => { if (!value && !isRunning) setOpen(false); }}>
-        <DialogContent className="flex h-[85vh] max-h-[85vh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden sm:max-w-7xl">
-          <DialogHeader>
-            <DialogTitle>Mapping Wizard</DialogTitle>
-            <DialogDescription>
-              Map Mealie items to existing Grocy items, or create new ones. Start with units, then products.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <Tabs className="flex min-h-0 min-w-0 flex-1" value={tab} onValueChange={value => setTab(value as WizardTab)}>
-              <div className="-mx-1 overflow-x-auto pb-1">
-                <TabsList variant="line" className="min-w-max px-1">
-                  <TabsTrigger value="units">
-                    Units{unitsData ? ` (${unitsData.unmappedMealieUnits.length} unmapped)` : ''}
-                  </TabsTrigger>
-                  <TabsTrigger value="products">
-                    Products{productsData ? ` (${productsData.unmappedMealieFoods.length} unmapped)` : ''}
-                  </TabsTrigger>
-                  <TabsTrigger value="grocy-min-stock">
-                    Grocy Min Stock{grocyMinStockData ? ` (${grocyMinStockData.unmappedGrocyMinStockProducts.length} unmapped)` : ''}
-                  </TabsTrigger>
-                  <TabsTrigger value="mapped-products">
-                    Mapped Products{mappedProductsData ? ` (${mappedProductsData.mappedProducts.length})` : ''}
-                  </TabsTrigger>
-                  <TabsTrigger value="conflicts">
-                    Conflicts{conflictsData ? ` (${conflictsData.conflicts.length} open)` : ''}
-                  </TabsTrigger>
-                </TabsList>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <Tabs className="flex min-h-0 min-w-0 flex-1" value={tab} onValueChange={value => setTab(value as WizardTab)}>
+          <div className="mb-4 flex flex-wrap gap-4">
+            {mappingProgress.map(item => (
+              <div key={item.key} className="flex items-center gap-2">
+                <ProgressRing
+                  value={item.mapped}
+                  max={item.mapped + item.remaining}
+                  size={44}
+                  color={item.remaining > 0 ? '#fbbf24' : '#4ade80'}
+                />
+                <div>
+                  <div className="flex items-center gap-1">
+                    <p className="text-xs font-bold text-text-1">{item.label}</p>
+                    {item.urgent > 0 ? <AppBadge tone="warning" small>{item.urgent} urgent</AppBadge> : null}
+                  </div>
+                  <p className="text-[11px] text-text-3">{item.remaining} {item.remainingLabel}</p>
+                </div>
               </div>
-
-              <TabsContent value={tab} className="mt-4 flex min-h-0 min-w-0 flex-1">
-                {renderCurrentTab()}
-              </TabsContent>
-            </Tabs>
+            ))}
           </div>
 
-          <WizardFooter
-            tab={tab}
-            tabLabel={currentTabLabel}
-            actionRunning={actionRunning}
-            currentTabLoading={currentTabLoading}
-            unitMappedCount={unitsData ? getPendingUnitMappings(unitsData, unitMaps).length : 0}
-            checkedUnitCount={unmappedUnitIds.filter(id => createUnitChecked[id]).length}
-            orphanUnitCount={unitsData?.orphanGrocyUnitCount ?? 0}
-            productMappedCount={Object.values(productMaps).filter(mapping => mapping.grocyProductId !== null).length}
-            checkedProductCount={unmappedProductIds.filter(id => createProductChecked[id]).length}
-            orphanProductCount={productsData?.orphanGrocyProductCount ?? 0}
-            grocyMinStockProductMappedCount={Object.values(grocyMinStockProductMaps).filter(mapping => mapping.mealieFoodId !== null).length}
-            checkedGrocyMinStockProductCount={unmappedGrocyMinStockProductIds.filter(id => createMealieProductChecked[id]).length}
-            defaultCreateUnitId={defaultCreateUnitId}
-            onRefreshTab={() => { void refreshTab(tab); }}
-            onSyncUnits={syncUnits}
-            onCreateUnits={createUnmappedUnits}
-            onDeleteOrphanUnits={handleDeleteOrphanUnits}
-            onSyncProducts={syncProducts}
-            onCreateProducts={createUnmappedProducts}
-            onDeleteOrphanProducts={handleDeleteOrphanProducts}
-            onSyncGrocyMinStockProducts={syncGrocyMinStockProducts}
-            onCreateMealieProducts={createMealieProductsFromGrocy}
-          />
+          <div className="relative">
+            <div className="-mx-2 overflow-x-auto overflow-y-hidden border-b border-border px-2 pb-0.5">
+              <TabsList variant="line" className="h-10 min-w-max gap-0 bg-transparent p-0 md:h-8">
+                <TabsTrigger
+                  value="units"
+                  aria-label="Units"
+                  className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"
+                >
+                  <span>Units</span>
+                  {unitsData ? <span className="hidden sm:inline">{` (${unitsData.unmappedMealieUnits.length} unmapped)`}</span> : null}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="products"
+                  aria-label="Products"
+                  className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"
+                >
+                  <span>Products</span>
+                  {productsData ? <span className="hidden sm:inline">{` (${productsData.unmappedMealieFoods.length} unmapped)`}</span> : null}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="grocy-min-stock"
+                  aria-label="Grocy Min Stock"
+                  className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"
+                >
+                  <span className="sm:hidden">Min Stock</span>
+                  <span className="hidden sm:inline">
+                    Grocy Min Stock{grocyMinStockData ? ` (${grocyMinStockData.unmappedGrocyMinStockProducts.length} unmapped)` : ''}
+                  </span>
+                </TabsTrigger>
+                <TabsTrigger
+                  value="mapped-products"
+                  aria-label="Mapped Products"
+                  className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"
+                >
+                  <span className="sm:hidden">Mapped</span>
+                  <span className="hidden sm:inline">
+                    Mapped Products{mappedProductsData ? ` (${mappedProductsData.mappedProducts.length})` : ''}
+                  </span>
+                </TabsTrigger>
+                <TabsTrigger
+                  value="conflicts"
+                  aria-label="Conflicts"
+                  className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"
+                >
+                  <span>Conflicts</span>
+                  {conflictsData ? <span className="hidden sm:inline">{` (${conflictsData.conflicts.length} open)`}</span> : null}
+                </TabsTrigger>
+              </TabsList>
+            </div>
+            <p className="mt-1 text-[11px] text-text-3 md:hidden">Swipe tabs to view all sections.</p>
+          </div>
 
-          <ConfirmDialog
-            open={confirmAction !== null}
-            onClose={closeConfirm}
-            onConfirm={() => confirmCallback?.()}
-            title={confirmTitle}
-            description={confirmDescription}
-            itemNames={confirmItemNames}
-            running={isRunning}
-          />
-        </DialogContent>
-      </Dialog>
+          <TabsContent value={tab} className="mt-4 flex min-h-0 min-w-0 flex-1 flex-col">
+            {tab === 'units' && unitBannerSuggestions.length > 0 ? (
+              <SuggestionBanner
+                suggestions={unitBannerSuggestions}
+                onAccept={acceptUnitSuggestion}
+                onAcceptAll={acceptAllUnitSuggestions}
+                onDismiss={dismissUnitSuggestion}
+                onDismissAll={dismissAllUnitSuggestions}
+              />
+            ) : null}
+
+            {tab === 'products' && productBannerSuggestions.length > 0 ? (
+              <SuggestionBanner
+                suggestions={productBannerSuggestions}
+                onAccept={acceptProductSuggestion}
+                onAcceptAll={acceptAllProductSuggestions}
+                onDismiss={dismissProductSuggestion}
+                onDismissAll={dismissAllProductSuggestions}
+              />
+            ) : null}
+
+            <div className="flex min-h-0 min-w-0 flex-1">
+              {renderCurrentTab()}
+            </div>
+          </TabsContent>
+        </Tabs>
+      </div>
+
+      <div className="sticky bottom-0 z-20 mt-4 border-t border-border bg-bg-0/95 pb-1 pt-2 backdrop-blur">
+        <WizardFooter
+          tab={tab}
+          tabLabel={currentTabLabel}
+          actionRunning={actionRunning}
+          currentTabLoading={currentTabLoading}
+          unitMappedCount={unitsData ? getPendingUnitMappings(unitsData, unitMaps).length : 0}
+          checkedUnitCount={unmappedUnitIds.filter(id => createUnitChecked[id]).length}
+          orphanUnitCount={unitsData?.orphanGrocyUnitCount ?? 0}
+          productMappedCount={Object.values(productMaps).filter(mapping => mapping.grocyProductId !== null).length}
+          checkedProductCount={unmappedProductIds.filter(id => createProductChecked[id]).length}
+          orphanProductCount={productsData?.orphanGrocyProductCount ?? 0}
+          grocyMinStockProductMappedCount={Object.values(grocyMinStockProductMaps).filter(mapping => mapping.mealieFoodId !== null).length}
+          checkedGrocyMinStockProductCount={unmappedGrocyMinStockProductIds.filter(id => createMealieProductChecked[id]).length}
+          defaultCreateUnitId={defaultCreateUnitId}
+          onRefreshTab={() => { void refreshTab(tab); }}
+          onSyncUnits={syncUnits}
+          onCreateUnits={createUnmappedUnits}
+          onDeleteOrphanUnits={handleDeleteOrphanUnits}
+          onSyncProducts={syncProducts}
+          onCreateProducts={createUnmappedProducts}
+          onDeleteOrphanProducts={handleDeleteOrphanProducts}
+          onSyncGrocyMinStockProducts={syncGrocyMinStockProducts}
+          onCreateMealieProducts={createMealieProductsFromGrocy}
+        />
+      </div>
+
+      <ConfirmDialog
+        open={confirmAction !== null}
+        onClose={closeConfirm}
+        onConfirm={() => confirmCallback?.()}
+        title={confirmTitle}
+        description={confirmDescription}
+        itemNames={confirmItemNames}
+        running={isRunning}
+      />
 
       <Dialog
         open={remapConflict !== null}
@@ -1780,6 +1978,66 @@ export function MappingWizard({ timeZone, timeZoneLocale }: MappingWizardProps) 
   );
 }
 
+function SuggestionBanner({
+  suggestions,
+  onAccept,
+  onAcceptAll,
+  onDismiss,
+  onDismissAll,
+}: {
+  suggestions: Array<{ id: string; mealieLabel: string; targetLabel: string; score: number }>;
+  onAccept: (id: string) => void;
+  onAcceptAll: () => void;
+  onDismiss: (id: string) => void;
+  onDismissAll: () => void;
+}) {
+  return (
+    <div className="mb-4 rounded-xl border border-primary/30 bg-primary/10 p-3 shadow-[0_0_20px_color-mix(in_oklab,var(--accent)_20%,transparent)]">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm">⚡</span>
+          <span className="text-sm font-bold text-primary">{suggestions.length} high-confidence suggestions</span>
+          <AppBadge tone="accent" small>≥ 70% match</AppBadge>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <AppButton variant="secondary" size="sm" onClick={onAcceptAll}>
+            Accept all ({suggestions.length})
+          </AppButton>
+          <AppButton variant="ghost" size="sm" onClick={onDismissAll}>Dismiss</AppButton>
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        {suggestions.slice(0, 5).map(suggestion => (
+          <div
+            key={suggestion.id}
+            className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-white/4 px-2.5 py-2"
+          >
+            <span className="min-w-[132px] text-sm font-semibold text-text-1">{suggestion.mealieLabel}</span>
+            <span className="text-xs text-text-3">→</span>
+            <span className="text-sm font-semibold text-primary">{suggestion.targetLabel}</span>
+            <AppBadge tone="success" small>{suggestion.score}%</AppBadge>
+
+            <div className="ml-auto flex items-center gap-1">
+              <AppButton variant="secondary" size="xs" onClick={() => onAccept(suggestion.id)}>
+                ✓ Accept
+              </AppButton>
+              <AppButton variant="ghost" size="xs" onClick={() => onDismiss(suggestion.id)}>✗</AppButton>
+            </div>
+          </div>
+        ))}
+
+        {suggestions.length > 5 ? (
+          <p className="py-0.5 text-center text-xs text-text-3">
+            +{suggestions.length - 5} more suggestions in the table below
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 interface WizardFooterProps {
   tab: WizardTab;
   tabLabel: string;
@@ -1830,21 +2088,22 @@ function WizardFooter({
   onCreateMealieProducts,
 }: WizardFooterProps) {
   const isRunning = !!actionRunning;
+  const actionButtonClassName = 'h-10 w-full justify-start sm:h-7 sm:w-auto sm:justify-center';
 
   let actions: React.ReactNode = null;
 
   if (tab === 'units') {
     actions = (
       <>
-        <Button size="sm" onClick={onSyncUnits} disabled={isRunning || unitMappedCount === 0}>
+        <Button size="sm" className={actionButtonClassName} onClick={onSyncUnits} disabled={isRunning || unitMappedCount === 0}>
           {actionRunning === 'syncUnits' ? <Loader2 className="size-4 animate-spin" /> : <Link className="size-4" />}
           {actionRunning === 'syncUnits' ? 'Syncing...' : `Sync Mapped (${unitMappedCount})`}
         </Button>
-        <Button variant="secondary" size="sm" onClick={onCreateUnits} disabled={isRunning || checkedUnitCount === 0}>
+        <Button variant="secondary" size="sm" className={actionButtonClassName} onClick={onCreateUnits} disabled={isRunning || checkedUnitCount === 0}>
           {actionRunning === 'createUnits' ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
           {actionRunning === 'createUnits' ? 'Creating...' : `Create Checked in Grocy (${checkedUnitCount})`}
         </Button>
-        <Button variant="destructive" size="sm" onClick={onDeleteOrphanUnits} disabled={isRunning || orphanUnitCount === 0}>
+        <Button variant="destructive" size="sm" className={actionButtonClassName} onClick={onDeleteOrphanUnits} disabled={isRunning || orphanUnitCount === 0}>
           <Trash2 className="size-4" />
           Delete Grocy Orphans ({orphanUnitCount})
         </Button>
@@ -1855,11 +2114,11 @@ function WizardFooter({
   if (tab === 'grocy-min-stock') {
     actions = (
       <>
-        <Button size="sm" onClick={onSyncGrocyMinStockProducts} disabled={isRunning || grocyMinStockProductMappedCount === 0}>
+        <Button size="sm" className={actionButtonClassName} onClick={onSyncGrocyMinStockProducts} disabled={isRunning || grocyMinStockProductMappedCount === 0}>
           {actionRunning === 'syncGrocyMinStockProducts' ? <Loader2 className="size-4 animate-spin" /> : <Link className="size-4" />}
           {actionRunning === 'syncGrocyMinStockProducts' ? 'Syncing...' : `Sync Mapped (${grocyMinStockProductMappedCount})`}
         </Button>
-        <Button variant="secondary" size="sm" onClick={onCreateMealieProducts} disabled={isRunning || checkedGrocyMinStockProductCount === 0}>
+        <Button variant="secondary" size="sm" className={actionButtonClassName} onClick={onCreateMealieProducts} disabled={isRunning || checkedGrocyMinStockProductCount === 0}>
           {actionRunning === 'createMealieProducts' ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
           {actionRunning === 'createMealieProducts' ? 'Creating...' : `Create Checked in Mealie (${checkedGrocyMinStockProductCount})`}
         </Button>
@@ -1868,15 +2127,15 @@ function WizardFooter({
   } else if (tab === 'products') {
     actions = (
       <>
-        <Button size="sm" onClick={onSyncProducts} disabled={isRunning || productMappedCount === 0}>
+        <Button size="sm" className={actionButtonClassName} onClick={onSyncProducts} disabled={isRunning || productMappedCount === 0}>
           {actionRunning === 'syncProducts' ? <Loader2 className="size-4 animate-spin" /> : <Link className="size-4" />}
           {actionRunning === 'syncProducts' ? 'Syncing...' : `Sync Mapped (${productMappedCount})`}
         </Button>
-        <Button variant="secondary" size="sm" onClick={onCreateProducts} disabled={isRunning || !defaultCreateUnitId || checkedProductCount === 0}>
+        <Button variant="secondary" size="sm" className={actionButtonClassName} onClick={onCreateProducts} disabled={isRunning || !defaultCreateUnitId || checkedProductCount === 0}>
           {actionRunning === 'createProducts' ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
           {actionRunning === 'createProducts' ? 'Creating...' : `Create Checked in Grocy (${checkedProductCount})`}
         </Button>
-        <Button variant="destructive" size="sm" onClick={onDeleteOrphanProducts} disabled={isRunning || orphanProductCount === 0}>
+        <Button variant="destructive" size="sm" className={actionButtonClassName} onClick={onDeleteOrphanProducts} disabled={isRunning || orphanProductCount === 0}>
           <Trash2 className="size-4" />
           Delete Grocy Orphans ({orphanProductCount})
         </Button>
@@ -1885,8 +2144,8 @@ function WizardFooter({
   }
 
   return (
-    <DialogFooter className="flex-row flex-wrap items-center justify-between gap-2 sm:justify-between">
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+      <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
         {actions}
       </div>
       <Button
@@ -1896,11 +2155,11 @@ function WizardFooter({
         onClick={onRefreshTab}
         disabled={isRunning || currentTabLoading}
         aria-label={`Refresh ${tabLabel}`}
-        className="ml-auto"
+        className="h-10 w-full justify-start sm:ml-auto sm:h-7 sm:w-auto sm:justify-center"
       >
         {currentTabLoading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
         {currentTabLoading ? `Refreshing ${tabLabel}...` : `Refresh ${tabLabel}`}
       </Button>
-    </DialogFooter>
+    </div>
   );
 }

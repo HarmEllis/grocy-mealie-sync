@@ -82,6 +82,28 @@ export function clearSchedulerLock(): boolean {
   return clearLease(SCHEDULER_LOCK_NAME);
 }
 
+export function isSchedulerLockPresent(): boolean {
+  const lock = db.select()
+    .from(runtimeLocks)
+    .where(eq(runtimeLocks.name, SCHEDULER_LOCK_NAME))
+    .get();
+
+  return Boolean(lock);
+}
+
+export function getSchedulerLockOwnerId(): string | null {
+  const lock = db.select()
+    .from(runtimeLocks)
+    .where(eq(runtimeLocks.name, SCHEDULER_LOCK_NAME))
+    .get();
+
+  return lock?.ownerId ?? null;
+}
+
+export function getSchedulerInstanceOwnerId(): string {
+  return instanceOwnerId;
+}
+
 export function acquireSyncLock(): boolean {
   if (syncing) {
     return false;

@@ -75,7 +75,7 @@ vi.mock('../../logger', () => ({
   },
 }));
 
-import { startScheduler, stopScheduler } from '../scheduler';
+import { getSchedulerRuntimeState, startScheduler, stopScheduler } from '../scheduler';
 
 async function flushAsyncWork() {
   await Promise.resolve();
@@ -160,6 +160,8 @@ describe('scheduler startup lock', () => {
     startScheduler();
     await flushAsyncWork();
 
+    expect(getSchedulerRuntimeState().status).toBe('active');
+
     expect(mockState.runFullProductSync).toHaveBeenCalledTimes(1);
     expect(mockState.runMappingConflictCheck).toHaveBeenCalledTimes(1);
     expect(mockState.sendSchedulerNotifications).toHaveBeenCalledTimes(1);
@@ -180,6 +182,8 @@ describe('scheduler startup lock', () => {
     startScheduler();
     await flushAsyncWork();
 
+    expect(getSchedulerRuntimeState().status).toBe('passive_startup_lock');
+
     expect(mockState.runFullProductSync).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(60_000);
@@ -198,6 +202,7 @@ describe('scheduler startup lock', () => {
     stopScheduler();
 
     expect(mockState.releaseSchedulerLock).toHaveBeenCalledTimes(1);
+    expect(getSchedulerRuntimeState().status).toBe('inactive');
   });
 
   it('marks scheduler notifications as partial when the conflict check leaves conflicts open', async () => {

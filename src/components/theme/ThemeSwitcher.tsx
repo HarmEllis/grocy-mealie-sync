@@ -1,21 +1,17 @@
-"use client";
+'use client';
 
-import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
-import { Sun, Moon, Monitor } from "lucide-react";
-import { Button } from "@/components/ui/button";
-
-const modes = [
-  { value: "light", icon: Sun, label: "Light" },
-  { value: "dark", icon: Moon, label: "Dark" },
-  { value: "system", icon: Monitor, label: "System" },
-] as const;
+import { useEffect, useState } from 'react';
+import { Moon, Sun } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { useThemePreferences } from './ThemeProvider';
 
 export function ThemeSwitcher() {
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme } = useThemePreferences();
   const [mounted, setMounted] = useState(false);
 
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   if (!mounted) {
     return (
@@ -25,19 +21,18 @@ export function ThemeSwitcher() {
     );
   }
 
-  const current = modes.find((m) => m.value === theme) ?? modes[2];
-  const next = modes[(modes.findIndex((m) => m.value === theme) + 1) % modes.length];
+  const nextTheme = theme === 'dark' ? 'light' : 'dark';
 
   return (
     <Button
       variant="ghost"
       size="icon"
-      className="size-8"
-      onClick={() => setTheme(next.value)}
-      aria-label={`Switch to ${next.label} mode`}
-      title={`${current.label} mode — click for ${next.label}`}
+      className="size-8 rounded-md border border-border/80 bg-card/80"
+      onClick={() => setTheme(nextTheme)}
+      aria-label={`Switch to ${nextTheme} mode`}
+      title={`Current mode: ${theme}`}
     >
-      <current.icon className="size-4" />
+      {theme === 'dark' ? <Moon className="size-4" /> : <Sun className="size-4" />}
     </Button>
   );
 }

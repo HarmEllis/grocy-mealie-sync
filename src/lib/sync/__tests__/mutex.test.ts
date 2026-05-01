@@ -13,6 +13,9 @@ import {
   clearSchedulerLock,
   clearSyncLock,
   computeSyncLockTtlMs,
+  getSchedulerInstanceOwnerId,
+  getSchedulerLockOwnerId,
+  isSchedulerLockPresent,
   releaseLease,
   releaseSchedulerLock,
   releaseSyncLock,
@@ -50,6 +53,24 @@ describe('sync mutex', () => {
 
     expect(clearSchedulerLock()).toBe(true);
     expect(acquireSchedulerLock()).toBe(true);
+  });
+
+  it('reports whether the scheduler startup lock exists', () => {
+    expect(isSchedulerLockPresent()).toBe(false);
+    expect(acquireSchedulerLock()).toBe(true);
+    expect(isSchedulerLockPresent()).toBe(true);
+    releaseSchedulerLock();
+    expect(isSchedulerLockPresent()).toBe(false);
+  });
+
+  it('exposes scheduler lock owner and current instance owner', () => {
+    const instanceOwnerId = getSchedulerInstanceOwnerId();
+    expect(typeof instanceOwnerId).toBe('string');
+    expect(instanceOwnerId.length).toBeGreaterThan(0);
+    expect(getSchedulerLockOwnerId()).toBeNull();
+
+    expect(acquireSchedulerLock()).toBe(true);
+    expect(getSchedulerLockOwnerId()).toBe(instanceOwnerId);
   });
 
   it('first acquire succeeds', () => {

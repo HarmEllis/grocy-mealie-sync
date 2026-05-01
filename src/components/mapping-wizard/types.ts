@@ -76,13 +76,19 @@ export type ProductsTabData = Pick<
   | 'existingUnitMappings'
   | 'productSuggestions'
   | 'orphanGrocyProductCount'
->;
+> & {
+  totalMealieFoods: number;
+  mappedMealieFoods: number;
+};
 
 export type GrocyMinStockTabData = Pick<
   WizardData,
   'unmappedGrocyMinStockProducts' | 'grocyUnits' | 'unmappedMealieFoods' | 'lowStockGrocyProductSuggestions'
 > & {
   minStockStep: MinStockStep;
+  totalMinStockProducts: number;
+  mappedMinStockProducts: number;
+  urgentUnmappedMinStockProducts: number;
 };
 
 export interface MappedProductRow {

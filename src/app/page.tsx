@@ -1,274 +1,308 @@
 import Link from 'next/link';
-import { getSyncState } from '@/lib/sync/state';
-import { getNextCleanupRun } from '@/lib/sync/scheduler';
+import { Link2 } from 'lucide-react';
+import { count } from 'drizzle-orm';
+import { AnimatedCounter, AppBadge, AppCard, AppStatusDot } from '@/components/redesign/primitives';
+import { buttonVariants } from '@/components/ui/button-styles';
 import { db } from '@/lib/db';
 import { productMappings, unitMappings } from '@/lib/db/schema';
-import { count } from 'drizzle-orm';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { buttonVariants } from '@/components/ui/button-styles';
-import { SettingsForm } from '@/components/settings/SettingsForm';
-import { SyncButtons } from '@/components/sync/SyncButtons';
-import { SyncRecoveryControls } from '@/components/sync/SyncRecoveryControls';
-import { MappingWizard } from '@/components/mapping-wizard/MappingWizard';
-import { LogoutButton } from '@/components/auth/LogoutButton';
-import { ArrowLeftRight, Settings, Wand2, Activity, Database, Clock, Terminal, AlertTriangle, History as HistoryIcon } from 'lucide-react';
-import { ThemeSwitcher } from '@/components/theme/ThemeSwitcher';
-import { AppVersion } from '@/components/app/AppVersion';
-import { getAuthConfig } from '@/lib/auth';
+import { RecipesFoodsService } from '@/lib/mealie';
+import { extractFoods } from '@/lib/mealie/types';
 import { config } from '@/lib/config';
 import { formatDateTime } from '@/lib/date-time';
 import { cn } from '@/lib/utils';
+import { getSyncState } from '@/lib/sync/state';
+import { getNextCleanupRun, getSchedulerRuntimeState, type SchedulerRuntimeStatus } from '@/lib/sync/scheduler';
+import { getHistoryFeatureState, listHistoryRuns } from '@/lib/history-store';
+import { formatHistoryActionLabel } from '@/lib/history-events';
+import type { HistoryRunRecord } from '@/lib/history-store';
+import { DashboardSyncPanel } from '@/components/sync/DashboardSyncPanel';
 
-interface SyncStatus {
+interface DashboardStatus {
   lastGrocyPoll: string | Date | null;
   lastMealiePoll: string | Date | null;
   grocyBelowMinStockCount: number;
   mealieTrackedItemsCount: number;
   productMappings: number;
   unitMappings: number;
+  unmappedMealieFoodsCount: number | null;
   nextCleanupRun: string | Date | null;
+  schedulerStatus: SchedulerRuntimeStatus;
 }
 
-async function getStatus(): Promise<SyncStatus | null> {
+async function getStatus(): Promise<DashboardStatus | null> {
   try {
-    const state = await getSyncState();
-    const [productCount] = await db.select({ count: count() }).from(productMappings);
-    const [unitCount] = await db.select({ count: count() }).from(unitMappings);
+    const [state, mappings, [unitCount], nextCleanupRun] = await Promise.all([
+      getSyncState(),
+      db.select({
+        mealieFoodId: productMappings.mealieFoodId,
+      }).from(productMappings),
+      db.select({ count: count() }).from(unitMappings),
+      getNextCleanupRun(),
+    ]);
 
-    const nextCleanup = await getNextCleanupRun();
+    let unmappedMealieFoodsCount: number | null = null;
+    try {
+      const mealieFoodsRes = await RecipesFoodsService.getAllApiFoodsGet(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        1,
+        10000,
+      );
+      const mappedMealieFoodIds = new Set(mappings.map(mapping => mapping.mealieFoodId));
+      unmappedMealieFoodsCount = extractFoods(mealieFoodsRes)
+        .filter((food): food is typeof food & { id: string } => typeof food.id === 'string' && food.id.length > 0)
+        .filter(food => !mappedMealieFoodIds.has(food.id))
+        .length;
+    } catch {
+      unmappedMealieFoodsCount = null;
+    }
 
     return {
       lastGrocyPoll: state.lastGrocyPoll,
       lastMealiePoll: state.lastMealiePoll,
       grocyBelowMinStockCount: Object.keys(state.grocyBelowMinStock).length,
       mealieTrackedItemsCount: Object.keys(state.mealieCheckedItems).length,
-      productMappings: productCount.count,
+      productMappings: mappings.length,
       unitMappings: unitCount.count,
-      nextCleanupRun: nextCleanup,
+      unmappedMealieFoodsCount,
+      nextCleanupRun,
+      schedulerStatus: getSchedulerRuntimeState().status,
     };
   } catch {
     return null;
   }
 }
 
+function runDuration(run: HistoryRunRecord): string {
+  const durationMs = run.finishedAt.getTime() - run.startedAt.getTime();
+
+  if (durationMs < 1000) {
+    return '<1s';
+  }
+
+  return `${Math.round(durationMs / 1000)}s`;
+}
+
+function formatNextRunIn(lastPoll: string | Date | null, schedulerStatus: SchedulerRuntimeStatus | null): string {
+  if (schedulerStatus === 'passive_startup_lock') {
+    return '-';
+  }
+
+  if (!lastPoll) {
+    return 'Unknown';
+  }
+
+  const lastPollTime = new Date(lastPoll);
+  if (Number.isNaN(lastPollTime.getTime())) {
+    return 'Unknown';
+  }
+
+  const nextRunAt = lastPollTime.getTime() + (config.pollIntervalSeconds * 1000);
+  const remainingMs = Math.max(0, nextRunAt - Date.now());
+  const totalSeconds = Math.floor(remainingMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
 export const dynamic = 'force-dynamic';
 
 export default async function Home() {
   const status = await getStatus();
-  const authEnabled = getAuthConfig().enabled;
+  const schedulerPassiveByStartupLock = status?.schedulerStatus === 'passive_startup_lock';
+  const historyState = getHistoryFeatureState();
+  const recentRuns = historyState.enabled ? await listHistoryRuns(4) : [];
+  const mostRecentPoll = status
+    ? [status.lastGrocyPoll, status.lastMealiePoll]
+      .filter((value): value is string | Date => Boolean(value))
+      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null
+    : null;
+  const unmappedProductsHeadline = status?.unmappedMealieFoodsCount !== null && status?.unmappedMealieFoodsCount !== undefined
+    ? `${status.unmappedMealieFoodsCount} ${status.unmappedMealieFoodsCount === 1 ? 'product' : 'products'} not yet mapped`
+    : 'Review product mappings';
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="mx-auto flex h-14 max-w-3xl items-center gap-3 px-4">
-          <ArrowLeftRight className="size-5 text-primary" />
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2">
-              <h1 className="truncate text-base font-semibold leading-tight">Grocy-Mealie Sync</h1>
-              <AppVersion />
-            </div>
-            <p className="truncate text-xs text-muted-foreground">Bi-directional sync between Grocy and Mealie</p>
+    <div className="space-y-5">
+      <AppCard>
+        <div className="flex flex-wrap items-center justify-between gap-6">
+          <div className="flex items-center gap-2">
+            <AppStatusDot
+              status={status ? (schedulerPassiveByStartupLock ? 'warning' : 'success') : 'warning'}
+              pulse={status !== null}
+            />
+            <span className={cn('text-sm font-semibold', schedulerPassiveByStartupLock ? 'text-warning' : 'text-text-1')}>
+              {status ? (schedulerPassiveByStartupLock ? 'Scheduler paused' : 'Sync healthy') : 'Status unavailable'}
+            </span>
           </div>
-          <div className="ml-auto flex items-center gap-2">
-            {status && (
-              <>
-                <Badge variant="secondary" className="gap-1">
-                  <Database className="size-3" />
-                  {status.productMappings} products
-                </Badge>
-                <Badge variant="secondary" className="gap-1">
-                  {status.unitMappings} units
-                </Badge>
-              </>
-            )}
-            <ThemeSwitcher />
-            {authEnabled ? <LogoutButton /> : null}
+          {schedulerPassiveByStartupLock ? (
+            <div className="flex w-full flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold text-warning">
+                Startup lock already held. This instance is passive and the scheduler is not running.
+              </p>
+              <Link
+                href="/settings"
+                className={cn(
+                  buttonVariants({ variant: 'outline', size: 'sm' }),
+                  'h-7 border-warning/40 bg-warning/10 px-2 text-warning hover:border-warning/60 hover:bg-warning/20 dark:border-border dark:bg-bg-2 dark:hover:bg-bg-3',
+                )}
+              >
+                Open settings for lock recovery
+              </Link>
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap gap-6">
+            <StatusMeta
+              label="Last Grocy job"
+              value={formatDateTime(status?.lastGrocyPoll ?? null, {
+                fallback: 'Never',
+                locale: config.timeZoneLocale,
+                timeZone: config.timeZone,
+              })}
+            />
+            <StatusMeta
+              label="Last Mealie job"
+              value={formatDateTime(status?.lastMealiePoll ?? null, {
+                fallback: 'Never',
+                locale: config.timeZoneLocale,
+                timeZone: config.timeZone,
+              })}
+            />
+            <StatusMeta
+              label="Next run in"
+              value={formatNextRunIn(mostRecentPoll, status?.schedulerStatus ?? null)}
+            />
+            <StatusMeta
+              label="Next cleanup"
+              value={formatDateTime(status?.nextCleanupRun ?? null, {
+                fallback: 'Unknown',
+                locale: config.timeZoneLocale,
+                timeZone: config.timeZone,
+              })}
+            />
           </div>
         </div>
-      </header>
+      </AppCard>
 
-      {/* Content */}
-      <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
-        {/* Status Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="size-4" />
-              Status
-            </CardTitle>
-            <CardDescription>Current sync state overview</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {status ? (
-              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-                <div className="space-y-0.5">
-                  <p className="text-muted-foreground flex items-center gap-1.5">
-                    <Clock className="size-3" />
-                    Last Grocy poll
-                  </p>
-                  <p className="font-medium">{formatDateTime(status.lastGrocyPoll, { fallback: 'Never', timeZone: config.timeZone, locale: config.timeZoneLocale })}</p>
-                </div>
-                <div className="space-y-0.5">
-                  <p className="text-muted-foreground flex items-center gap-1.5">
-                    <Clock className="size-3" />
-                    Last Mealie poll
-                  </p>
-                  <p className="font-medium">{formatDateTime(status.lastMealiePoll, { fallback: 'Never', timeZone: config.timeZone, locale: config.timeZoneLocale })}</p>
-                </div>
-                <div className="space-y-0.5">
-                  <p className="text-muted-foreground">Grocy below min stock</p>
-                  <p className="font-medium">{status.grocyBelowMinStockCount} items</p>
-                </div>
-                <div className="space-y-0.5">
-                  <p className="text-muted-foreground">Mealie tracked items</p>
-                  <p className="font-medium">{status.mealieTrackedItemsCount} items</p>
-                </div>
-                <div className="space-y-0.5">
-                  <p className="text-muted-foreground flex items-center gap-1.5">
-                    <Clock className="size-3" />
-                    Next cleanup run
-                  </p>
-                  <p className="font-medium">{formatDateTime(status.nextCleanupRun, { fallback: 'Unknown', timeZone: config.timeZone, locale: config.timeZoneLocale })}</p>
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Could not fetch status. The sync service may not be running.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <HistoryIcon className="size-4" />
-              History
-            </CardTitle>
-            <CardDescription>
-              {config.historyEnabled
-                ? `Audit log for scheduler and manual actions. Retention: ${config.historyRetentionDays} day${config.historyRetentionDays === 1 ? '' : 's'}.`
-                : 'Disabled via HISTORY_RETENTION_DAYS=-1.'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">
-              {config.historyEnabled
-                ? 'Open recent sync runs, conflict checks, and lock recovery events.'
-                : 'The History page is unavailable while history storage is disabled.'}
-            </p>
-            {config.historyEnabled ? (
-              <Link href="/history" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-                <HistoryIcon className="size-4" />
-                Open History
-              </Link>
-            ) : (
-              <span
-                aria-disabled="true"
-                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'cursor-not-allowed opacity-50')}
-              >
-                <HistoryIcon className="size-4" />
-                History Disabled
-              </span>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Settings Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Settings className="size-4" />
-              Settings
-            </CardTitle>
-            <CardDescription>Configure sync behavior and defaults</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <SettingsForm />
-          </CardContent>
-        </Card>
-
-        {/* Mapping Wizard Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Wand2 className="size-4" />
-              Mapping Wizard
-            </CardTitle>
-            <CardDescription>Map Mealie items to Grocy products and units</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <MappingWizard timeZone={config.timeZone} timeZoneLocale={config.timeZoneLocale} />
-          </CardContent>
-        </Card>
-
-        {/* Manual Sync Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ArrowLeftRight className="size-4" />
-              Manual Sync
-            </CardTitle>
-            <CardDescription>Trigger sync operations manually</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <SyncButtons />
-          </CardContent>
-        </Card>
-
-        {/* Recovery Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <AlertTriangle className="size-4" />
-              Lock Recovery
-            </CardTitle>
-            <CardDescription>Clear stale scheduler locks after a crash</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <SyncRecoveryControls />
-          </CardContent>
-        </Card>
-
-        {/* API Endpoints Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Terminal className="size-4" />
-              API Endpoints
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-1.5 text-sm">
-              {[
-                ['GET', '/api/health', 'Health check'],
-                ['GET', '/api/status', 'Sync status'],
-                ['GET', '/api/mappings/products', 'Product mappings'],
-                ['GET', '/api/mappings/units', 'Unit mappings'],
-                ['POST', '/api/sync/products', 'Trigger product sync'],
-                ['POST', '/api/sync/grocy-to-mealie', 'Trigger Grocy\u2192Mealie check'],
-                ['POST', '/api/sync/grocy-to-mealie/ensure', 'Ensure below-min items exist on Mealie list'],
-                ['POST', '/api/sync/grocy-to-mealie/in-possession', 'Fully reconcile Mealie "In possession" from Grocy stock'],
-                ['POST', '/api/sync/mealie-to-grocy', 'Trigger Mealie\u2192Grocy check'],
-                ['POST', '/api/sync/shopping-cleanup', 'Trigger shopping list cleanup'],
-                ['POST', '/api/sync/unlock', 'Clear persisted scheduler and sync locks'],
-              ].map(([method, path, desc]) => (
-                <div key={path} className="flex items-center gap-2">
-                  <Badge variant="outline" className="font-mono text-[10px] w-12 justify-center">
-                    {method}
-                  </Badge>
-                  <code className="text-xs text-foreground">{path}</code>
-                  <Separator orientation="vertical" className="h-3" />
-                  <span className="text-muted-foreground text-xs">{desc}</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Grocy low-stock" value={status?.grocyBelowMinStockCount ?? 0} icon="📦" tone="warning" />
+        <StatCard label="Mealie tracked" value={status?.mealieTrackedItemsCount ?? 0} icon="🍽" tone="accent" />
+        <StatCard label="Mapped products" value={status?.productMappings ?? 0} icon="🔗" tone="success" />
+        <StatCard label="Mapped units" value={status?.unitMappings ?? 0} icon="⚖" tone="default" />
       </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <AppCard>
+          <div className="mb-4">
+            <h2 className="text-base font-bold tracking-tight">Manual Sync</h2>
+            <p className="text-sm text-muted-foreground">Trigger targeted sync steps directly from the dashboard.</p>
+          </div>
+          <DashboardSyncPanel />
+        </AppCard>
+
+        <AppCard>
+          <div className="mb-4">
+            <h2 className="text-base font-bold tracking-tight">Last Sync Overview</h2>
+            <p className="text-sm text-muted-foreground">Recent scheduler and manual actions.</p>
+          </div>
+
+          <div className="space-y-2">
+            {recentRuns.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No runs recorded yet.</p>
+            ) : (
+              recentRuns.map(run => (
+                <div key={run.id} className="flex items-center justify-between rounded-lg border border-border bg-bg-2 px-3 py-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <AppStatusDot
+                      status={run.status === 'failure' ? 'error' : run.status === 'partial' ? 'warning' : 'success'}
+                    />
+                    <span className="truncate text-sm font-semibold">{formatHistoryActionLabel(run.action)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-text-2">
+                    <AppBadge small>{runDuration(run)}</AppBadge>
+                    <AppBadge small>{run.eventCount} events</AppBadge>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {historyState.enabled ? (
+            <div className="mt-3">
+              <Link
+                href="/history"
+                className={cn(
+                  buttonVariants({ variant: 'outline', size: 'sm' }),
+                  'w-full justify-center border-white/20 bg-transparent text-text-2 shadow-none hover:border-white/30 hover:bg-white/8 hover:text-text-1',
+                )}
+              >
+                View full history →
+              </Link>
+            </div>
+          ) : null}
+        </AppCard>
+      </div>
+
+      <AppCard className="bg-[linear-gradient(135deg,var(--accent-subtle)_0%,var(--bg-1)_100%)]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold tracking-tight">
+              {unmappedProductsHeadline}
+            </h2>
+            <p className="mt-1 text-sm text-text-2">
+              Open the mapping workspace to review suggestions, resolve conflicts, and keep sync actions clean.
+            </p>
+          </div>
+          <Link href="/mapping" className={cn(buttonVariants({ variant: 'default', size: 'lg' }), 'font-semibold')}>
+            <Link2 className="size-4" />
+            Open Product Mapping
+          </Link>
+        </div>
+      </AppCard>
+
     </div>
+  );
+}
+
+function StatusMeta({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[11px] font-bold tracking-wider text-text-3 uppercase">{label}</p>
+      <p className="font-mono text-sm font-semibold text-text-1">{value}</p>
+    </div>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  icon,
+  tone,
+}: {
+  label: string;
+  value: number;
+  icon: string;
+  tone: 'default' | 'success' | 'warning' | 'accent';
+}) {
+  const valueClass = {
+    default: 'text-text-1',
+    success: 'text-success',
+    warning: 'text-warning',
+    accent: 'text-primary',
+  }[tone];
+
+  return (
+    <AppCard className="px-5 py-4">
+      <p className="text-2xl">{icon}</p>
+      <p className={cn('font-mono text-3xl font-bold leading-tight', valueClass)}>
+        <AnimatedCounter value={value} />
+      </p>
+      <p className="mt-1 text-xs text-text-2">{label}</p>
+    </AppCard>
   );
 }

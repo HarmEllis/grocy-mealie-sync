@@ -160,6 +160,9 @@ describe('mapping wizard data route', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    expect(body.totalMinStockProducts).toBe(1);
+    expect(body.mappedMinStockProducts).toBe(0);
+    expect(body.urgentUnmappedMinStockProducts).toBe(1);
     expect(body.unmappedGrocyMinStockProducts).toEqual([
       { id: 66, name: 'Pandan rijst', quIdPurchase: 10, minStockAmount: 1, currentStock: 1, isBelowMinimum: true },
     ]);

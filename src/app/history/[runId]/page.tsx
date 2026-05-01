@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { AppCard } from '@/components/redesign/primitives';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { buttonVariants } from '@/components/ui/button-styles';
 import { config } from '@/lib/config';
@@ -66,111 +66,128 @@ export default async function HistoryDetailPage({ params }: HistoryDetailPagePro
   const schedulerSteps = getSchedulerSteps(details.run.summary);
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-6">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-semibold">{formatHistoryActionLabel(details.run.action)}</h1>
-            <p className="text-sm text-muted-foreground">{details.run.id}</p>
-          </div>
-          <Link href="/history" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-            <ArrowLeft className="size-4" />
-            Back to History
-          </Link>
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-extrabold tracking-tight text-text-1">{formatHistoryActionLabel(details.run.action)}</h1>
+          <p className="mt-1 font-mono text-xs text-text-3">{details.run.id}</p>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Run Summary</CardTitle>
-            <CardDescription>{details.run.message ?? 'No summary message recorded.'}</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-1">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Action</p>
-              <p className="text-sm font-medium">{formatHistoryActionLabel(details.run.action)}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Trigger</p>
-              <p className="text-sm font-medium">{formatHistoryTriggerLabel(details.run.trigger)}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Status</p>
-              <HistoryStatusBadge status={details.run.status} />
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Duration</p>
-              <p className="text-sm font-medium">{formatDurationMs(durationMs)}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Started</p>
-              <p className="text-sm font-medium">{formatDateTime(details.run.startedAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Finished</p>
-              <p className="text-sm font-medium">{formatDateTime(details.run.finishedAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}</p>
-            </div>
-          </CardContent>
-        </Card>
+        <Link href="/history" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+          <ArrowLeft className="size-4" />
+          Back to history
+        </Link>
+      </div>
 
-        {schedulerSteps.length > 0 ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Scheduler Steps</CardTitle>
-              <CardDescription>Per-step result for this scheduler cycle.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Step</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Error</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {schedulerSteps.map(step => (
-                    <TableRow key={step.name}>
-                      <TableCell>{formatSchedulerStepNameLabel(step.name)}</TableCell>
-                      <TableCell><HistoryStatusBadge status={step.status} /></TableCell>
-                      <TableCell className="max-w-md whitespace-normal text-sm text-muted-foreground">
-                        {step.error ?? 'No error'}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        ) : null}
+      <AppCard>
+        <h2 className="text-base font-bold tracking-tight">Run summary</h2>
+        <p className="mt-1 text-sm text-text-2">{details.run.message ?? 'No summary message recorded.'}</p>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Summary Data</CardTitle>
-            <CardDescription>Stored run payload for auditing and debugging.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <details className="rounded-md border bg-muted/30 p-2">
-              <summary className="cursor-pointer text-xs font-medium">View summary payload</summary>
-              <div className="mt-2">
-                <JsonBlock value={details.run.summary} />
-              </div>
-            </details>
-          </CardContent>
-        </Card>
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <SummaryItem label="Action" value={formatHistoryActionLabel(details.run.action)} />
+          <SummaryItem label="Trigger" value={formatHistoryTriggerLabel(details.run.trigger)} />
+          <SummaryItem label="Status" value={<HistoryStatusBadge status={details.run.status} />} />
+          <SummaryItem label="Duration" value={formatDurationMs(durationMs)} mono />
+          <SummaryItem
+            label="Started"
+            value={formatDateTime(details.run.startedAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}
+            mono
+          />
+          <SummaryItem
+            label="Finished"
+            value={formatDateTime(details.run.finishedAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}
+            mono
+          />
+        </div>
+      </AppCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Events</CardTitle>
-            <CardDescription>
-              {visibleEvents.length} event{visibleEvents.length === 1 ? '' : 's'} shown for this run
-              {hiddenEventCount > 0 ? ` (${hiddenEventCount} generic step entr${hiddenEventCount === 1 ? 'y' : 'ies'} hidden).` : '.'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {visibleEvents.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No detail events were recorded for this run.</p>
-            ) : (
-              <Table>
+      {schedulerSteps.length > 0 ? (
+        <AppCard>
+          <h2 className="text-base font-bold tracking-tight">Scheduler steps</h2>
+          <p className="mb-3 text-sm text-text-2">Per-step result for this scheduler cycle.</p>
+
+          <div className="flex flex-wrap items-stretch gap-2">
+            {schedulerSteps.map((step, index) => {
+              const success = step.status === 'success' || step.status === 'partial';
+
+              return (
+                <div key={step.name} className="contents">
+                  <div className="min-w-[220px] flex-1 rounded-lg border border-success/25 bg-success/8 p-3">
+                    <div className="mb-1 flex items-center gap-2">
+                      <span className="inline-flex size-5 items-center justify-center rounded-full bg-success/20 text-xs">
+                        {success ? '✓' : '!'}
+                      </span>
+                      <span className="text-sm font-semibold text-text-1">{formatSchedulerStepNameLabel(step.name)}</span>
+                    </div>
+                    <HistoryStatusBadge status={step.status} />
+                    <p className="mt-1 text-xs text-text-3">{step.error ?? 'No error'}</p>
+                  </div>
+                  {index < schedulerSteps.length - 1 ? (
+                    <span className="hidden self-center px-0.5 text-text-3 md:inline">→</span>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </AppCard>
+      ) : null}
+
+      <AppCard>
+        <h2 className="text-base font-bold tracking-tight">Summary data</h2>
+        <p className="mt-1 text-sm text-text-2">Stored run payload for auditing and debugging.</p>
+
+        <details className="mt-3 rounded-md border border-border bg-bg-2 p-2">
+          <summary className="cursor-pointer text-xs font-semibold">View summary payload</summary>
+          <div className="mt-2">
+            <JsonBlock value={details.run.summary} />
+          </div>
+        </details>
+      </AppCard>
+
+      <AppCard className="overflow-hidden p-0">
+        <div className="border-b border-border px-4 py-3">
+          <h2 className="text-base font-bold tracking-tight">Events</h2>
+          <p className="text-sm text-text-2">
+            {visibleEvents.length} event{visibleEvents.length === 1 ? '' : 's'} shown
+            {hiddenEventCount > 0 ? ` (${hiddenEventCount} generic step entries hidden)` : ''}.
+          </p>
+        </div>
+
+        {visibleEvents.length === 0 ? (
+          <p className="px-4 py-6 text-sm text-muted-foreground">No detail events were recorded for this run.</p>
+        ) : (
+          <>
+            <div className="space-y-3 p-3 md:hidden">
+              {visibleEvents.map(event => (
+                <div key={event.id} className="rounded-lg border border-border bg-bg-1 p-3">
+                  <div className="mb-2 flex items-start justify-between gap-2">
+                    <p className="text-sm font-semibold text-text-1">{event.category}</p>
+                    <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-semibold uppercase text-muted-foreground">
+                      {event.level}
+                    </span>
+                  </div>
+                  <p className="mb-2 font-mono text-xs text-text-3">
+                    {formatDateTime(event.createdAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}
+                  </p>
+                  <p className="mb-3 text-sm text-text-2">{normalizeHistoryEventMessage(event.message)}</p>
+                  <div className="text-sm">
+                    {event.details === null ? (
+                      <span className="text-xs text-muted-foreground">No details</span>
+                    ) : (
+                      <details className="rounded-md border border-border bg-bg-2 p-2">
+                        <summary className="cursor-pointer text-xs font-semibold">View payload</summary>
+                        <div className="mt-2">
+                          <JsonBlock value={event.details} />
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="hidden md:block">
+              <Table className="min-w-[1040px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Time</TableHead>
@@ -183,7 +200,9 @@ export default async function HistoryDetailPage({ params }: HistoryDetailPagePro
                 <TableBody>
                   {visibleEvents.map(event => (
                     <TableRow key={event.id}>
-                      <TableCell>{formatDateTime(event.createdAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}</TableCell>
+                      <TableCell className="font-mono text-xs text-text-2">
+                        {formatDateTime(event.createdAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}
+                      </TableCell>
                       <TableCell className="uppercase text-xs text-muted-foreground">{event.level}</TableCell>
                       <TableCell>{event.category}</TableCell>
                       <TableCell className="max-w-md whitespace-normal">{normalizeHistoryEventMessage(event.message)}</TableCell>
@@ -191,8 +210,8 @@ export default async function HistoryDetailPage({ params }: HistoryDetailPagePro
                         {event.details === null ? (
                           <span className="text-xs text-muted-foreground">No details</span>
                         ) : (
-                          <details className="rounded-md border bg-muted/30 p-2">
-                            <summary className="cursor-pointer text-xs font-medium">View payload</summary>
+                          <details className="rounded-md border border-border bg-bg-2 p-2">
+                            <summary className="cursor-pointer text-xs font-semibold">View payload</summary>
                             <div className="mt-2">
                               <JsonBlock value={event.details} />
                             </div>
@@ -203,10 +222,27 @@ export default async function HistoryDetailPage({ params }: HistoryDetailPagePro
                   ))}
                 </TableBody>
               </Table>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            </div>
+          </>
+        )}
+      </AppCard>
+    </div>
+  );
+}
+
+function SummaryItem({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: React.ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <div>
+      <p className="text-[11px] font-bold tracking-[0.06em] text-text-3 uppercase">{label}</p>
+      <div className={mono ? 'mt-1 font-mono text-sm text-text-1' : 'mt-1 text-sm font-semibold text-text-1'}>{value}</div>
     </div>
   );
 }

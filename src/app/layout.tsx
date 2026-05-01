@@ -1,10 +1,23 @@
 import './globals.css';
-import { Geist } from "next/font/google";
-import { cn } from "@/lib/utils";
-import { Toaster } from "@/components/ui/sonner";
-import { ThemeProvider } from "@/components/theme/ThemeProvider";
+import { JetBrains_Mono, Plus_Jakarta_Sans } from 'next/font/google';
+import { cn } from '@/lib/utils';
+import { Toaster } from '@/components/ui/sonner';
+import { ThemeProvider } from '@/components/theme/ThemeProvider';
+import { ThemeScript } from '@/components/theme/ThemeScript';
+import { AppShell } from '@/components/layout/AppShell';
+import { getAuthConfig } from '@/lib/auth';
 
-const geist = Geist({ subsets: ['latin'], variable: '--font-sans' });
+const plusJakartaSans = Plus_Jakarta_Sans({
+  subsets: ['latin'],
+  variable: '--font-sans',
+  display: 'swap',
+});
+
+const jetBrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-mono',
+  display: 'swap',
+});
 
 export const metadata = {
   title: 'Grocy-Mealie Sync',
@@ -12,11 +25,20 @@ export const metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const authEnabled = getAuthConfig().enabled;
+
   return (
-    <html lang="en" className={cn("font-sans", geist.variable)} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={cn('font-sans antialiased', plusJakartaSans.variable, jetBrainsMono.variable)}
+      suppressHydrationWarning
+    >
+      <head>
+        <ThemeScript />
+      </head>
       <body>
         <ThemeProvider>
-          <main>{children}</main>
+          <AppShell authEnabled={authEnabled}>{children}</AppShell>
           <Toaster position="bottom-right" richColors closeButton />
         </ThemeProvider>
       </body>

@@ -353,15 +353,40 @@ function waitForGet(page, path) {
   );
 }
 
+async function waitForOptionalGet(page, path, timeoutMs = 5_000) {
+  try {
+    await page.waitForResponse(response =>
+      response.request().method() === 'GET'
+      && new URL(response.url()).pathname + new URL(response.url()).search === path, { timeout: timeoutMs });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'TimeoutError') {
+      return;
+    }
+
+    throw error;
+  }
+}
+
 async function openTab(page, tabName, endpointPath) {
-  await Promise.all([
-    waitForGet(page, endpointPath),
-    page.getByRole('tab', { name: tabName }).click(),
-  ]);
+  const tab = page.getByRole('tab', { name: tabName });
+  const waitForLoad = waitForOptionalGet(page, endpointPath, 20_000);
+
+  await tab.click({ force: true });
+
+  const handle = await tab.elementHandle();
+  if (handle) {
+    await page.waitForFunction(
+      element => element.getAttribute('aria-selected') === 'true',
+      handle,
+      { timeout: 20_000 },
+    );
+  }
+
+  await waitForLoad;
 }
 
 async function refreshCurrentTab(page, buttonName, endpointPath, getCount, expectedCount) {
-  const refreshButton = page.locator('[data-slot="dialog-footer"]').first().getByRole('button', { name: buttonName });
+  const refreshButton = page.getByRole('button', { name: buttonName });
   await refreshButton.waitFor();
 
   await Promise.all([
@@ -394,12 +419,9 @@ async function main() {
 
       const requestCounts = await configureRoutes(page);
 
-      await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(3_000);
-
       await Promise.all([
         waitForGet(page, '/api/mapping-wizard/data?tab=units'),
-        page.getByRole('button', { name: 'Mapping Wizard' }).click(),
+        page.goto(`${targetUrl}/mapping`, { waitUntil: 'domcontentloaded' }),
       ]);
 
       await refreshCurrentTab(

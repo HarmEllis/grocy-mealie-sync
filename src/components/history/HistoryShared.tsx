@@ -1,8 +1,7 @@
-import Link from 'next/link';
-import { ArrowLeft, History as HistoryIcon } from 'lucide-react';
+import { History as HistoryIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { buttonVariants } from '@/components/ui/button-styles';
+import { AppCard } from '@/components/redesign/primitives';
+import { PageHeader } from '@/components/layout/PageHeader';
 import { cn } from '@/lib/utils';
 import { formatHistoryStatusLabel } from '@/lib/history-events';
 import type { HistoryRunStatus } from '@/lib/history-types';
@@ -33,35 +32,25 @@ export function HistoryStatusBadge({ status }: { status: HistoryRunStatus }) {
 
 export function HistoryDisabledState() {
   return (
-    <div className="min-h-screen bg-background">
-      <div className="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-6">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-semibold">History</h1>
-            <p className="text-sm text-muted-foreground">Operational audit trail for sync runs and manual actions across the web UI and MCP server</p>
-          </div>
-          <Link href="/" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-            <ArrowLeft className="size-4" />
-            Back
-          </Link>
-        </div>
+    <div className="space-y-4">
+      <PageHeader
+        title="History"
+        subtitle="Operational audit trail for sync runs and manual actions across the web UI and MCP server."
+      />
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <HistoryIcon className="size-4" />
-              History Disabled
-            </CardTitle>
-            <CardDescription>
-              History storage is disabled because <code>HISTORY_RETENTION_DAYS=-1</code>.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <p>No new history is stored while this env var is disabled.</p>
-            <p>Existing history is cleared automatically when the app starts with this setting.</p>
-          </CardContent>
-        </Card>
-      </div>
+      <AppCard>
+        <div className="flex items-center gap-2 text-base font-bold tracking-tight">
+          <HistoryIcon className="size-4" />
+          History Disabled
+        </div>
+        <p className="mt-2 text-sm text-text-2">
+          History storage is disabled because <code>HISTORY_RETENTION_DAYS=-1</code>.
+        </p>
+        <div className="mt-4 space-y-2 text-sm text-muted-foreground">
+          <p>No new history is stored while this env var is disabled.</p>
+          <p>Existing history is cleared automatically when the app starts with this setting.</p>
+        </div>
+      </AppCard>
     </div>
   );
 }

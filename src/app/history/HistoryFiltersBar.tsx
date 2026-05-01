@@ -104,7 +104,7 @@ export function HistoryFiltersBar({ search, action, trigger, status, dateFrom, d
   }, [actionValue, search, searchValue, triggerValue, statusValue, dateFromValue, dateToValue]);
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-2">
+    <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center">
       <SearchableSelect
         options={historyActionOptions}
         value={actionValue}
@@ -115,7 +115,8 @@ export function HistoryFiltersBar({ search, action, trigger, status, dateFrom, d
         ariaLabel="Filter by action"
         placeholder="All actions"
         searchPlaceholder="Search actions..."
-        className="w-[220px]"
+        className="w-full lg:w-[220px]"
+        controlClassName="h-10 lg:h-8"
       />
 
       <SearchableSelect
@@ -128,7 +129,8 @@ export function HistoryFiltersBar({ search, action, trigger, status, dateFrom, d
         ariaLabel="Filter by trigger"
         placeholder="All triggers"
         searchPlaceholder="Search triggers..."
-        className="w-[120px]"
+        className="w-full lg:w-[120px]"
+        controlClassName="h-10 lg:h-8"
       />
 
       <SearchableSelect
@@ -141,7 +143,8 @@ export function HistoryFiltersBar({ search, action, trigger, status, dateFrom, d
         ariaLabel="Filter by status"
         placeholder="All statuses"
         searchPlaceholder="Search statuses..."
-        className="w-[140px]"
+        className="w-full lg:w-[140px]"
+        controlClassName="h-10 lg:h-8"
       />
 
       <SearchableSelect
@@ -163,7 +166,8 @@ export function HistoryFiltersBar({ search, action, trigger, status, dateFrom, d
         ariaLabel="Date range"
         placeholder="All dates"
         searchPlaceholder="Search presets..."
-        className="w-[150px]"
+        className="w-full lg:w-[150px]"
+        controlClassName="h-10 lg:h-8"
       />
 
       <Input
@@ -176,7 +180,7 @@ export function HistoryFiltersBar({ search, action, trigger, status, dateFrom, d
           replaceFilters({ ...currentFilterValues(), dateFrom: val });
         }}
         aria-label="Date from"
-        className="w-[140px]"
+        className="h-10 w-full lg:h-8 lg:w-[140px]"
       />
 
       <Input
@@ -189,7 +193,7 @@ export function HistoryFiltersBar({ search, action, trigger, status, dateFrom, d
           replaceFilters({ ...currentFilterValues(), dateTo: val });
         }}
         aria-label="Date to"
-        className="w-[140px]"
+        className="h-10 w-full lg:h-8 lg:w-[140px]"
       />
 
       <Input
@@ -197,7 +201,7 @@ export function HistoryFiltersBar({ search, action, trigger, status, dateFrom, d
         value={searchValue}
         onChange={(event) => setSearchValue(event.target.value)}
         aria-label="Search history"
-        className="max-w-[280px]"
+        className="h-10 w-full sm:col-span-2 lg:h-8 lg:max-w-[280px]"
       />
     </div>
   );

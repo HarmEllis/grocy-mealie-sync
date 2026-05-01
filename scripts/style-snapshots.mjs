@@ -1,13 +1,30 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import net from 'node:net';
 
 import { chromium } from 'playwright';
 
 const HOST = '127.0.0.1';
-const STARTUP_TIMEOUT_MS = 30_000;
+const STARTUP_TIMEOUT_MS = 45_000;
+const NAVIGATION_TIMEOUT_MS = 25_000;
+const STEP_DELAY_MS = 700;
 
-const settingsBody = {
+const argLabel = process.argv.find(arg => arg.startsWith('--label='));
+const runLabel = (argLabel ? argLabel.slice('--label='.length) : 'before').trim() || 'before';
+const outputDir = path.join(process.cwd(), 'artifacts', 'style-snapshots', runLabel);
+
+const STATIC_ROUTES = [
+  { path: '/', file: 'dashboard.png' },
+  { path: '/mapping', file: 'mapping.png' },
+  { path: '/history', file: 'history.png' },
+  { path: '/settings', file: 'settings.png' },
+  { path: '/api-endpoints', file: 'api-endpoints.png' },
+  { path: '/login', file: 'login.png' },
+];
+
+const SETTINGS_BODY = {
   defaultUnitMappingId: 'unit-map-1',
   mealieShoppingListId: 'list-2',
   autoCreateProducts: false,
@@ -17,6 +34,8 @@ const settingsBody = {
   mealieInPossessionOnlyAboveMinStock: false,
   mappingWizardMinStockStep: '1',
   stockOnlyMinStock: false,
+  cleanupCheckedItemsAfterHours: -1,
+  cleanupCheckedItemsMode: 'all',
   syncSubProducts: false,
   syncParentOwnStock: false,
   locks: {
@@ -38,8 +57,6 @@ const settingsBody = {
     syncSubProducts: { locked: false, envVar: 'SYNC_SUB_PRODUCTS', envValue: null },
     syncParentOwnStock: { locked: false, envVar: 'SYNC_PARENT_OWN_STOCK', envValue: null },
   },
-  cleanupCheckedItemsAfterHours: -1,
-  cleanupCheckedItemsMode: 'all',
   availableUnits: [
     {
       id: 'unit-map-1',
@@ -61,30 +78,6 @@ const settingsBody = {
     { id: 'list-2', name: 'Weekend' },
   ],
 };
-
-async function getAvailablePort() {
-  return await new Promise((resolve, reject) => {
-    const server = net.createServer();
-
-    server.once('error', reject);
-    server.listen(0, HOST, () => {
-      const address = server.address();
-      if (!address || typeof address === 'string') {
-        server.close(() => reject(new Error('Could not determine an available port.')));
-        return;
-      }
-
-      server.close(error => {
-        if (error) {
-          reject(error);
-          return;
-        }
-
-        resolve(address.port);
-      });
-    });
-  });
-}
 
 function spawnNpmProcess(args, envOverrides = {}) {
   const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -108,11 +101,32 @@ function spawnNpmProcess(args, envOverrides = {}) {
 function startDevServer(port) {
   return spawnNpmProcess(['run', 'dev', '--', '--hostname', HOST, '--port', String(port)], {
     AUTH_ENABLED: 'false',
+    HISTORY_RETENTION_DAYS: '30',
   });
 }
 
-function buildTargetUrl(port) {
-  return `http://${HOST}:${port}`;
+async function getAvailablePort() {
+  return await new Promise((resolve, reject) => {
+    const server = net.createServer();
+
+    server.once('error', reject);
+    server.listen(0, HOST, () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        server.close(() => reject(new Error('Could not determine an available port.')));
+        return;
+      }
+
+      server.close(error => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve(address.port);
+      });
+    });
+  });
 }
 
 async function canReachPage(url, timeoutMs) {
@@ -194,20 +208,30 @@ async function stopServer(child) {
 }
 
 async function configureRoutes(page) {
-  let lastPutBody = null;
+  await page.route('**/api/status', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        lastGrocyPoll: '2026-01-10T12:00:00.000Z',
+        lastMealiePoll: '2026-01-10T12:02:00.000Z',
+        grocyBelowMinStockCount: 3,
+        mealieTrackedItemsCount: 7,
+      }),
+    });
+  });
 
   await page.route('**/api/settings', async route => {
     if (route.request().method() === 'GET') {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(settingsBody),
+        body: JSON.stringify(SETTINGS_BODY),
       });
       return;
     }
 
     if (route.request().method() === 'PUT') {
-      lastPutBody = route.request().postDataJSON();
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -219,14 +243,72 @@ async function configureRoutes(page) {
     await route.continue();
   });
 
-  return {
-    getLastPutBody: () => lastPutBody,
-  };
+  await page.route('**/api/mapping-wizard/**', async route => {
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Unavailable in screenshot mode' }),
+    });
+  });
+
+  await page.route('**/api/sync/**', async route => {
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Unavailable in screenshot mode' }),
+    });
+  });
+}
+
+function sanitizeHistoryDetailId(value) {
+  return value.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80);
+}
+
+async function screenshotRoute(page, baseUrl, routePath, outputPath) {
+  await page.goto(`${baseUrl}${routePath}`, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS });
+  await page.waitForTimeout(STEP_DELAY_MS);
+
+  await page.screenshot({
+    path: outputPath,
+    fullPage: true,
+    animations: 'disabled',
+  });
+}
+
+async function maybeScreenshotHistoryDetail(page, baseUrl) {
+  await page.goto(`${baseUrl}/history`, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS });
+  await page.waitForTimeout(STEP_DELAY_MS);
+
+  const firstDetailsLink = page.locator('a[href^="/history/"]').first();
+  if (await firstDetailsLink.count() === 0) {
+    return null;
+  }
+
+  const href = await firstDetailsLink.getAttribute('href');
+  if (!href) {
+    return null;
+  }
+
+  await page.goto(`${baseUrl}${href}`, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS });
+  await page.waitForTimeout(STEP_DELAY_MS);
+
+  const runId = href.split('/').pop() ?? 'detail';
+  const fileName = `history-${sanitizeHistoryDetailId(runId)}.png`;
+  const filePath = path.join(outputDir, fileName);
+  await page.screenshot({
+    path: filePath,
+    fullPage: true,
+    animations: 'disabled',
+  });
+
+  return fileName;
 }
 
 async function main() {
+  await fs.mkdir(outputDir, { recursive: true });
+
   const port = await getAvailablePort();
-  const targetUrl = buildTargetUrl(port);
+  const targetUrl = `http://${HOST}:${port}`;
   const server = startDevServer(port);
 
   try {
@@ -238,49 +320,59 @@ async function main() {
     });
 
     try {
-      const page = await browser.newPage();
-      page.setDefaultTimeout(20_000);
-
-      const { getLastPutBody } = await configureRoutes(page);
-
-      await page.addInitScript(() => {
-        window.localStorage.setItem('gms:theme', 'dark');
+      const context = await browser.newContext({
+        viewport: { width: 1440, height: 900 },
       });
 
-      await page.goto(`${targetUrl}/settings`, { waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(3_000);
+      await context.addInitScript(() => {
+        window.localStorage.setItem('gms:theme', 'dark');
+        window.localStorage.setItem('gms:accent', 'amber');
+      });
 
-      const nativeSelects = page.locator('main select[data-slot="native-select"]');
-      if (await nativeSelects.count() !== 0) {
-        throw new Error('Expected the settings page to use custom dark-mode-safe selectors, but native selects are still rendered.');
+      const page = await context.newPage();
+      page.setDefaultTimeout(NAVIGATION_TIMEOUT_MS);
+
+      await configureRoutes(page);
+
+      await page.addStyleTag({
+        content: `
+          *, *::before, *::after {
+            animation: none !important;
+            transition: none !important;
+            caret-color: transparent !important;
+          }
+        `,
+      }).catch(() => {
+        // Added again per-page via screenshot options if this runs too early.
+      });
+
+      for (const route of STATIC_ROUTES) {
+        const filePath = path.join(outputDir, route.file);
+        await screenshotRoute(page, targetUrl, route.path, filePath);
       }
 
-      const shoppingListCombobox = page.getByRole('combobox', { name: 'Mealie shopping list' });
-      await shoppingListCombobox.click();
+      const detailFile = await maybeScreenshotHistoryDetail(page, targetUrl);
 
-      const listbox = page.getByRole('listbox');
-      await listbox.waitFor();
+      const summary = {
+        label: runLabel,
+        createdAt: new Date().toISOString(),
+        baseUrl: targetUrl,
+        files: [
+          ...STATIC_ROUTES.map(route => route.file),
+          ...(detailFile ? [detailFile] : []),
+        ],
+      };
 
-      const backgroundColor = await listbox.evaluate(element => getComputedStyle(element).backgroundColor);
-      if (backgroundColor === 'rgb(255, 255, 255)') {
-        throw new Error(`Expected the dark-mode dropdown to render with a dark popover background, but got ${backgroundColor}.`);
-      }
-
-      await page.getByRole('option', { name: 'Groceries' }).click();
-      await page.waitForTimeout(250);
-
-      const putBody = getLastPutBody();
-      if (!putBody || putBody.mealieShoppingListId !== 'list-1') {
-        throw new Error(`Expected selecting a shopping list to save "list-1", but got ${JSON.stringify(putBody)}.`);
-      }
-
-      console.log('[Playwright] Settings page uses custom dark-mode-safe selectors and saves selections.');
+      await fs.writeFile(path.join(outputDir, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+      await context.close();
     } finally {
       await browser.close();
     }
   } finally {
     await stopServer(server);
   }
+
+  console.log(`Saved style snapshots to ${path.relative(process.cwd(), outputDir)}`);
 }
 
 await main();
