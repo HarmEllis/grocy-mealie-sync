@@ -12,11 +12,11 @@ interface ThemeContextValue {
   setAccent: (next: AccentMode) => void;
 }
 
-const THEME_STORAGE_KEY = 'gms:theme';
-const ACCENT_STORAGE_KEY = 'gms:accent';
+export const THEME_STORAGE_KEY = 'gms:theme';
+export const ACCENT_STORAGE_KEY = 'gms:accent';
 
-const DEFAULT_THEME: ThemeMode = 'dark';
-const DEFAULT_ACCENT: AccentMode = 'amber';
+export const DEFAULT_THEME: ThemeMode = 'dark';
+export const DEFAULT_ACCENT: AccentMode = 'amber';
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 

@@ -20,14 +20,7 @@ const badgeToneClasses: Record<BadgeTone, string> = {
 
 export function AppCard({ className, ...props }: React.ComponentProps<typeof Card>) {
   return (
-    <Card
-      className={cn(
-        'rounded-2xl border-[var(--card-border)] bg-[var(--card-bg)] text-card-foreground',
-        'backdrop-blur-[20px] shadow-[0_4px_24px_rgba(0,0,0,0.25),inset_0_1px_0_rgba(255,255,255,0.05)]',
-        className,
-      )}
-      {...props}
-    />
+    <Card className={className} {...props} />
   );
 }
 

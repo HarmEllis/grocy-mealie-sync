@@ -1,6 +1,7 @@
 import { MappingWizard } from '@/components/mapping-wizard/MappingWizard';
 import type { WizardTab } from '@/components/mapping-wizard/state';
 import { AppCard } from '@/components/redesign/primitives';
+import { PageHeader } from '@/components/layout/PageHeader';
 import { config } from '@/lib/config';
 
 const WIZARD_TABS: WizardTab[] = ['units', 'products', 'grocy-min-stock', 'mapped-products', 'conflicts'];
@@ -26,12 +27,10 @@ export default async function MappingPage({
 
   return (
     <div className="flex min-h-full flex-col gap-5">
-      <div>
-        <h1 className="text-2xl font-extrabold tracking-tight text-text-1">Product Mapping</h1>
-        <p className="mt-1 text-sm text-text-2">
-          Map Mealie items to existing Grocy items, or create new ones. Start with units, then products.
-        </p>
-      </div>
+      <PageHeader
+        title="Product Mapping"
+        subtitle="Map Mealie items to existing Grocy items, or create new ones. Start with units, then products."
+      />
 
       <AppCard className="flex min-h-[calc(100vh-220px)] flex-col overflow-hidden">
         <MappingWizard

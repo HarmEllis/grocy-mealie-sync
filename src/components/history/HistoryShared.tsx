@@ -1,6 +1,7 @@
 import { History as HistoryIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { AppCard } from '@/components/redesign/primitives';
+import { PageHeader } from '@/components/layout/PageHeader';
 import { cn } from '@/lib/utils';
 import { formatHistoryStatusLabel } from '@/lib/history-events';
 import type { HistoryRunStatus } from '@/lib/history-types';
@@ -32,10 +33,10 @@ export function HistoryStatusBadge({ status }: { status: HistoryRunStatus }) {
 export function HistoryDisabledState() {
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-extrabold tracking-tight text-text-1">History</h1>
-        <p className="mt-1 text-sm text-text-2">Operational audit trail for sync runs and manual actions across the web UI and MCP server.</p>
-      </div>
+      <PageHeader
+        title="History"
+        subtitle="Operational audit trail for sync runs and manual actions across the web UI and MCP server."
+      />
 
       <AppCard>
         <div className="flex items-center gap-2 text-base font-bold tracking-tight">

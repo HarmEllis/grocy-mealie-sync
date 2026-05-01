@@ -8,6 +8,7 @@ import { formatDateTime } from '@/lib/date-time';
 import { formatHistoryActionLabel, formatHistoryTriggerLabel } from '@/lib/history-events';
 import { getHistoryFeatureState, listHistoryRuns } from '@/lib/history-store';
 import { HistoryDisabledState, HistoryStatusBadge } from '@/components/history/HistoryShared';
+import { PageHeader } from '@/components/layout/PageHeader';
 import { resolveHistoryFilters } from './history-filters';
 import { HistoryFiltersBar } from './HistoryFiltersBar';
 
@@ -53,12 +54,12 @@ export default async function HistoryPage({
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-extrabold tracking-tight text-text-1">History</h1>
-        <p className="mt-1 text-sm text-text-2">
-          Operational audit trail for sync runs and manual actions. Retention: {historyState.retentionDays} day{historyState.retentionDays === 1 ? '' : 's'}.
-        </p>
-      </div>
+      <PageHeader
+        title="History"
+        subtitle={
+          <>Operational audit trail for sync runs and manual actions. Retention: {historyState.retentionDays} day{historyState.retentionDays === 1 ? '' : 's'}.</>
+        }
+      />
 
       <AppCard className="p-0">
         <div className="border-b border-border px-4 py-3">

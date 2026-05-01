@@ -1,16 +1,14 @@
 import { SettingsForm } from '@/components/settings/SettingsForm';
 import { SyncRecoveryControls } from '@/components/sync/SyncRecoveryControls';
 import { AppCardSection } from '@/components/redesign/primitives';
+import { PageHeader } from '@/components/layout/PageHeader';
 
 export const dynamic = 'force-dynamic';
 
 export default function SettingsPage() {
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-extrabold tracking-tight text-text-1">Settings</h1>
-        <p className="mt-1 text-sm text-text-2">Sync behaviour and defaults.</p>
-      </div>
+      <PageHeader title="Settings" subtitle="Sync behaviour and defaults." />
 
       <AppCardSection
         title="Configuration"

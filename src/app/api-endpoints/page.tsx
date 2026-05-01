@@ -1,4 +1,5 @@
 import { AppBadge, AppCard } from '@/components/redesign/primitives';
+import { PageHeader } from '@/components/layout/PageHeader';
 import { API_ENDPOINTS } from '@/lib/api-endpoints';
 
 export const dynamic = 'force-dynamic';
@@ -6,10 +7,10 @@ export const dynamic = 'force-dynamic';
 export default function ApiEndpointsPage() {
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-extrabold tracking-tight text-text-1">API Endpoints</h1>
-        <p className="mt-1 text-sm text-text-2">Available REST API routes for integrations and manual operations.</p>
-      </div>
+      <PageHeader
+        title="API Endpoints"
+        subtitle="Available REST API routes for integrations and manual operations."
+      />
 
       <AppCard className="overflow-hidden p-0">
         <div className="overflow-x-auto">

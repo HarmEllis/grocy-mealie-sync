@@ -3,6 +3,7 @@ import { JetBrains_Mono, Plus_Jakarta_Sans } from 'next/font/google';
 import { cn } from '@/lib/utils';
 import { Toaster } from '@/components/ui/sonner';
 import { ThemeProvider } from '@/components/theme/ThemeProvider';
+import { ThemeScript } from '@/components/theme/ThemeScript';
 import { AppShell } from '@/components/layout/AppShell';
 import { getAuthConfig } from '@/lib/auth';
 
@@ -32,6 +33,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={cn('font-sans antialiased', plusJakartaSans.variable, jetBrainsMono.variable)}
       suppressHydrationWarning
     >
+      <head>
+        <ThemeScript />
+      </head>
       <body>
         <ThemeProvider>
           <AppShell authEnabled={authEnabled}>{children}</AppShell>
