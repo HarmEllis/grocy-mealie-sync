@@ -1707,24 +1707,56 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
             ))}
           </div>
 
-          <div className="-mx-2 overflow-x-auto border-b border-border px-2 pb-0.5">
-            <TabsList variant="line" className="min-w-max gap-0 bg-transparent p-0">
-              <TabsTrigger value="units" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary">
-                Units{unitsData ? ` (${unitsData.unmappedMealieUnits.length} unmapped)` : ''}
-              </TabsTrigger>
-              <TabsTrigger value="products" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary">
-                Products{productsData ? ` (${productsData.unmappedMealieFoods.length} unmapped)` : ''}
-              </TabsTrigger>
-              <TabsTrigger value="grocy-min-stock" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary">
-                Grocy Min Stock{grocyMinStockData ? ` (${grocyMinStockData.unmappedGrocyMinStockProducts.length} unmapped)` : ''}
-              </TabsTrigger>
-              <TabsTrigger value="mapped-products" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary">
-                Mapped Products{mappedProductsData ? ` (${mappedProductsData.mappedProducts.length})` : ''}
-              </TabsTrigger>
-              <TabsTrigger value="conflicts" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary">
-                Conflicts{conflictsData ? ` (${conflictsData.conflicts.length} open)` : ''}
-              </TabsTrigger>
-            </TabsList>
+          <div className="relative">
+            <div className="-mx-2 overflow-x-auto overflow-y-hidden border-b border-border px-2 pb-0.5">
+              <TabsList variant="line" className="h-10 min-w-max gap-0 bg-transparent p-0 md:h-8">
+                <TabsTrigger
+                  value="units"
+                  aria-label="Units"
+                  className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"
+                >
+                  <span>Units</span>
+                  {unitsData ? <span className="hidden sm:inline">{` (${unitsData.unmappedMealieUnits.length} unmapped)`}</span> : null}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="products"
+                  aria-label="Products"
+                  className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"
+                >
+                  <span>Products</span>
+                  {productsData ? <span className="hidden sm:inline">{` (${productsData.unmappedMealieFoods.length} unmapped)`}</span> : null}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="grocy-min-stock"
+                  aria-label="Grocy Min Stock"
+                  className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"
+                >
+                  <span className="sm:hidden">Min Stock</span>
+                  <span className="hidden sm:inline">
+                    Grocy Min Stock{grocyMinStockData ? ` (${grocyMinStockData.unmappedGrocyMinStockProducts.length} unmapped)` : ''}
+                  </span>
+                </TabsTrigger>
+                <TabsTrigger
+                  value="mapped-products"
+                  aria-label="Mapped Products"
+                  className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"
+                >
+                  <span className="sm:hidden">Mapped</span>
+                  <span className="hidden sm:inline">
+                    Mapped Products{mappedProductsData ? ` (${mappedProductsData.mappedProducts.length})` : ''}
+                  </span>
+                </TabsTrigger>
+                <TabsTrigger
+                  value="conflicts"
+                  aria-label="Conflicts"
+                  className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"
+                >
+                  <span>Conflicts</span>
+                  {conflictsData ? <span className="hidden sm:inline">{` (${conflictsData.conflicts.length} open)`}</span> : null}
+                </TabsTrigger>
+              </TabsList>
+            </div>
+            <p className="mt-1 text-[11px] text-text-3 md:hidden">Swipe tabs to view all sections.</p>
           </div>
 
           <TabsContent value={tab} className="mt-4 flex min-h-0 min-w-0 flex-1 flex-col">
@@ -2056,21 +2088,22 @@ function WizardFooter({
   onCreateMealieProducts,
 }: WizardFooterProps) {
   const isRunning = !!actionRunning;
+  const actionButtonClassName = 'h-10 w-full justify-start sm:h-7 sm:w-auto sm:justify-center';
 
   let actions: React.ReactNode = null;
 
   if (tab === 'units') {
     actions = (
       <>
-        <Button size="sm" onClick={onSyncUnits} disabled={isRunning || unitMappedCount === 0}>
+        <Button size="sm" className={actionButtonClassName} onClick={onSyncUnits} disabled={isRunning || unitMappedCount === 0}>
           {actionRunning === 'syncUnits' ? <Loader2 className="size-4 animate-spin" /> : <Link className="size-4" />}
           {actionRunning === 'syncUnits' ? 'Syncing...' : `Sync Mapped (${unitMappedCount})`}
         </Button>
-        <Button variant="secondary" size="sm" onClick={onCreateUnits} disabled={isRunning || checkedUnitCount === 0}>
+        <Button variant="secondary" size="sm" className={actionButtonClassName} onClick={onCreateUnits} disabled={isRunning || checkedUnitCount === 0}>
           {actionRunning === 'createUnits' ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
           {actionRunning === 'createUnits' ? 'Creating...' : `Create Checked in Grocy (${checkedUnitCount})`}
         </Button>
-        <Button variant="destructive" size="sm" onClick={onDeleteOrphanUnits} disabled={isRunning || orphanUnitCount === 0}>
+        <Button variant="destructive" size="sm" className={actionButtonClassName} onClick={onDeleteOrphanUnits} disabled={isRunning || orphanUnitCount === 0}>
           <Trash2 className="size-4" />
           Delete Grocy Orphans ({orphanUnitCount})
         </Button>
@@ -2081,11 +2114,11 @@ function WizardFooter({
   if (tab === 'grocy-min-stock') {
     actions = (
       <>
-        <Button size="sm" onClick={onSyncGrocyMinStockProducts} disabled={isRunning || grocyMinStockProductMappedCount === 0}>
+        <Button size="sm" className={actionButtonClassName} onClick={onSyncGrocyMinStockProducts} disabled={isRunning || grocyMinStockProductMappedCount === 0}>
           {actionRunning === 'syncGrocyMinStockProducts' ? <Loader2 className="size-4 animate-spin" /> : <Link className="size-4" />}
           {actionRunning === 'syncGrocyMinStockProducts' ? 'Syncing...' : `Sync Mapped (${grocyMinStockProductMappedCount})`}
         </Button>
-        <Button variant="secondary" size="sm" onClick={onCreateMealieProducts} disabled={isRunning || checkedGrocyMinStockProductCount === 0}>
+        <Button variant="secondary" size="sm" className={actionButtonClassName} onClick={onCreateMealieProducts} disabled={isRunning || checkedGrocyMinStockProductCount === 0}>
           {actionRunning === 'createMealieProducts' ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
           {actionRunning === 'createMealieProducts' ? 'Creating...' : `Create Checked in Mealie (${checkedGrocyMinStockProductCount})`}
         </Button>
@@ -2094,15 +2127,15 @@ function WizardFooter({
   } else if (tab === 'products') {
     actions = (
       <>
-        <Button size="sm" onClick={onSyncProducts} disabled={isRunning || productMappedCount === 0}>
+        <Button size="sm" className={actionButtonClassName} onClick={onSyncProducts} disabled={isRunning || productMappedCount === 0}>
           {actionRunning === 'syncProducts' ? <Loader2 className="size-4 animate-spin" /> : <Link className="size-4" />}
           {actionRunning === 'syncProducts' ? 'Syncing...' : `Sync Mapped (${productMappedCount})`}
         </Button>
-        <Button variant="secondary" size="sm" onClick={onCreateProducts} disabled={isRunning || !defaultCreateUnitId || checkedProductCount === 0}>
+        <Button variant="secondary" size="sm" className={actionButtonClassName} onClick={onCreateProducts} disabled={isRunning || !defaultCreateUnitId || checkedProductCount === 0}>
           {actionRunning === 'createProducts' ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
           {actionRunning === 'createProducts' ? 'Creating...' : `Create Checked in Grocy (${checkedProductCount})`}
         </Button>
-        <Button variant="destructive" size="sm" onClick={onDeleteOrphanProducts} disabled={isRunning || orphanProductCount === 0}>
+        <Button variant="destructive" size="sm" className={actionButtonClassName} onClick={onDeleteOrphanProducts} disabled={isRunning || orphanProductCount === 0}>
           <Trash2 className="size-4" />
           Delete Grocy Orphans ({orphanProductCount})
         </Button>
@@ -2111,8 +2144,8 @@ function WizardFooter({
   }
 
   return (
-    <div className="flex flex-row flex-wrap items-center justify-between gap-2">
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+      <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
         {actions}
       </div>
       <Button
@@ -2122,7 +2155,7 @@ function WizardFooter({
         onClick={onRefreshTab}
         disabled={isRunning || currentTabLoading}
         aria-label={`Refresh ${tabLabel}`}
-        className="ml-auto"
+        className="h-10 w-full justify-start sm:ml-auto sm:h-7 sm:w-auto sm:justify-center"
       >
         {currentTabLoading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
         {currentTabLoading ? `Refreshing ${tabLabel}...` : `Refresh ${tabLabel}`}

@@ -104,43 +104,74 @@ export default async function HistoryPage({
               : 'No sync or manual actions have been recorded yet.'}
           </p>
         ) : (
-          <Table className="min-w-[980px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Started</TableHead>
-                <TableHead>Action</TableHead>
-                <TableHead>Trigger</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Duration</TableHead>
-                <TableHead>Events</TableHead>
-                <TableHead>Message</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+          <>
+            <div className="space-y-3 p-3 md:hidden">
               {runs.map(run => (
-                <TableRow key={run.id} className="group">
-                  <TableCell className="font-mono text-xs text-text-2">
+                <div key={run.id} className="rounded-lg border border-border bg-bg-1 p-3">
+                  <div className="mb-2 flex items-start justify-between gap-2">
+                    <p className="text-sm font-semibold text-text-1">{formatHistoryActionLabel(run.action)}</p>
+                    <HistoryStatusBadge status={run.status} />
+                  </div>
+                  <p className="mb-2 font-mono text-xs text-text-3">
                     {formatDateTime(run.startedAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}
-                  </TableCell>
-                  <TableCell className="font-semibold">{formatHistoryActionLabel(run.action)}</TableCell>
-                  <TableCell>{formatHistoryTriggerLabel(run.trigger)}</TableCell>
-                  <TableCell><HistoryStatusBadge status={run.status} /></TableCell>
-                  <TableCell className="font-mono text-xs text-text-2">{formatDurationMs(run.finishedAt.getTime() - run.startedAt.getTime())}</TableCell>
-                  <TableCell>{run.eventCount}</TableCell>
-                  <TableCell className="max-w-xs truncate text-sm text-muted-foreground">
-                    {run.message ?? 'No summary message'}
-                  </TableCell>
-                  <TableCell>
-                    <Link href={`/history/${run.id}`} className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
-                      <ExternalLink className="size-4" />
-                      Details
-                    </Link>
-                  </TableCell>
-                </TableRow>
+                  </p>
+                  <div className="mb-2 grid grid-cols-2 gap-2 text-xs text-text-2">
+                    <span>Trigger: {formatHistoryTriggerLabel(run.trigger)}</span>
+                    <span>Duration: {formatDurationMs(run.finishedAt.getTime() - run.startedAt.getTime())}</span>
+                    <span>Events: {run.eventCount}</span>
+                  </div>
+                  <p className="mb-3 text-sm text-muted-foreground">{run.message ?? 'No summary message'}</p>
+                  <Link
+                    href={`/history/${run.id}`}
+                    className={buttonVariants({ variant: 'ghost', size: 'sm', className: 'h-10 w-full justify-center' })}
+                  >
+                    <ExternalLink className="size-4" />
+                    Details
+                  </Link>
+                </div>
               ))}
-            </TableBody>
-          </Table>
+            </div>
+
+            <div className="hidden md:block">
+              <Table className="min-w-[980px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Started</TableHead>
+                    <TableHead>Action</TableHead>
+                    <TableHead>Trigger</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Duration</TableHead>
+                    <TableHead>Events</TableHead>
+                    <TableHead>Message</TableHead>
+                    <TableHead />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {runs.map(run => (
+                    <TableRow key={run.id} className="group">
+                      <TableCell className="font-mono text-xs text-text-2">
+                        {formatDateTime(run.startedAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}
+                      </TableCell>
+                      <TableCell className="font-semibold">{formatHistoryActionLabel(run.action)}</TableCell>
+                      <TableCell>{formatHistoryTriggerLabel(run.trigger)}</TableCell>
+                      <TableCell><HistoryStatusBadge status={run.status} /></TableCell>
+                      <TableCell className="font-mono text-xs text-text-2">{formatDurationMs(run.finishedAt.getTime() - run.startedAt.getTime())}</TableCell>
+                      <TableCell>{run.eventCount}</TableCell>
+                      <TableCell className="max-w-xs truncate text-sm text-muted-foreground">
+                        {run.message ?? 'No summary message'}
+                      </TableCell>
+                      <TableCell>
+                        <Link href={`/history/${run.id}`} className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+                          <ExternalLink className="size-4" />
+                          Details
+                        </Link>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </>
         )}
       </AppCard>
 

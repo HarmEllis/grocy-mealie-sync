@@ -23,10 +23,10 @@ interface AppShellProps {
 }
 
 const NAV_ITEMS = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/mapping', label: 'Product Mapping', icon: Link2 },
-  { href: '/history', label: 'History', icon: History },
-  { href: '/settings', label: 'Settings', icon: Settings2 },
+  { href: '/', label: 'Dashboard', mobileLabel: 'Dashboard', icon: LayoutDashboard },
+  { href: '/mapping', label: 'Product Mapping', mobileLabel: 'Mapping', icon: Link2 },
+  { href: '/history', label: 'History', mobileLabel: 'History', icon: History },
+  { href: '/settings', label: 'Settings', mobileLabel: 'Settings', icon: Settings2 },
 ] as const;
 
 const ACCENT_OPTIONS = [
@@ -278,12 +278,12 @@ export function AppShell({ children, authEnabled }: AppShellProps) {
               key={item.href}
               href={item.href}
               className={cn(
-                'flex flex-1 flex-col items-center gap-1 px-1 py-1 text-[10px] font-semibold',
+                'flex min-h-12 flex-1 flex-col items-center justify-center gap-1 px-1.5 py-1.5 text-[11px] font-semibold',
                 active ? 'text-primary' : 'text-text-3',
               )}
             >
-              <item.icon className="size-4" />
-              <span>{item.label}</span>
+              <item.icon className="size-[18px]" />
+              <span className="leading-none">{item.mobileLabel}</span>
             </Link>
           );
         })}

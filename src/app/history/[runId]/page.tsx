@@ -156,26 +156,21 @@ export default async function HistoryDetailPage({ params }: HistoryDetailPagePro
         {visibleEvents.length === 0 ? (
           <p className="px-4 py-6 text-sm text-muted-foreground">No detail events were recorded for this run.</p>
         ) : (
-          <Table className="min-w-[1040px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Time</TableHead>
-                <TableHead>Level</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Message</TableHead>
-                <TableHead>Details</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+          <>
+            <div className="space-y-3 p-3 md:hidden">
               {visibleEvents.map(event => (
-                <TableRow key={event.id}>
-                  <TableCell className="font-mono text-xs text-text-2">
+                <div key={event.id} className="rounded-lg border border-border bg-bg-1 p-3">
+                  <div className="mb-2 flex items-start justify-between gap-2">
+                    <p className="text-sm font-semibold text-text-1">{event.category}</p>
+                    <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-semibold uppercase text-muted-foreground">
+                      {event.level}
+                    </span>
+                  </div>
+                  <p className="mb-2 font-mono text-xs text-text-3">
                     {formatDateTime(event.createdAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}
-                  </TableCell>
-                  <TableCell className="uppercase text-xs text-muted-foreground">{event.level}</TableCell>
-                  <TableCell>{event.category}</TableCell>
-                  <TableCell className="max-w-md whitespace-normal">{normalizeHistoryEventMessage(event.message)}</TableCell>
-                  <TableCell className="max-w-md whitespace-normal">
+                  </p>
+                  <p className="mb-3 text-sm text-text-2">{normalizeHistoryEventMessage(event.message)}</p>
+                  <div className="text-sm">
                     {event.details === null ? (
                       <span className="text-xs text-muted-foreground">No details</span>
                     ) : (
@@ -186,11 +181,49 @@ export default async function HistoryDetailPage({ params }: HistoryDetailPagePro
                         </div>
                       </details>
                     )}
-                  </TableCell>
-                </TableRow>
+                  </div>
+                </div>
               ))}
-            </TableBody>
-          </Table>
+            </div>
+
+            <div className="hidden md:block">
+              <Table className="min-w-[1040px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Time</TableHead>
+                    <TableHead>Level</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Message</TableHead>
+                    <TableHead>Details</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {visibleEvents.map(event => (
+                    <TableRow key={event.id}>
+                      <TableCell className="font-mono text-xs text-text-2">
+                        {formatDateTime(event.createdAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}
+                      </TableCell>
+                      <TableCell className="uppercase text-xs text-muted-foreground">{event.level}</TableCell>
+                      <TableCell>{event.category}</TableCell>
+                      <TableCell className="max-w-md whitespace-normal">{normalizeHistoryEventMessage(event.message)}</TableCell>
+                      <TableCell className="max-w-md whitespace-normal">
+                        {event.details === null ? (
+                          <span className="text-xs text-muted-foreground">No details</span>
+                        ) : (
+                          <details className="rounded-md border border-border bg-bg-2 p-2">
+                            <summary className="cursor-pointer text-xs font-semibold">View payload</summary>
+                            <div className="mt-2">
+                              <JsonBlock value={event.details} />
+                            </div>
+                          </details>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </>
         )}
       </AppCard>
     </div>

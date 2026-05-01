@@ -13,7 +13,25 @@ export default function ApiEndpointsPage() {
       />
 
       <AppCard className="overflow-hidden p-0">
-        <div className="overflow-x-auto">
+        <div className="space-y-2 p-3 md:hidden">
+          {API_ENDPOINTS.map(([method, path, description]) => (
+            <div key={path} className="rounded-lg border border-border bg-bg-1 p-3">
+              <div className="mb-2 flex items-center gap-2">
+                <AppBadge
+                  tone={method === 'GET' ? 'success' : 'accent'}
+                  small
+                  className="font-mono"
+                >
+                  {method}
+                </AppBadge>
+              </div>
+              <p className="mb-2 break-all font-mono text-xs text-text-1">{path}</p>
+              <p className="text-sm text-text-2">{description}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-bg-2">
               <tr>

@@ -245,15 +245,15 @@ export function SettingsForm() {
   return (
     <TooltipProvider>
       <div className="space-y-5">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="flex items-center gap-2">
             <label htmlFor="shopping-list" className="text-sm font-medium">
               Mealie shopping list
             </label>
             <LockBadge lock={settings.locks.mealieShoppingListId} />
           </div>
           {settings.availableShoppingLists.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Could not load shopping lists from Mealie.</p>
+            <p className="text-sm text-muted-foreground sm:text-right">Could not load shopping lists from Mealie.</p>
           ) : (
             <SearchableSelect
               options={shoppingListOptions}
@@ -263,20 +263,21 @@ export function SettingsForm() {
               ariaLabel="Mealie shopping list"
               placeholder="Not set"
               searchPlaceholder="Search shopping lists..."
-              className="ml-auto w-full max-w-xs"
+              className="w-full sm:ml-auto sm:max-w-xs"
+              controlClassName="h-10 sm:h-8"
             />
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="flex items-center gap-2">
             <label htmlFor="default-unit" className="text-sm font-medium">
               Default unit for new Grocy products
             </label>
             <LockBadge lock={settings.locks.defaultUnitMappingId} />
           </div>
           {settings.availableUnits.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No units synced yet. Run a product sync first.</p>
+            <p className="text-sm text-muted-foreground sm:text-right">No units synced yet. Run a product sync first.</p>
           ) : (
             <SearchableSelect
               options={unitOptions}
@@ -286,7 +287,8 @@ export function SettingsForm() {
               ariaLabel="Default unit for new Grocy products"
               placeholder="Not set"
               searchPlaceholder="Search units..."
-              className="ml-auto w-full max-w-xs"
+              className="w-full sm:ml-auto sm:max-w-xs"
+              controlClassName="h-10 sm:h-8"
             />
           )}
         </div>
@@ -442,8 +444,8 @@ export function SettingsForm() {
               Control the step size used by the minimum stock number input in the mapped products overview.
             </p>
           </div>
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+            <div className="flex items-center gap-2">
               <label htmlFor="mapping-wizard-min-stock-step" className="text-sm font-medium">
                 Min stock input step
               </label>
@@ -460,7 +462,8 @@ export function SettingsForm() {
               disabled={settings.locks.mappingWizardMinStockStep.locked}
               ariaLabel="Min stock input step"
               searchPlaceholder="Search step sizes..."
-              className="ml-auto w-full max-w-xs"
+              className="w-full sm:ml-auto sm:max-w-xs"
+              controlClassName="h-10 sm:h-8"
               clearable={false}
             />
           </div>
@@ -507,8 +510,8 @@ export function SettingsForm() {
               Automatically remove checked items from the Mealie shopping list after a configurable time. Runs once per day.
             </p>
           </div>
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+            <div className="flex items-center gap-2">
               <label htmlFor="cleanup-after-hours" className="text-sm font-medium">
                 Remove checked items after (hours)
               </label>
@@ -527,14 +530,14 @@ export function SettingsForm() {
                   void handleCleanupAfterHoursChange(parsed);
                 }
               }}
-              className="ml-auto w-24 rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+              className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm disabled:cursor-not-allowed disabled:opacity-50 sm:ml-auto sm:w-24"
             />
           </div>
           <p className="pl-6 text-xs text-muted-foreground">
             Set to <strong>-1</strong> to disable cleanup. Any positive integer enables cleanup after that many hours.
           </p>
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+            <div className="flex items-center gap-2">
               <label htmlFor="cleanup-mode" className="text-sm font-medium">
                 Cleanup mode
               </label>
@@ -551,7 +554,8 @@ export function SettingsForm() {
               disabled={settings.locks.cleanupCheckedItemsMode.locked}
               ariaLabel="Cleanup mode"
               searchPlaceholder="Search modes..."
-              className="ml-auto w-full max-w-xs"
+              className="w-full sm:ml-auto sm:max-w-xs"
+              controlClassName="h-10 sm:h-8"
               clearable={false}
             />
           </div>
