@@ -26,19 +26,20 @@ When asked to prepare or create a new release tag, complete all of the steps bel
    - add or update targeted migration coverage when needed so release prep tests the specific upgrade path introduced since `<previous-tag>`
 7. Verify the release-prep edits before tagging. At minimum, run `npm run typecheck`, `npm test`, `npm test -- src/lib/db/__tests__/migrations.test.ts`, and any targeted tests needed for files touched during the release prep.
    - If the settings API response shape has changed (fields added or removed in `src/app/api/settings/route.ts` or `src/lib/settings.ts`), verify that the `settingsBody` mock objects in all `scripts/test-*.mjs` Playwright scripts are updated to match. A mismatch causes a silent client-side crash that blocks the tests without a useful error. Run `npm run test:playwright` to confirm all Playwright tests pass before tagging.
-8. Create the git tag only after the changelog, screenshot, version bump, and migration verification are all committed-ready.
+8. Keep the release changes commit-ready first (changelog, screenshot, version bump, and migration verification), but do not push the new `v<x.y.z>` tag yet.
 9. As the final release step, ask the user whether to push the release.
    - only proceed when the user explicitly approves the push
-   - when approved, push the release commit to `main` first, but do not push the new `v<x.y.z>` tag yet
-   - wait for the `CI` workflow for that exact release commit on `main` to complete successfully before pushing the tag
+   - when approved, push the release commit through the repository's allowed path to `main` (typically: push a release branch and merge a PR into `main`)
+   - do not push the new `v<x.y.z>` tag until the release changes are merged into `main`
+   - wait for the `CI` workflow on the merged `main` commit (the commit that now contains the release changes) to complete successfully
    - if the `CI` workflow fails, is cancelled, or never reaches a successful conclusion, stop and do not push the tag or create the GitHub draft release
-   - only after that successful `CI` run may the new `v<x.y.z>` tag be pushed to the remote
+   - only after that successful `CI` run may the new `v<x.y.z>` tag be created or moved to that merged `main` commit and pushed to the remote
    - after the push succeeds, create or update a GitHub draft release for `v<x.y.z>` using the new changelog section as the release notes body, but omit the `## [x.y.z] - YYYY-MM-DD` heading from the body itself
    - keep the short introductory summary paragraph from the changelog section at the top of the GitHub release notes body, before any `### Added`, `### Changed`, or `### Fixed` headings
    - always end the GitHub release notes with `**Full Changelog**: https://github.com/HarmEllis/grocy-mealie-sync/compare/<previous-tag>...v<x.y.z>`
    - if any push, GitHub CLI auth, or GitHub release command fails in a way that may be caused by sandbox/network restrictions, retry that command with escalated permissions before concluding that auth or connectivity is actually broken
    - prefer validating `gh` authentication and running the GitHub release command outside the sandbox when the first sandboxed attempt is inconclusive or reports credential/network problems
-   - if the user does not approve, stop after the local release commit/tag and report that the release has not been pushed or drafted on GitHub
+   - if the user does not approve, stop after the local release commit and report that the release has not been pushed, tagged remotely, or drafted on GitHub
 
 ## Version Format
 
