@@ -8,9 +8,7 @@
   },
   "scripts": {
     "dev": "next dev --turbopack",
-    "dev:webpack": "next dev",
     "build": "next build --turbopack",
-    "build:webpack": "next build",
     "start": "next start",
     "compose-dev:update": "node scripts/update-compose-dev.mjs",
     "db:generate": "drizzle-kit generate",
