@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.11.0] - 2026-05-01
+
+This minor release introduces the v2 route-based UI redesign, improves startup lock handling and mobile responsiveness, and strengthens mapping progress and scheduler safety behavior.
+
+### Added
+
+- Route-based app shell with dedicated dashboard, mapping, settings, history, and API endpoints pages for the redesigned interface.
+- New shared UI primitives and sync/dashboard panels to support the v2 glass-style experience.
+- Startup mutex guard test coverage plus API status/runtime lock enhancements for recovery visibility.
+
+### Changed
+
+- Dashboard, history, mapping wizard, and settings flows were migrated to the redesigned v2 UI with improved readability and interaction patterns.
+- Mapping progress now uses persisted minimum-stock coverage and surfaces urgent unmapped-product indicators more clearly.
+- Searchable select controls were refactored to a Base UI combobox foundation and mobile layouts were refined for mapping/history responsiveness.
+
+### Fixed
+
+- Startup lock visibility and recovery navigation were improved so lock conflicts are easier to identify and resolve.
+- Scheduler mutex behavior now better preserves lock integrity in concurrent startup and shutdown edge cases.
+
 ## [1.10.0] - 2026-04-29
 
 This minor release adds sub-product sync between Grocy and Mealie shopping lists, guards against invalid stock operations on no-own-stock products, and patches a postcss XSS vulnerability.
@@ -244,6 +265,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.11.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.8.1...v1.9.0
 [1.8.1]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.8.0...v1.8.1
