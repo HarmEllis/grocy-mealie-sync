@@ -61,6 +61,23 @@ export default async function HistoryPage({
         }
       />
 
+      <AppCard>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-bold tracking-[0.05em] text-text-2 uppercase">Last 20 runs</p>
+          <div className="flex items-center gap-3 text-[11px] text-text-3">
+            <span className="inline-flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-[2px] bg-[rgba(74,222,128,0.6)]" />
+              Success
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-[2px] bg-[rgba(248,113,113,0.8)]" />
+              Failed
+            </span>
+          </div>
+        </div>
+        <MiniChart runs={recentRunsForChart} />
+      </AppCard>
+
       <AppCard className="p-0">
         <div className="border-b border-border px-4 py-3">
           <HistoryFiltersBar
@@ -125,23 +142,6 @@ export default async function HistoryPage({
             </TableBody>
           </Table>
         )}
-      </AppCard>
-
-      <AppCard>
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs font-bold tracking-[0.05em] text-text-2 uppercase">Last 20 runs</p>
-          <div className="flex items-center gap-3 text-[11px] text-text-3">
-            <span className="inline-flex items-center gap-1">
-              <span className="inline-block h-2 w-2 rounded-[2px] bg-[rgba(74,222,128,0.6)]" />
-              Success
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="inline-block h-2 w-2 rounded-[2px] bg-[rgba(248,113,113,0.8)]" />
-              Failed
-            </span>
-          </div>
-        </div>
-        <MiniChart runs={recentRunsForChart} />
       </AppCard>
 
       <div className="flex">
