@@ -19,9 +19,14 @@ function registerSchedulerShutdownHooks(stopScheduler: () => void) {
     stopScheduler();
   };
 
-  process.once('SIGINT', shutdown);
-  process.once('SIGTERM', shutdown);
-  process.once('exit', shutdown);
+  const processRef = (globalThis as { process?: { once?: (event: string, handler: () => void) => void } }).process;
+  if (!processRef?.once) {
+    return;
+  }
+
+  processRef.once('SIGINT', shutdown);
+  processRef.once('SIGTERM', shutdown);
+  processRef.once('exit', shutdown);
 }
 
 export async function register() {
