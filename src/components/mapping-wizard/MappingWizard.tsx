@@ -1411,7 +1411,7 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
       key: 'products',
       label: 'Products',
       remaining: productsData?.unmappedMealieFoods.length ?? 0,
-      mapped: Object.values(productMaps).filter(mapping => mapping.grocyProductId !== null).length,
+      mapped: productsData?.mappedMealieFoods ?? 0,
       remainingLabel: 'remaining',
       urgent: 0,
     },

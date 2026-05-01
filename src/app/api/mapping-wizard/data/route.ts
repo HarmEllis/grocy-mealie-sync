@@ -423,6 +423,8 @@ async function loadProductsTabData(): Promise<ProductsTabData> {
   const unmappedMealieFoods = buildUnmappedMealieFoods(mealieFoods, existingProductMappings);
 
   return {
+    totalMealieFoods: mealieFoods.length,
+    mappedMealieFoods: Math.max(0, mealieFoods.length - unmappedMealieFoods.length),
     unmappedMealieFoods: toPublicMealieFoods(unmappedMealieFoods),
     grocyProducts,
     grocyUnits: toPublicGrocyUnits(grocyUnits),
