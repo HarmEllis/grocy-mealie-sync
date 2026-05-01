@@ -353,11 +353,36 @@ function waitForGet(page, path) {
   );
 }
 
+async function waitForOptionalGet(page, path, timeoutMs = 5_000) {
+  try {
+    await page.waitForResponse(response =>
+      response.request().method() === 'GET'
+      && new URL(response.url()).pathname + new URL(response.url()).search === path, { timeout: timeoutMs });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'TimeoutError') {
+      return;
+    }
+
+    throw error;
+  }
+}
+
 async function openTab(page, tabName, endpointPath) {
-  await Promise.all([
-    waitForGet(page, endpointPath),
-    page.getByRole('tab', { name: tabName }).click(),
-  ]);
+  const tab = page.getByRole('tab', { name: tabName });
+  const waitForLoad = waitForOptionalGet(page, endpointPath, 20_000);
+
+  await tab.click({ force: true });
+
+  const handle = await tab.elementHandle();
+  if (handle) {
+    await page.waitForFunction(
+      element => element.getAttribute('aria-selected') === 'true',
+      handle,
+      { timeout: 20_000 },
+    );
+  }
+
+  await waitForLoad;
 }
 
 async function refreshCurrentTab(page, buttonName, endpointPath, getCount, expectedCount) {
