@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 interface ShellStatus {
   lastGrocyPoll: string | null;
   lastMealiePoll: string | null;
+  schedulerStatus?: 'active' | 'passive_startup_lock' | 'inactive';
 }
 
 interface AppShellProps {
@@ -115,6 +116,18 @@ export function AppShell({ children, authEnabled }: AppShellProps) {
 
     return timestamps.sort().at(-1) ?? null;
   }, [status]);
+  const schedulerPassiveByStartupLock = status?.schedulerStatus === 'passive_startup_lock';
+  const statusDot: 'success' | 'warning' = statusError || schedulerPassiveByStartupLock ? 'warning' : 'success';
+  const statusLabel = statusError
+    ? 'Status delayed'
+    : schedulerPassiveByStartupLock
+      ? 'Scheduler paused'
+      : 'Healthy';
+  const statusDetail = statusError
+    ? `Last: ${formatShortDate(lastSeen)}`
+    : schedulerPassiveByStartupLock
+      ? 'Startup lock already held'
+      : `Last: ${formatShortDate(lastSeen)}`;
 
   if (pathname.startsWith('/login')) {
     return <>{children}</>;
@@ -173,10 +186,22 @@ export function AppShell({ children, authEnabled }: AppShellProps) {
 
         <div className="border-t border-border px-4 py-3 text-xs">
           <div className="flex items-center gap-2">
-            <AppStatusDot status={statusError ? 'warning' : 'success'} />
-            <span className="font-semibold text-text-2">{statusError ? 'Status delayed' : 'Healthy'}</span>
+            <AppStatusDot status={statusDot} />
+            <span className={cn('font-semibold', schedulerPassiveByStartupLock ? 'text-warning' : 'text-text-2')}>
+              {statusLabel}
+            </span>
           </div>
-          <p className="mt-1 font-mono text-[11px] text-text-3">Last: {formatShortDate(lastSeen)}</p>
+          <p className={cn('mt-1 font-mono text-[11px]', schedulerPassiveByStartupLock ? 'text-warning/90' : 'text-text-3')}>
+            {statusDetail}
+          </p>
+          {schedulerPassiveByStartupLock ? (
+            <Link
+              href="/settings"
+              className="mt-1 inline-block text-[11px] font-semibold text-warning underline underline-offset-2 hover:text-warning/80"
+            >
+              Open settings for lock recovery
+            </Link>
+          ) : null}
         </div>
       </aside>
 

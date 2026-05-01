@@ -11,7 +11,7 @@ import { config } from '@/lib/config';
 import { formatDateTime } from '@/lib/date-time';
 import { cn } from '@/lib/utils';
 import { getSyncState } from '@/lib/sync/state';
-import { getNextCleanupRun } from '@/lib/sync/scheduler';
+import { getNextCleanupRun, getSchedulerRuntimeState, type SchedulerRuntimeStatus } from '@/lib/sync/scheduler';
 import { getHistoryFeatureState, listHistoryRuns } from '@/lib/history-store';
 import { formatHistoryActionLabel } from '@/lib/history-events';
 import type { HistoryRunRecord } from '@/lib/history-store';
@@ -26,6 +26,7 @@ interface DashboardStatus {
   unitMappings: number;
   unmappedMealieFoodsCount: number | null;
   nextCleanupRun: string | Date | null;
+  schedulerStatus: SchedulerRuntimeStatus;
 }
 
 async function getStatus(): Promise<DashboardStatus | null> {
@@ -69,6 +70,7 @@ async function getStatus(): Promise<DashboardStatus | null> {
       unitMappings: unitCount.count,
       unmappedMealieFoodsCount,
       nextCleanupRun,
+      schedulerStatus: getSchedulerRuntimeState().status,
     };
   } catch {
     return null;
@@ -85,7 +87,11 @@ function runDuration(run: HistoryRunRecord): string {
   return `${Math.round(durationMs / 1000)}s`;
 }
 
-function formatNextRunIn(lastPoll: string | Date | null): string {
+function formatNextRunIn(lastPoll: string | Date | null, schedulerStatus: SchedulerRuntimeStatus | null): string {
+  if (schedulerStatus === 'passive_startup_lock') {
+    return '-';
+  }
+
   if (!lastPoll) {
     return 'Unknown';
   }
@@ -108,6 +114,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function Home() {
   const status = await getStatus();
+  const schedulerPassiveByStartupLock = status?.schedulerStatus === 'passive_startup_lock';
   const historyState = getHistoryFeatureState();
   const recentRuns = historyState.enabled ? await listHistoryRuns(4) : [];
   const mostRecentPoll = status
@@ -124,11 +131,30 @@ export default async function Home() {
       <AppCard>
         <div className="flex flex-wrap items-center justify-between gap-6">
           <div className="flex items-center gap-2">
-            <AppStatusDot status={status ? 'success' : 'warning'} pulse={status !== null} />
-            <span className="text-sm font-semibold text-text-1">
-              {status ? 'Sync healthy' : 'Status unavailable'}
+            <AppStatusDot
+              status={status ? (schedulerPassiveByStartupLock ? 'warning' : 'success') : 'warning'}
+              pulse={status !== null}
+            />
+            <span className={cn('text-sm font-semibold', schedulerPassiveByStartupLock ? 'text-warning' : 'text-text-1')}>
+              {status ? (schedulerPassiveByStartupLock ? 'Scheduler paused' : 'Sync healthy') : 'Status unavailable'}
             </span>
           </div>
+          {schedulerPassiveByStartupLock ? (
+            <div className="flex w-full flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold text-warning">
+                Startup lock already held. This instance is passive and the scheduler is not running.
+              </p>
+              <Link
+                href="/settings"
+                className={cn(
+                  buttonVariants({ variant: 'outline', size: 'sm' }),
+                  'h-7 border-warning/40 bg-warning/10 px-2 text-warning hover:border-warning/60 hover:bg-warning/20 dark:border-border dark:bg-bg-2 dark:hover:bg-bg-3',
+                )}
+              >
+                Open settings for lock recovery
+              </Link>
+            </div>
+          ) : null}
 
           <div className="flex flex-wrap gap-6">
             <StatusMeta
@@ -149,7 +175,7 @@ export default async function Home() {
             />
             <StatusMeta
               label="Next run in"
-              value={formatNextRunIn(mostRecentPoll)}
+              value={formatNextRunIn(mostRecentPoll, status?.schedulerStatus ?? null)}
             />
             <StatusMeta
               label="Next cleanup"
@@ -246,7 +272,7 @@ export default async function Home() {
 function StatusMeta({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[11px] font-bold tracking-[0.05em] text-text-3 uppercase">{label}</p>
+      <p className="text-[11px] font-bold tracking-wider text-text-3 uppercase">{label}</p>
       <p className="font-mono text-sm font-semibold text-text-1">{value}</p>
     </div>
   );

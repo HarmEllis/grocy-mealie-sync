@@ -17,12 +17,14 @@ export default function SettingsPage() {
         <SettingsForm />
       </AppCardSection>
 
-      <AppCardSection
-        title="Lock Recovery"
-        subtitle="Clear stale scheduler state after a crash when startup is blocked by old locks."
-      >
-        <SyncRecoveryControls />
-      </AppCardSection>
+      <div id="lock-recovery">
+        <AppCardSection
+          title="Lock Recovery"
+          subtitle="Clear stale scheduler state after a crash when startup is blocked by old locks."
+        >
+          <SyncRecoveryControls />
+        </AppCardSection>
+      </div>
     </div>
   );
 }
