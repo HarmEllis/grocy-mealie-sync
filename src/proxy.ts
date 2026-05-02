@@ -103,10 +103,10 @@ function createAuthMisconfiguredResponse(): NextResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Middleware
+// Proxy
 // ---------------------------------------------------------------------------
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const authConfig = getAuthConfig();
 

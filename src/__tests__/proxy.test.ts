@@ -11,7 +11,7 @@ function createRequest(url: string, init: { headers?: Record<string, string> } =
   return new NextRequest(url, { headers });
 }
 
-describe('middleware auth', () => {
+describe('proxy auth', () => {
   beforeEach(() => {
     process.env = { ...ORIGINAL_ENV };
     delete process.env.AUTH_ENABLED;
@@ -24,9 +24,9 @@ describe('middleware auth', () => {
   });
 
   it('allows API requests when auth is disabled', async () => {
-    const { middleware } = await import('../middleware');
+    const { proxy } = await import('../proxy');
 
-    const response = await middleware(createRequest('http://localhost/api/status'));
+    const response = await proxy(createRequest('http://localhost/api/status'));
 
     expect(response.status).toBe(200);
     expect(response.headers.get('x-middleware-next')).toBe('1');
@@ -36,8 +36,8 @@ describe('middleware auth', () => {
     process.env.AUTH_ENABLED = 'true';
     process.env.AUTH_SECRET = 'top-secret';
 
-    const { middleware } = await import('../middleware');
-    const response = await middleware(createRequest('http://localhost/api/status'));
+    const { proxy } = await import('../proxy');
+    const response = await proxy(createRequest('http://localhost/api/status'));
     const body = await response.json();
 
     expect(response.status).toBe(401);
@@ -48,8 +48,8 @@ describe('middleware auth', () => {
     process.env.AUTH_ENABLED = 'true';
     process.env.AUTH_SECRET = 'top-secret';
 
-    const { middleware } = await import('../middleware');
-    const response = await middleware(createRequest('http://localhost/'));
+    const { proxy } = await import('../proxy');
+    const response = await proxy(createRequest('http://localhost/'));
 
     expect(response.status).toBe(307);
     expect(response.headers.get('location')).toBe('http://localhost/login');
@@ -61,9 +61,9 @@ describe('middleware auth', () => {
 
     const { createSessionCookieValue } = await import('../lib/auth');
     const sessionCookie = await createSessionCookieValue('top-secret');
-    const { middleware } = await import('../middleware');
+    const { proxy } = await import('../proxy');
 
-    const response = await middleware(createRequest('http://localhost/', {
+    const response = await proxy(createRequest('http://localhost/', {
       headers: {
         cookie: `__session=${sessionCookie}`,
       },
@@ -76,8 +76,8 @@ describe('middleware auth', () => {
   it('returns 503 for protected API requests when auth is enabled but misconfigured', async () => {
     process.env.AUTH_ENABLED = 'true';
 
-    const { middleware } = await import('../middleware');
-    const response = await middleware(createRequest('http://localhost/api/status'));
+    const { proxy } = await import('../proxy');
+    const response = await proxy(createRequest('http://localhost/api/status'));
     const body = await response.json();
 
     expect(response.status).toBe(503);
