@@ -63,6 +63,22 @@ export function isValidAuthSecret(input: string, expected: string): boolean {
   return constantTimeEqual(input, expected);
 }
 
+/**
+ * Device API tokens (`DEVICE_API_TOKENS`, comma-separated, one per device).
+ * These tokens are only valid on `/api/device/*` routes — the proxy must
+ * never accept them for the rest of the API.
+ */
+export function getDeviceApiTokens(): string[] {
+  return (process.env.DEVICE_API_TOKENS ?? '')
+    .split(',')
+    .map(token => token.trim())
+    .filter(Boolean);
+}
+
+export function isValidDeviceToken(token: string): boolean {
+  return getDeviceApiTokens().some(candidate => constantTimeEqual(token, candidate));
+}
+
 function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) {

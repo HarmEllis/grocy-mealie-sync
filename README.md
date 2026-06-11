@@ -49,6 +49,7 @@ Optional auth settings:
 
 - `AUTH_ENABLED=true` to require login for the web UI and auth for protected API routes
 - `AUTH_SECRET=...` as the shared secret for both the login form and `Authorization: Bearer <token>`
+- `DEVICE_API_TOKENS=...` comma-separated tokens for hardware devices (such as [grocy-mealie-scanner](https://github.com/HarmEllis/grocy-mealie-scanner)); these tokens only grant access to the device API under `/api/device/*`
 - `MCP_ENABLED=true` to enable the MCP endpoint at `/api/mcp` (default: disabled)
 - `MCP_SESSION_TTL_MS=900000` to control MCP session inactivity expiry in milliseconds (default: 15 minutes, min: 60000, max: 86400000)
 - `MCP_MAX_SESSIONS=100` to cap concurrent in-memory MCP sessions (default: 100, min: 1, max: 1000)

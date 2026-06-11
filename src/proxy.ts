@@ -3,6 +3,7 @@ import {
   AUTH_SESSION_COOKIE_NAME,
   constantTimeEqual,
   getAuthConfig,
+  isValidDeviceToken,
   verifySessionCookieValue,
 } from './lib/auth';
 
@@ -88,6 +89,20 @@ async function checkAuth(request: NextRequest, authSecret: string): Promise<bool
   return verifySessionCookieValue(sessionCookie, authSecret);
 }
 
+/**
+ * Device tokens (DEVICE_API_TOKENS) authenticate /api/device/* routes only.
+ * They are never accepted elsewhere; the admin AUTH_SECRET keeps working on
+ * device routes too.
+ */
+function checkDeviceAuth(request: NextRequest): boolean {
+  const authHeader = request.headers.get('authorization');
+  if (!authHeader) {
+    return false;
+  }
+  const parts = authHeader.split(' ');
+  return parts.length === 2 && parts[0] === 'Bearer' && isValidDeviceToken(parts[1]);
+}
+
 function createUnauthorizedResponse(): NextResponse {
   return NextResponse.json(
     { error: 'Unauthorized' },
@@ -162,11 +177,14 @@ export async function proxy(request: NextRequest) {
 
     // Auth check
     if (authConfig.enabled && !isPublicAuthRoute) {
-      if (!authConfig.configured || !authConfig.secret) {
-        return createAuthMisconfiguredResponse();
-      }
-      if (!await checkAuth(request, authConfig.secret)) {
-        return createUnauthorizedResponse();
+      const deviceAuthenticated = pathname.startsWith('/api/device/') && checkDeviceAuth(request);
+      if (!deviceAuthenticated) {
+        if (!authConfig.configured || !authConfig.secret) {
+          return createAuthMisconfiguredResponse();
+        }
+        if (!await checkAuth(request, authConfig.secret)) {
+          return createUnauthorizedResponse();
+        }
       }
     }
 

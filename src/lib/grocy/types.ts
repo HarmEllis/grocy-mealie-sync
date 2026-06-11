@@ -20,6 +20,7 @@ import type { QuantityUnit } from './client/models/QuantityUnit';
 import type { QuantityUnitConversion } from './client/models/QuantityUnitConversion';
 import type { Location } from './client/models/Location';
 import type { ShoppingListItem } from './client/models/ShoppingListItem';
+import type { ProductBarcode } from './client/models/ProductBarcode';
 import type { CurrentVolatilStockResponse } from './client/models/CurrentVolatilStockResponse';
 import type { CurrentStockResponse } from './client/models/CurrentStockResponse';
 import type { ProductDetailsResponse } from './client/models/ProductDetailsResponse';
@@ -55,6 +56,7 @@ export function normalizeGrocyBestBeforeDate(bestBeforeDate?: string | null): st
 /** Entity names used for listing (getObjects). */
 export type GrocyListableEntity =
   | 'products'
+  | 'product_barcodes'
   | 'product_groups'
   | 'quantity_units'
   | 'quantity_unit_conversions'
@@ -64,6 +66,7 @@ export type GrocyListableEntity =
 /** Entity names used for creation/editing (postObjects, putObjects). */
 export type GrocyEditableEntity =
   | 'products'
+  | 'product_barcodes'
   | 'product_groups'
   | 'quantity_units'
   | 'quantity_unit_conversions'
@@ -73,6 +76,7 @@ export type GrocyEditableEntity =
 /** Entity names used for deletion (deleteObjects). */
 export type GrocyDeletableEntity =
   | 'products'
+  | 'product_barcodes'
   | 'product_groups'
   | 'quantity_units'
   | 'quantity_unit_conversions'
@@ -86,6 +90,7 @@ export type GrocyDeletableEntity =
 /** Maps entity name strings to their Grocy model types. */
 interface GrocyEntityTypeMap {
   products: Product;
+  product_barcodes: ProductBarcode;
   product_groups: ProductGroup;
   quantity_units: QuantityUnit;
   quantity_unit_conversions: QuantityUnitConversion;
@@ -118,6 +123,14 @@ const EDITABLE_ENTITY_FIELDS = {
     'should_not_be_frozen',
     'default_consume_location_id',
     'move_on_open',
+  ],
+  product_barcodes: [
+    'product_id',
+    'barcode',
+    'qu_id',
+    'shopping_location_id',
+    'amount',
+    'note',
   ],
   product_groups: [
     'name',
@@ -158,6 +171,15 @@ export interface CreateProductBody {
   qu_id_purchase?: number;
   qu_id_stock?: number;
   location_id?: number;
+}
+
+/** Fields accepted when linking a barcode to a Grocy product. */
+export interface CreateProductBarcodeBody {
+  product_id: number;
+  barcode: string;
+  qu_id?: number;
+  amount?: number;
+  note?: string;
 }
 
 /** Fields accepted when creating a Grocy quantity unit. */
@@ -254,6 +276,10 @@ export async function createGrocyEntity(
   body: CreateProductBody,
 ): Promise<{ created_object_id?: number }>;
 export async function createGrocyEntity(
+  entity: 'product_barcodes',
+  body: CreateProductBarcodeBody,
+): Promise<{ created_object_id?: number }>;
+export async function createGrocyEntity(
   entity: 'quantity_units',
   body: CreateQuantityUnitBody,
 ): Promise<{ created_object_id?: number }>;
@@ -277,6 +303,7 @@ export async function createGrocyEntity(
   entity: GrocyEditableEntity,
   body:
     | CreateProductBody
+    | CreateProductBarcodeBody
     | CreateQuantityUnitBody
     | CreateLocationBody
     | CreateProductGroupBody
@@ -552,4 +579,4 @@ export async function openProductStock(
 }
 
 // Re-export model types that are commonly used in application code
-export type { Product, ProductGroup, QuantityUnit, QuantityUnitConversion, Location, ShoppingListItem, StockEntry, StockLogEntry, ProductDetailsResponse, CurrentStockResponse };
+export type { Product, ProductBarcode, ProductGroup, QuantityUnit, QuantityUnitConversion, Location, ShoppingListItem, StockEntry, StockLogEntry, ProductDetailsResponse, CurrentStockResponse };
