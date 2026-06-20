@@ -20,8 +20,15 @@ import {
   type QuantityUnit,
 } from '@/lib/grocy/types';
 import { resolveDefaultUnit } from '@/lib/settings';
-import { addStock, consumeStock, markStockOpened } from '@/lib/use-cases/inventory/manage';
+import { addStock, consumeStock, defaultInventoryDeps, markStockOpened } from '@/lib/use-cases/inventory/manage';
 import { createProductInGrocy } from '@/lib/use-cases/products/manage';
+import {
+  DEVICE_SYNC_LOCK_MAX_WAIT_MS,
+  defaultSyncLockDeps,
+  noopSyncLockDeps,
+  runWithSyncLock,
+  type SyncLockDeps,
+} from '@/lib/use-cases/shared/sync-lock';
 import { addShoppingListItem, checkShoppingListProduct } from '@/lib/use-cases/shopping/list';
 
 export const DEVICE_BARCODE_PATTERN = /^[0-9A-Za-z_-]{4,64}$/;
@@ -104,7 +111,7 @@ export interface DeviceSearchResult {
 // Dependencies (injected for tests)
 // ---------------------------------------------------------------------------
 
-export interface DeviceScannerDeps {
+export interface DeviceScannerDeps extends SyncLockDeps {
   getStockByBarcode: (barcode: string) => Promise<ProductDetailsResponse>;
   getProductDetails: (productId: number) => Promise<ProductDetailsResponse>;
   listGrocyProducts: () => Promise<Product[]>;
@@ -171,7 +178,13 @@ async function resolveDefaultGrocyUnitId(): Promise<number | null> {
   return resolved?.grocyUnitId ?? null;
 }
 
+// performDeviceAction already holds the sync lock around the whole action, so
+// the inventory mutations it delegates to must not try to re-acquire the
+// (non-reentrant) lock — hand them a no-op lock instead.
+const lockedInventoryDeps = { ...defaultInventoryDeps, ...noopSyncLockDeps };
+
 const defaultDeps: DeviceScannerDeps = {
+  ...defaultSyncLockDeps,
   getStockByBarcode: barcode => StockByBarcodeService.getStockProductsByBarcode(barcode),
   getProductDetails,
   listGrocyProducts: () => getGrocyEntities('products'),
@@ -182,9 +195,9 @@ const defaultDeps: DeviceScannerDeps = {
   findMealieFoodIdForGrocyProduct,
   checkShoppingListProduct,
   addShoppingListItem,
-  addStock,
-  consumeStock,
-  markStockOpened,
+  addStock: params => addStock(params, lockedInventoryDeps),
+  consumeStock: params => consumeStock(params, lockedInventoryDeps),
+  markStockOpened: params => markStockOpened(params, lockedInventoryDeps),
   createProductInGrocy,
   resolveDefaultGrocyUnitId,
 };
@@ -316,60 +329,79 @@ export async function performDeviceAction(
     throw new Error('Amount must be greater than 0.');
   }
 
-  const before = await getProductDetailsOr404(params.productId, deps);
-  const productName = before.product?.name ?? 'Unknown';
   const productRef = `grocy:${params.productId}`;
-  const stockBefore = Number(before.stock_amount ?? 0);
-  const openedBefore = Number(before.stock_amount_opened ?? 0);
 
-  let shoppingList: DeviceActionResult['shoppingList'] = null;
+  // add_to_shopping_list never mutates Grocy stock, so it stays outside the sync
+  // lock (and away from Grocy's stock endpoints entirely).
+  if (params.action === 'add_to_shopping_list') {
+    const before = await getProductDetailsOr404(params.productId, deps);
+    const stockBefore = Number(before.stock_amount ?? 0);
+    const openedBefore = Number(before.stock_amount_opened ?? 0);
+    const mealieFoodId = await deps.findMealieFoodIdForGrocyProduct(params.productId);
+    // Without a mapping the grocy: ref lets addShoppingListItem resolve the
+    // Mealie food itself (and produce a clear error when none is linked).
+    const result = await deps.addShoppingListItem(
+      mealieFoodId
+        ? { foodId: mealieFoodId, quantity: amount }
+        : { query: productRef, quantity: amount },
+    );
 
-  switch (params.action) {
-    case 'purchase':
-      await deps.addStock({ productRef, amount });
-      break;
-    case 'open':
-      if (amount > stockBefore - openedBefore) {
-        throw new DeviceConflictError('Not enough in stock', {
-          stock: { amount: stockBefore, opened: openedBefore },
-        });
-      }
-      await deps.markStockOpened({ productRef, amount });
-      break;
-    case 'consume':
-      if (amount > stockBefore) {
-        throw new DeviceConflictError('Not enough in stock', {
-          stock: { amount: stockBefore, opened: openedBefore },
-        });
-      }
-      await deps.consumeStock({ productRef, amount });
-      break;
-    case 'add_to_shopping_list': {
-      const mealieFoodId = await deps.findMealieFoodIdForGrocyProduct(params.productId);
-      // Without a mapping the grocy: ref lets addShoppingListItem resolve the
-      // Mealie food itself (and produce a clear error when none is linked).
-      const result = await deps.addShoppingListItem(
-        mealieFoodId
-          ? { foodId: mealieFoodId, quantity: amount }
-          : { query: productRef, quantity: amount },
-      );
-      shoppingList = { itemId: result.item.id, quantity: Number(result.item.quantity ?? amount) };
-      break;
-    }
+    return {
+      ok: true,
+      action: params.action,
+      product: { id: params.productId, name: before.product?.name ?? 'Unknown' },
+      stock: { before: stockBefore, after: stockBefore },
+      opened: { before: openedBefore, after: openedBefore },
+      shoppingList: { itemId: result.item.id, quantity: Number(result.item.quantity ?? amount) },
+    };
   }
 
-  const after = params.action === 'add_to_shopping_list'
-    ? before
-    : await getProductDetailsOr404(params.productId, deps);
+  // Stock-mutating actions hold the sync lock across read, check and mutation so
+  // a concurrent sync or scanner request cannot invalidate the insufficient-stock
+  // check between the snapshot and the write.
+  return runWithSyncLock(
+    deps,
+    async () => {
+      const before = await getProductDetailsOr404(params.productId, deps);
+      const productName = before.product?.name ?? 'Unknown';
+      const stockBefore = Number(before.stock_amount ?? 0);
+      const openedBefore = Number(before.stock_amount_opened ?? 0);
 
-  return {
-    ok: true,
-    action: params.action,
-    product: { id: params.productId, name: productName },
-    stock: { before: stockBefore, after: Number(after.stock_amount ?? 0) },
-    opened: { before: openedBefore, after: Number(after.stock_amount_opened ?? 0) },
-    shoppingList,
-  };
+      switch (params.action) {
+        case 'purchase':
+          await deps.addStock({ productRef, amount });
+          break;
+        case 'open':
+          if (amount > stockBefore - openedBefore) {
+            throw new DeviceConflictError('Not enough in stock', {
+              stock: { amount: stockBefore, opened: openedBefore },
+            });
+          }
+          await deps.markStockOpened({ productRef, amount });
+          break;
+        case 'consume':
+          if (amount > stockBefore) {
+            throw new DeviceConflictError('Not enough in stock', {
+              stock: { amount: stockBefore, opened: openedBefore },
+            });
+          }
+          await deps.consumeStock({ productRef, amount });
+          break;
+      }
+
+      const after = await getProductDetailsOr404(params.productId, deps);
+
+      return {
+        ok: true,
+        action: params.action,
+        product: { id: params.productId, name: productName },
+        stock: { before: stockBefore, after: Number(after.stock_amount ?? 0) },
+        opened: { before: openedBefore, after: Number(after.stock_amount_opened ?? 0) },
+        shoppingList: null,
+      };
+    },
+    { maxWaitMs: DEVICE_SYNC_LOCK_MAX_WAIT_MS },
+  );
 }
 
 export interface SearchDeviceProductsParams {

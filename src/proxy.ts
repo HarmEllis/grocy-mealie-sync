@@ -3,6 +3,7 @@ import {
   AUTH_SESSION_COOKIE_NAME,
   constantTimeEqual,
   getAuthConfig,
+  getDeviceApiTokens,
   isValidDeviceToken,
   verifySessionCookieValue,
 } from './lib/auth';
@@ -176,15 +177,29 @@ export async function proxy(request: NextRequest) {
     }
 
     // Auth check
-    if (authConfig.enabled && !isPublicAuthRoute) {
-      const deviceAuthenticated = pathname.startsWith('/api/device/') && checkDeviceAuth(request);
-      if (!deviceAuthenticated) {
+    if (!isPublicAuthRoute) {
+      const isDeviceRoute = pathname.startsWith('/api/device/');
+      const deviceAuthenticated = isDeviceRoute && checkDeviceAuth(request);
+
+      if (deviceAuthenticated) {
+        // A valid device token is sufficient for /api/device/* routes.
+      } else if (authConfig.enabled) {
+        // Standard session / admin-secret auth for all other cases.
         if (!authConfig.configured || !authConfig.secret) {
           return createAuthMisconfiguredResponse();
         }
         if (!await checkAuth(request, authConfig.secret)) {
           return createUnauthorizedResponse();
         }
+      } else if (
+        isDeviceRoute
+        && !authConfig.explicitlyDisabled
+        && getDeviceApiTokens().length > 0
+      ) {
+        // Auth is otherwise off, but device tokens are configured: device routes
+        // must still present a valid token (the check above already failed),
+        // unless the operator explicitly disabled auth via AUTH_ENABLED.
+        return createUnauthorizedResponse();
       }
     }
 

@@ -164,3 +164,46 @@ describe('proxy device token auth', () => {
     expect(authorized.status).toBe(200);
   });
 });
+
+describe('proxy device token auth without global auth', () => {
+  beforeEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+    delete process.env.AUTH_ENABLED;
+    delete process.env.AUTH_SECRET;
+    process.env.DEVICE_API_TOKENS = 'scanner-token-1';
+    vi.resetModules();
+  });
+
+  afterAll(() => {
+    process.env = ORIGINAL_ENV;
+  });
+
+  it('enforces device tokens even when AUTH_SECRET/AUTH_ENABLED are unset', async () => {
+    const { proxy } = await import('../proxy');
+
+    const unauthorized = await proxy(createRequest('http://localhost/api/device/v1/ping'));
+    const authorized = await proxy(createRequest('http://localhost/api/device/v1/ping', {
+      headers: { authorization: 'Bearer scanner-token-1' },
+    }));
+
+    expect(unauthorized.status).toBe(401);
+    expect(authorized.status).toBe(200);
+  });
+
+  it('leaves non-device API routes open when only device tokens are configured', async () => {
+    const { proxy } = await import('../proxy');
+
+    const response = await proxy(createRequest('http://localhost/api/status'));
+
+    expect(response.status).toBe(200);
+  });
+
+  it('skips device-token enforcement when auth is explicitly disabled', async () => {
+    process.env.AUTH_ENABLED = 'false';
+    const { proxy } = await import('../proxy');
+
+    const response = await proxy(createRequest('http://localhost/api/device/v1/ping'));
+
+    expect(response.status).toBe(200);
+  });
+});

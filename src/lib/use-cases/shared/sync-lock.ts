@@ -10,8 +10,25 @@ export const defaultSyncLockDeps: SyncLockDeps = {
   releaseSyncLock,
 };
 
+/**
+ * Lock deps that always "succeed" without touching the real mutex. Used when a
+ * caller already holds the sync lock and delegates to a use-case that would
+ * otherwise try to acquire it again (the mutex is not reentrant).
+ */
+export const noopSyncLockDeps: SyncLockDeps = {
+  acquireSyncLock: () => true,
+  releaseSyncLock: () => {},
+};
+
 const DEFAULT_MAX_WAIT_MS = 10_000;
 const DEFAULT_INTERVAL_MS = 250;
+
+/**
+ * Device actions must fail fast: the scanner firmware times out its HTTP request
+ * sooner than the default wait, so a held sync lock has to surface as a JSON
+ * error before the device gives up on the connection.
+ */
+export const DEVICE_SYNC_LOCK_MAX_WAIT_MS = 5_000;
 
 export async function runWithSyncLock<T>(
   deps: SyncLockDeps,

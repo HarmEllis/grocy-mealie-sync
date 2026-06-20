@@ -25,6 +25,7 @@ describe('auth helpers', () => {
       enabled: true,
       configured: true,
       secret: 'top-secret',
+      explicitlyDisabled: false,
     });
   });
 
@@ -36,6 +37,7 @@ describe('auth helpers', () => {
       enabled: false,
       configured: true,
       secret: 'top-secret',
+      explicitlyDisabled: true,
     });
   });
 
@@ -46,6 +48,7 @@ describe('auth helpers', () => {
       enabled: true,
       configured: false,
       secret: null,
+      explicitlyDisabled: false,
     });
   });
 

@@ -42,6 +42,8 @@ function productDetails(overrides: Partial<{
 
 function createDeps(overrides: Partial<DeviceScannerDeps> = {}): DeviceScannerDeps {
   return {
+    acquireSyncLock: vi.fn().mockReturnValue(true),
+    releaseSyncLock: vi.fn(),
     getStockByBarcode: vi.fn().mockResolvedValue(productDetails()),
     getProductDetails: vi.fn().mockResolvedValue(productDetails()),
     listGrocyProducts: vi.fn().mockResolvedValue([
@@ -239,6 +241,27 @@ describe('performDeviceAction', () => {
       query: 'grocy:42',
       quantity: 1,
     });
+  });
+
+  it('holds the sync lock across stock-mutating actions', async () => {
+    const deps = createDeps({
+      getProductDetails: vi.fn()
+        .mockResolvedValueOnce(productDetails({ stock: 3 }))
+        .mockResolvedValueOnce(productDetails({ stock: 4 })),
+    });
+
+    await performDeviceAction({ productId: 42, action: 'purchase' }, deps);
+
+    expect(deps.acquireSyncLock).toHaveBeenCalled();
+    expect(deps.releaseSyncLock).toHaveBeenCalled();
+  });
+
+  it('does not take the sync lock for add_to_shopping_list', async () => {
+    const deps = createDeps();
+
+    await performDeviceAction({ productId: 42, action: 'add_to_shopping_list' }, deps);
+
+    expect(deps.acquireSyncLock).not.toHaveBeenCalled();
   });
 
   it('maps an unknown product id to DeviceProductNotFoundError', async () => {

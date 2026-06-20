@@ -10,6 +10,8 @@ export interface AuthConfig {
   enabled: boolean;
   configured: boolean;
   secret: string | null;
+  /** True only when AUTH_ENABLED is set to an explicit falsey value. */
+  explicitlyDisabled: boolean;
 }
 
 function parseOptionalBooleanEnv(value: string | undefined): boolean | undefined {
@@ -47,6 +49,7 @@ export function getAuthConfig(): AuthConfig {
     enabled,
     configured: !enabled || secret !== null,
     secret,
+    explicitlyDisabled: enabledOverride === false,
   };
 }
 
