@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.12.0] - 2026-06-20
+
+This minor release adds a device API for the grocy-mealie-scanner hardware, upgrades the app to Next.js 16 with Turbopack, and patches several high-severity dependency vulnerabilities.
+
+### Added
+
+- Device API (`/api/device/v1`) for the grocy-mealie-scanner hardware: endpoints to ping the service, list products, look up a product by scanned barcode, manage product barcodes, and run stock actions, backed by a new scanner use-case and device authentication.
+
+### Changed
+
+- Upgraded to Next.js 16 with Turbopack enabled for development and build, and removed the legacy webpack fallback scripts.
+- The device API now waits for the sync lock to free up instead of failing immediately when a sync is already in progress.
+- Refactored the request middleware into a dedicated proxy module.
+- Bumped React to 19.2.6 and applied npm minor and transitive dependency updates.
+
+### Fixed
+
+- Patched high-severity vulnerabilities in undici, hono, vite, Next.js, postcss, and other transitive dependencies.
+
 ## [1.11.0] - 2026-05-01
 
 This minor release introduces the v2 route-based UI redesign, improves startup lock handling and mobile responsiveness, and strengthens mapping progress and scheduler safety behavior.
@@ -265,6 +284,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.12.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.8.1...v1.9.0
