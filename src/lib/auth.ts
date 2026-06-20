@@ -10,6 +10,8 @@ export interface AuthConfig {
   enabled: boolean;
   configured: boolean;
   secret: string | null;
+  /** True only when AUTH_ENABLED is set to an explicit falsey value. */
+  explicitlyDisabled: boolean;
 }
 
 function parseOptionalBooleanEnv(value: string | undefined): boolean | undefined {
@@ -47,6 +49,7 @@ export function getAuthConfig(): AuthConfig {
     enabled,
     configured: !enabled || secret !== null,
     secret,
+    explicitlyDisabled: enabledOverride === false,
   };
 }
 
@@ -61,6 +64,22 @@ export function constantTimeEqual(a: string, b: string): boolean {
 
 export function isValidAuthSecret(input: string, expected: string): boolean {
   return constantTimeEqual(input, expected);
+}
+
+/**
+ * Device API tokens (`DEVICE_API_TOKENS`, comma-separated, one per device).
+ * These tokens are only valid on `/api/device/*` routes — the proxy must
+ * never accept them for the rest of the API.
+ */
+export function getDeviceApiTokens(): string[] {
+  return (process.env.DEVICE_API_TOKENS ?? '')
+    .split(',')
+    .map(token => token.trim())
+    .filter(Boolean);
+}
+
+export function isValidDeviceToken(token: string): boolean {
+  return getDeviceApiTokens().some(candidate => constantTimeEqual(token, candidate));
 }
 
 function bytesToBase64Url(bytes: Uint8Array): string {

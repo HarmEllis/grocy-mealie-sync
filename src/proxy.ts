@@ -3,6 +3,8 @@ import {
   AUTH_SESSION_COOKIE_NAME,
   constantTimeEqual,
   getAuthConfig,
+  getDeviceApiTokens,
+  isValidDeviceToken,
   verifySessionCookieValue,
 } from './lib/auth';
 
@@ -88,6 +90,20 @@ async function checkAuth(request: NextRequest, authSecret: string): Promise<bool
   return verifySessionCookieValue(sessionCookie, authSecret);
 }
 
+/**
+ * Device tokens (DEVICE_API_TOKENS) authenticate /api/device/* routes only.
+ * They are never accepted elsewhere; the admin AUTH_SECRET keeps working on
+ * device routes too.
+ */
+function checkDeviceAuth(request: NextRequest): boolean {
+  const authHeader = request.headers.get('authorization');
+  if (!authHeader) {
+    return false;
+  }
+  const parts = authHeader.split(' ');
+  return parts.length === 2 && parts[0] === 'Bearer' && isValidDeviceToken(parts[1]);
+}
+
 function createUnauthorizedResponse(): NextResponse {
   return NextResponse.json(
     { error: 'Unauthorized' },
@@ -161,11 +177,28 @@ export async function proxy(request: NextRequest) {
     }
 
     // Auth check
-    if (authConfig.enabled && !isPublicAuthRoute) {
-      if (!authConfig.configured || !authConfig.secret) {
-        return createAuthMisconfiguredResponse();
-      }
-      if (!await checkAuth(request, authConfig.secret)) {
+    if (!isPublicAuthRoute) {
+      const isDeviceRoute = pathname.startsWith('/api/device/');
+      const deviceAuthenticated = isDeviceRoute && checkDeviceAuth(request);
+
+      if (deviceAuthenticated) {
+        // A valid device token is sufficient for /api/device/* routes.
+      } else if (authConfig.enabled) {
+        // Standard session / admin-secret auth for all other cases.
+        if (!authConfig.configured || !authConfig.secret) {
+          return createAuthMisconfiguredResponse();
+        }
+        if (!await checkAuth(request, authConfig.secret)) {
+          return createUnauthorizedResponse();
+        }
+      } else if (
+        isDeviceRoute
+        && !authConfig.explicitlyDisabled
+        && getDeviceApiTokens().length > 0
+      ) {
+        // Auth is otherwise off, but device tokens are configured: device routes
+        // must still present a valid token (the check above already failed),
+        // unless the operator explicitly disabled auth via AUTH_ENABLED.
         return createUnauthorizedResponse();
       }
     }

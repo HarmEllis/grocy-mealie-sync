@@ -245,7 +245,7 @@ export interface InventoryDeps extends SyncLockDeps {
   ): Promise<void>;
 }
 
-const defaultDeps: InventoryDeps = {
+export const defaultInventoryDeps: InventoryDeps = {
   ...defaultSyncLockDeps,
   getProductOverview,
   getProductDetails,
@@ -512,7 +512,7 @@ function buildCreateInventoryEntryWarning(): string {
 
 export async function getInventoryStock(
   params: InventoryStockParams,
-  deps: Pick<InventoryDeps, 'getProductOverview' | 'getProductDetails'> = defaultDeps,
+  deps: Pick<InventoryDeps, 'getProductOverview' | 'getProductDetails'> = defaultInventoryDeps,
 ): Promise<InventoryStockSnapshot> {
   const overview = await deps.getProductOverview({ productRef: params.productRef });
   const grocyProduct = requireGrocyProduct(overview);
@@ -522,7 +522,7 @@ export async function getInventoryStock(
 
 export async function listInventoryEntries(
   params: InventoryStockEntriesParams,
-  deps: Pick<InventoryDeps, 'getProductOverview' | 'getProductStockEntries'> = defaultDeps,
+  deps: Pick<InventoryDeps, 'getProductOverview' | 'getProductStockEntries'> = defaultInventoryDeps,
 ): Promise<InventoryStockEntriesResult> {
   const overview = await deps.getProductOverview({ productRef: params.productRef });
   const grocyProduct = requireGrocyProduct(overview);
@@ -541,7 +541,7 @@ export async function listInventoryEntries(
 
 export async function getInventoryEntry(
   params: GetInventoryEntryParams,
-  deps: Pick<InventoryDeps, 'getGrocyStockEntry'> = defaultDeps,
+  deps: Pick<InventoryDeps, 'getGrocyStockEntry'> = defaultInventoryDeps,
 ): Promise<GetInventoryEntryResult> {
   const entry = await deps.getGrocyStockEntry(params.entryId);
 
@@ -555,7 +555,7 @@ export async function deleteInventoryEntry(
   deps: Pick<
     InventoryDeps,
     'acquireSyncLock' | 'releaseSyncLock' | 'getGrocyStockEntry' | 'consumeProductStockByEntry'
-  > = defaultDeps,
+  > = defaultInventoryDeps,
 ): Promise<DeleteInventoryEntryResult> {
   return runWithSyncLock(deps, async () => {
     const entry = await deps.getGrocyStockEntry(params.entryId);
@@ -587,7 +587,7 @@ export async function createInventoryEntry(
     | 'getGrocyStockEntry'
     | 'addProductStock'
     | 'updateGrocyStockEntry'
-  > = defaultDeps,
+  > = defaultInventoryDeps,
 ): Promise<CreateInventoryEntryResult> {
   ensurePositiveAmount(params.amount);
 
@@ -676,7 +676,7 @@ export async function updateInventoryEntry(
   deps: Pick<
     InventoryDeps,
     'acquireSyncLock' | 'releaseSyncLock' | 'updateGrocyStockEntry' | 'getGrocyStockEntry'
-  > = defaultDeps,
+  > = defaultInventoryDeps,
 ): Promise<UpdateInventoryEntryResult> {
   const updated = requireInventoryEntryUpdate(params);
 
@@ -706,7 +706,7 @@ export async function addStock(
   deps: Pick<
     InventoryDeps,
     'acquireSyncLock' | 'releaseSyncLock' | 'getProductOverview' | 'addProductStock' | 'openProductStock'
-  > = defaultDeps,
+  > = defaultInventoryDeps,
 ): Promise<AddStockResult> {
   ensurePositiveAmount(params.amount);
   ensureOpenedAmountWithinTotal(params.openedAmount, params.amount);
@@ -744,7 +744,7 @@ export async function consumeStock(
   deps: Pick<
     InventoryDeps,
     'acquireSyncLock' | 'releaseSyncLock' | 'getProductOverview' | 'consumeProductStock'
-  > = defaultDeps,
+  > = defaultInventoryDeps,
 ): Promise<ConsumeStockResult> {
   ensurePositiveAmount(params.amount);
 
@@ -781,7 +781,7 @@ export async function setStock(
     | 'getProductDetails'
     | 'inventoryProductStock'
     | 'openProductStock'
-  > = defaultDeps,
+  > = defaultInventoryDeps,
 ): Promise<SetStockResult> {
   ensureNonNegativeAmount(params.amount);
   ensureOpenedAmountWithinTotal(params.openedAmount, params.amount);
@@ -852,7 +852,7 @@ export async function markStockOpened(
   deps: Pick<
     InventoryDeps,
     'acquireSyncLock' | 'releaseSyncLock' | 'getProductOverview' | 'openProductStock'
-  > = defaultDeps,
+  > = defaultInventoryDeps,
 ): Promise<MarkStockOpenedResult> {
   const amount = params.amount ?? 1;
   ensurePositiveAmount(amount);
