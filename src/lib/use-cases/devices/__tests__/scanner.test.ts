@@ -5,6 +5,7 @@ import {
   createDeviceProduct,
   DeviceConflictError,
   DeviceProductNotFoundError,
+  getDeviceProduct,
   linkDeviceBarcode,
   performDeviceAction,
   scanDeviceBarcode,
@@ -390,5 +391,36 @@ describe('linkDeviceBarcode', () => {
     expect((error as DeviceConflictError).payload).toEqual({
       product: { id: 43, name: 'Whole Milk' },
     });
+  });
+});
+
+describe('getDeviceProduct', () => {
+  it('returns the full product in the scan "found" shape', async () => {
+    const deps = createDeps({
+      getProductDetails: vi.fn().mockResolvedValue(
+        productDetails({ id: 43, name: 'Whole Milk', stock: 5, opened: 2, min: 1, unit: 'Carton' }),
+      ),
+    });
+
+    const product = await getDeviceProduct(43, deps);
+
+    expect(deps.getProductDetails).toHaveBeenCalledWith(43);
+    expect(product).toMatchObject({
+      id: 43,
+      name: 'Whole Milk',
+      quantityUnit: 'Carton',
+      stockAmount: 5,
+      openedAmount: 2,
+      minStockAmount: 1,
+    });
+  });
+
+  it('maps an unknown product id to DeviceProductNotFoundError', async () => {
+    const deps = createDeps({
+      getProductDetails: vi.fn().mockRejectedValue(grocyBadRequest('Product does not exist')),
+    });
+
+    await expect(getDeviceProduct(999, deps))
+      .rejects.toBeInstanceOf(DeviceProductNotFoundError);
   });
 });

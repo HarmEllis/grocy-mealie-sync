@@ -516,3 +516,17 @@ export async function linkDeviceBarcode(
 
   return toDeviceProduct(details, deps);
 }
+
+/**
+ * Fetch a single product by id in the same flat shape as a scan "found" result.
+ * Backs the device's home-screen search → pick flow, where the picked product
+ * is shown exactly as if it had been scanned (no barcode to link). Throws
+ * DeviceProductNotFoundError (→ 404) for an unknown id.
+ */
+export async function getDeviceProduct(
+  productId: number,
+  deps: DeviceScannerDeps = defaultDeps,
+): Promise<DeviceProduct> {
+  const details = await getProductDetailsOr404(productId, deps);
+  return toDeviceProduct(details, deps);
+}
