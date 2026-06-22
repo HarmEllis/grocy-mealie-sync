@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.13.0] - 2026-06-22
+
+This minor release extends the device API with a product lookup endpoint, advertises an API version for firmware capability negotiation, and improves device scan reliability.
+
+### Added
+
+- `GET /api/device/v1/products/{id}` endpoint so the device can fetch a full product by id for its home-screen search → pick flow, returning the same flat shape as a scan "found" result.
+- The device API now advertises `apiVersion` on `/ping`, letting the firmware hide capabilities an older server does not support.
+
+### Changed
+
+- Bounded the device scan upstream latency to improve scan reliability.
+
 ## [1.12.0] - 2026-06-20
 
 This minor release adds a device API for the grocy-mealie-scanner hardware, upgrades the app to Next.js 16 with Turbopack, and patches several high-severity dependency vulnerabilities.
@@ -284,6 +297,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.13.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.9.0...v1.10.0
