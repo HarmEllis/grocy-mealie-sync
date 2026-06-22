@@ -5,6 +5,7 @@ import {
   createDeviceProduct,
   DeviceConflictError,
   DeviceProductNotFoundError,
+  DeviceUpstreamTimeoutError,
   getDeviceProduct,
   linkDeviceBarcode,
   performDeviceAction,
@@ -160,6 +161,46 @@ describe('scanDeviceBarcode', () => {
     const deps = createDeps({ getStockByBarcode: vi.fn().mockRejectedValue(error) });
 
     await expect(scanDeviceBarcode('8715700110622', deps)).rejects.toThrow('connection refused');
+  });
+
+  it('times out slow Grocy barcode lookups', async () => {
+    vi.useFakeTimers();
+    try {
+      const deps = createDeps({
+        getStockByBarcode: vi.fn(() => new Promise<ProductDetailsResponse>(() => {})),
+      });
+
+      const result = scanDeviceBarcode('8715700110622', deps);
+      const assertion = expect(result).rejects.toBeInstanceOf(DeviceUpstreamTimeoutError);
+      await vi.advanceTimersByTimeAsync(6_500);
+
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not block found scans on a slow Mealie shopping list check', async () => {
+    vi.useFakeTimers();
+    try {
+      const deps = createDeps({
+        findMealieFoodIdForGrocyProduct: vi.fn().mockResolvedValue('food-1'),
+        checkShoppingListProduct: vi.fn(
+          () => new Promise<Awaited<ReturnType<DeviceScannerDeps['checkShoppingListProduct']>>>(() => {}),
+        ),
+      });
+
+      const result = scanDeviceBarcode('8715700110622', deps);
+      const assertion = expect(result).resolves.toMatchObject({
+        status: 'found',
+        product: { onShoppingList: false },
+      });
+      await vi.advanceTimersByTimeAsync(1_200);
+
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

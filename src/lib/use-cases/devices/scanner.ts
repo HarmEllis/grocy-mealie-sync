@@ -30,10 +30,13 @@ import {
   type SyncLockDeps,
 } from '@/lib/use-cases/shared/sync-lock';
 import { addShoppingListItem, checkShoppingListProduct } from '@/lib/use-cases/shopping/list';
+import { log } from '@/lib/logger';
 
 export const DEVICE_BARCODE_PATTERN = /^[0-9A-Za-z_-]{4,64}$/;
 
 const EXTERNAL_LOOKUP_TIMEOUT_MS = 3_000;
+const SCAN_GROCY_LOOKUP_TIMEOUT_MS = 6_500;
+const SCAN_SHOPPING_LIST_TIMEOUT_MS = 1_200;
 const MAX_SUGGESTED_MATCHES = 5;
 
 // ---------------------------------------------------------------------------
@@ -53,6 +56,17 @@ export class DeviceConflictError extends Error {
   constructor(message: string, public readonly payload: Record<string, unknown> = {}) {
     super(message);
     this.name = 'DeviceConflictError';
+  }
+}
+
+/** Maps to 504 (upstream integration did not answer in time). */
+export class DeviceUpstreamTimeoutError extends Error {
+  constructor(
+    public readonly upstream: string,
+    public readonly timeoutMs: number,
+  ) {
+    super(`${upstream} timed out after ${timeoutMs}ms`);
+    this.name = 'DeviceUpstreamTimeoutError';
   }
 }
 
@@ -210,17 +224,53 @@ function isGrocyBadRequest(error: unknown): boolean {
   return error instanceof ApiError && error.status === 400;
 }
 
+function elapsedSince(startedAt: number): number {
+  return Date.now() - startedAt;
+}
+
+async function withTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  upstream: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new DeviceUpstreamTimeoutError(upstream, timeoutMs));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
 async function isOnShoppingList(grocyProductId: number, deps: DeviceScannerDeps): Promise<boolean> {
   const mealieFoodId = await deps.findMealieFoodIdForGrocyProduct(grocyProductId);
   if (!mealieFoodId) {
     return false;
   }
+  const startedAt = Date.now();
   try {
-    const check = await deps.checkShoppingListProduct({ foodId: mealieFoodId });
+    const check = await withTimeout(
+      deps.checkShoppingListProduct({ foodId: mealieFoodId }),
+      SCAN_SHOPPING_LIST_TIMEOUT_MS,
+      'Mealie shopping list check',
+    );
     return check.alreadyOnList;
-  } catch {
+  } catch (error) {
     // Shopping list state is cosmetic on the product screen; never fail the
     // scan because Mealie is unreachable.
+    log.warn('[DeviceAPI] Shopping list check skipped:', {
+      grocyProductId,
+      durationMs: elapsedSince(startedAt),
+      error: error instanceof Error ? error.message : String(error),
+    });
     return false;
   }
 }
@@ -291,13 +341,33 @@ export async function scanDeviceBarcode(
   barcode: string,
   deps: DeviceScannerDeps = defaultDeps,
 ): Promise<DeviceScanResult> {
+  const startedAt = Date.now();
   try {
-    const details = await deps.getStockByBarcode(barcode);
-    return { status: 'found', product: await toDeviceProduct(details, deps) };
+    const lookupStartedAt = Date.now();
+    const details = await withTimeout(
+      deps.getStockByBarcode(barcode),
+      SCAN_GROCY_LOOKUP_TIMEOUT_MS,
+      'Grocy barcode lookup',
+    );
+    log.info('[DeviceAPI] Barcode lookup found product:', {
+      barcode,
+      lookupDurationMs: elapsedSince(lookupStartedAt),
+    });
+    const product = await toDeviceProduct(details, deps);
+    log.info('[DeviceAPI] Scan completed:', {
+      barcode,
+      status: 'found',
+      durationMs: elapsedSince(startedAt),
+    });
+    return { status: 'found', product };
   } catch (error) {
     if (!isGrocyBadRequest(error)) {
       throw error;
     }
+    log.info('[DeviceAPI] Barcode lookup returned unknown barcode:', {
+      barcode,
+      lookupDurationMs: elapsedSince(startedAt),
+    });
   }
 
   // Grocy answers 400 for an unknown barcode → build the not-found flow.
@@ -306,12 +376,20 @@ export async function scanDeviceBarcode(
     deps.listGrocyProducts().catch(() => [] as Product[]),
   ]);
 
-  return {
+  const result: DeviceScanResult = {
     status: 'unknown',
     barcode,
     externalLookup,
     suggestedMatches: suggestMatches(products, externalLookup, barcode),
   };
+  log.info('[DeviceAPI] Scan completed:', {
+    barcode,
+    status: 'unknown',
+    durationMs: elapsedSince(startedAt),
+    suggestedMatches: result.suggestedMatches.length,
+    hasExternalLookup: result.externalLookup !== null,
+  });
+  return result;
 }
 
 export interface PerformDeviceActionParams {

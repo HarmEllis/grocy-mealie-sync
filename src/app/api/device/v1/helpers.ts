@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { log } from '@/lib/logger';
-import { DeviceConflictError, DeviceProductNotFoundError } from '@/lib/use-cases/devices/scanner';
+import {
+  DeviceConflictError,
+  DeviceProductNotFoundError,
+  DeviceUpstreamTimeoutError,
+} from '@/lib/use-cases/devices/scanner';
 
 /** Translates device use-case errors into the contract's HTTP responses. */
 export function deviceErrorResponse(error: unknown): NextResponse {
@@ -9,6 +13,13 @@ export function deviceErrorResponse(error: unknown): NextResponse {
   }
   if (error instanceof DeviceConflictError) {
     return NextResponse.json({ error: error.message, ...error.payload }, { status: 409 });
+  }
+  if (error instanceof DeviceUpstreamTimeoutError) {
+    log.warn('[DeviceAPI] Upstream timeout:', {
+      upstream: error.upstream,
+      timeoutMs: error.timeoutMs,
+    });
+    return NextResponse.json({ error: error.message }, { status: 504 });
   }
   log.error('[DeviceAPI] Request failed:', error);
   const message = error instanceof Error ? error.message : 'Internal server error';
