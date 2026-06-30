@@ -8,5 +8,6 @@ export const appVersion = packageMetadata.version;
  * the connected server does not yet support.
  *   1 = initial scan/action/search/create/link contract
  *   2 = adds GET /api/device/v1/products/{id} (home-screen search → pick)
+ *   3 = adds shoppingListAmount on device products (shopping-list count card)
  */
-export const deviceApiVersion = 2;
+export const deviceApiVersion = 3;
