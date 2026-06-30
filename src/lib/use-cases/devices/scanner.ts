@@ -82,6 +82,7 @@ export interface DeviceProduct {
   openedAmount: number;
   minStockAmount: number;
   onShoppingList: boolean;
+  shoppingListAmount: number;
 }
 
 export interface DeviceExternalLookup {
@@ -250,10 +251,23 @@ async function withTimeout<T>(
   }
 }
 
-async function isOnShoppingList(grocyProductId: number, deps: DeviceScannerDeps): Promise<boolean> {
+interface ShoppingListState {
+  onShoppingList: boolean;
+  shoppingListAmount: number;
+}
+
+// Both shopping-list fields come from a single timed Mealie check so the scan
+// path makes one call, not two. Both fields are cosmetic on the product screen,
+// so any failure (no food mapping, timeout, Mealie down) degrades to the empty
+// state rather than failing the scan.
+async function getShoppingListState(
+  grocyProductId: number,
+  deps: DeviceScannerDeps,
+): Promise<ShoppingListState> {
+  const empty: ShoppingListState = { onShoppingList: false, shoppingListAmount: 0 };
   const mealieFoodId = await deps.findMealieFoodIdForGrocyProduct(grocyProductId);
   if (!mealieFoodId) {
-    return false;
+    return empty;
   }
   const startedAt = Date.now();
   try {
@@ -262,16 +276,20 @@ async function isOnShoppingList(grocyProductId: number, deps: DeviceScannerDeps)
       SCAN_SHOPPING_LIST_TIMEOUT_MS,
       'Mealie shopping list check',
     );
-    return check.alreadyOnList;
+    // Keep the boolean from the check itself: a matching row with quantity 0 is
+    // still "on the list", so it must not be derived from the summed amount.
+    const shoppingListAmount = check.matches.reduce((sum, match) => {
+      const quantity = Number(match.quantity);
+      return Number.isFinite(quantity) && quantity > 0 ? sum + quantity : sum;
+    }, 0);
+    return { onShoppingList: check.alreadyOnList, shoppingListAmount };
   } catch (error) {
-    // Shopping list state is cosmetic on the product screen; never fail the
-    // scan because Mealie is unreachable.
     log.warn('[DeviceAPI] Shopping list check skipped:', {
       grocyProductId,
       durationMs: elapsedSince(startedAt),
       error: error instanceof Error ? error.message : String(error),
     });
-    return false;
+    return empty;
   }
 }
 
@@ -280,6 +298,7 @@ async function toDeviceProduct(
   deps: DeviceScannerDeps,
 ): Promise<DeviceProduct> {
   const id = Number(details.product?.id ?? 0);
+  const shoppingList = await getShoppingListState(id, deps);
   return {
     id,
     name: details.product?.name ?? 'Unknown',
@@ -287,7 +306,8 @@ async function toDeviceProduct(
     stockAmount: Number(details.stock_amount ?? 0),
     openedAmount: Number(details.stock_amount_opened ?? 0),
     minStockAmount: Number(details.product?.min_stock_amount ?? 0),
-    onShoppingList: await isOnShoppingList(id, deps),
+    onShoppingList: shoppingList.onShoppingList,
+    shoppingListAmount: shoppingList.shoppingListAmount,
   };
 }
 
