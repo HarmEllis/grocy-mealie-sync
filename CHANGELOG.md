@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.14.0] - 2026-07-01
+
+This minor release exposes `shoppingListAmount` on device products so the scanner can display needed stock amounts.
+
+### Added
+
+- Device API (`GET /api/device/v1/products` and `GET /api/device/v1/products/{id}`) now returns `shoppingListAmount` for each product.
+
 ## [1.13.0] - 2026-06-22
 
 This minor release extends the device API with a product lookup endpoint, advertises an API version for firmware capability negotiation, and improves device scan reliability.
@@ -297,6 +305,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.14.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.10.0...v1.11.0
