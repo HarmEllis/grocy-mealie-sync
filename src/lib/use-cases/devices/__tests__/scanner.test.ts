@@ -99,25 +99,57 @@ describe('scanDeviceBarcode', () => {
         openedAmount: 1,
         minStockAmount: 2,
         onShoppingList: false,
+        shoppingListAmount: 0,
       },
     });
   });
 
-  it('reports onShoppingList via the product mapping', async () => {
+  it('reports onShoppingList even when matched rows sum to zero quantity', async () => {
     const deps = createDeps({
       findMealieFoodIdForGrocyProduct: vi.fn().mockResolvedValue('food-1'),
       checkShoppingListProduct: vi.fn().mockResolvedValue({
         shoppingListId: 'list-1',
         alreadyOnList: true,
         matchCount: 1,
-        matches: [],
+        matches: [{ quantity: 0 }],
       }),
     });
 
     const result = await scanDeviceBarcode('8715700110622', deps);
     expect(result.status).toBe('found');
+    // Boolean comes from the check, not the summed amount: a quantity-0 row is
+    // still on the list.
     expect(result.status === 'found' && result.product.onShoppingList).toBe(true);
+    expect(result.status === 'found' && result.product.shoppingListAmount).toBe(0);
     expect(deps.checkShoppingListProduct).toHaveBeenCalledWith({ foodId: 'food-1' });
+  });
+
+  it('sums the quantity of every matching unchecked row into shoppingListAmount', async () => {
+    const deps = createDeps({
+      findMealieFoodIdForGrocyProduct: vi.fn().mockResolvedValue('food-1'),
+      checkShoppingListProduct: vi.fn().mockResolvedValue({
+        shoppingListId: 'list-1',
+        alreadyOnList: true,
+        matchCount: 3,
+        // Non-finite / negative quantities are ignored by the sum.
+        matches: [{ quantity: 2 }, { quantity: 1.5 }, { quantity: Number.NaN }],
+      }),
+    });
+
+    const result = await scanDeviceBarcode('8715700110622', deps);
+    expect(result.status === 'found' && result.product.onShoppingList).toBe(true);
+    expect(result.status === 'found' && result.product.shoppingListAmount).toBe(3.5);
+  });
+
+  it('falls back to no shopping-list state when no Mealie food is mapped', async () => {
+    const deps = createDeps({
+      findMealieFoodIdForGrocyProduct: vi.fn().mockResolvedValue(null),
+    });
+
+    const result = await scanDeviceBarcode('8715700110622', deps);
+    expect(result.status === 'found' && result.product.onShoppingList).toBe(false);
+    expect(result.status === 'found' && result.product.shoppingListAmount).toBe(0);
+    expect(deps.checkShoppingListProduct).not.toHaveBeenCalled();
   });
 
   it('returns the unknown variant with external lookup and fuzzy suggestions', async () => {
@@ -193,7 +225,7 @@ describe('scanDeviceBarcode', () => {
       const result = scanDeviceBarcode('8715700110622', deps);
       const assertion = expect(result).resolves.toMatchObject({
         status: 'found',
-        product: { onShoppingList: false },
+        product: { onShoppingList: false, shoppingListAmount: 0 },
       });
       await vi.advanceTimersByTimeAsync(1_200);
 
@@ -399,7 +431,13 @@ describe('linkDeviceBarcode', () => {
       product_id: 42,
       barcode: '8715700110622',
     });
-    expect(product).toMatchObject({ id: 42, name: 'Heinz Tomato Ketchup' });
+    // Shared toDeviceProduct mapping carries the shopping-list fields here too.
+    expect(product).toMatchObject({
+      id: 42,
+      name: 'Heinz Tomato Ketchup',
+      onShoppingList: false,
+      shoppingListAmount: 0,
+    });
   });
 
   it('is idempotent when the barcode is already linked to the same product', async () => {
@@ -441,11 +479,20 @@ describe('getDeviceProduct', () => {
       getProductDetails: vi.fn().mockResolvedValue(
         productDetails({ id: 43, name: 'Whole Milk', stock: 5, opened: 2, min: 1, unit: 'Carton' }),
       ),
+      findMealieFoodIdForGrocyProduct: vi.fn().mockResolvedValue('food-43'),
+      checkShoppingListProduct: vi.fn().mockResolvedValue({
+        shoppingListId: 'list-1',
+        alreadyOnList: true,
+        matchCount: 2,
+        matches: [{ quantity: 1 }, { quantity: 2 }],
+      }),
     });
 
     const product = await getDeviceProduct(43, deps);
 
     expect(deps.getProductDetails).toHaveBeenCalledWith(43);
+    // The shared toDeviceProduct mapping populates the shopping-list fields on
+    // the GET /products/{id} path too.
     expect(product).toMatchObject({
       id: 43,
       name: 'Whole Milk',
@@ -453,6 +500,8 @@ describe('getDeviceProduct', () => {
       stockAmount: 5,
       openedAmount: 2,
       minStockAmount: 1,
+      onShoppingList: true,
+      shoppingListAmount: 3,
     });
   });
 
