@@ -1,7 +1,7 @@
 services:
   grocy:
     # SECURITY: Pin to a specific version for reproducible builds. Update deliberately.
-    image: lscr.io/linuxserver/grocy:4.6.0@sha256:7e84250a8549975fe0a3e305a1edac187005d65e9dc33f21932632d7f845e4e2
+    image: lscr.io/linuxserver/grocy:4.6.0@sha256:53084bab56979a739ff936fc6857cc6cf99d30a689f6426ca159ea70236aca10
     container_name: grocy
     environment:
       - PUID=1000
