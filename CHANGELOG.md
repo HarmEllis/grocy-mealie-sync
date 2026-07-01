@@ -8,7 +8,7 @@ This minor release exposes `shoppingListAmount` on device products so the scanne
 
 ### Added
 
-- Device API (`GET /api/device/v1/products` and `GET /api/device/v1/products/{id}`) now returns `shoppingListAmount` for each product.
+- Device API now returns `shoppingListAmount` on full product responses (scan, `GET /api/device/v1/products/{id}`, product create, and barcode-link) so the scanner can display needed stock amounts. The product search list (`GET /api/device/v1/products?query=...`) keeps its slim `id`/`name`/`stockAmount` shape.
 
 ## [1.13.0] - 2026-06-22
 
