@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.14.2] - 2026-07-02
+
+This patch release fixes an edge case in device product creation where a scanned name matching a mapped Mealie food (with a differently-named Grocy product) failed instead of offering to link.
+
+### Fixed
+
+- Device product creation (`POST /api/device/v1/products`) now returns a link conflict pointing at the mapped Grocy product when the scanned name matches an existing Mealie food (by name or alias) whose mapped Grocy product simply has a different name. Previously this case returned a plain 500 error, so the device could not attach the barcode to the existing Grocy product. Only a truly unmapped Mealie food (nothing to link a barcode to) still surfaces as a plain error.
+
 ## [1.14.1] - 2026-07-02
 
 This patch release fixes device product creation so scanned products land in both Grocy and Mealie, not just Grocy.
@@ -313,6 +321,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.14.2]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.14.1...v1.14.2
 [1.14.1]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.14.0...v1.14.1
 [1.14.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.12.0...v1.13.0
