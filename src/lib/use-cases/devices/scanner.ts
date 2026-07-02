@@ -21,7 +21,7 @@ import {
 } from '@/lib/grocy/types';
 import { resolveDefaultUnit } from '@/lib/settings';
 import { addStock, consumeStock, defaultInventoryDeps, markStockOpened } from '@/lib/use-cases/inventory/manage';
-import { createProductInGrocy } from '@/lib/use-cases/products/manage';
+import { createProductInBoth } from '@/lib/use-cases/products/manage';
 import {
   DEVICE_SYNC_LOCK_MAX_WAIT_MS,
   defaultSyncLockDeps,
@@ -140,7 +140,7 @@ export interface DeviceScannerDeps extends SyncLockDeps {
   addStock: typeof addStock;
   consumeStock: typeof consumeStock;
   markStockOpened: typeof markStockOpened;
-  createProductInGrocy: typeof createProductInGrocy;
+  createProductInBoth: typeof createProductInBoth;
   resolveDefaultGrocyUnitId: () => Promise<number | null>;
 }
 
@@ -213,7 +213,7 @@ const defaultDeps: DeviceScannerDeps = {
   addStock: params => addStock(params, lockedInventoryDeps),
   consumeStock: params => consumeStock(params, lockedInventoryDeps),
   markStockOpened: params => markStockOpened(params, lockedInventoryDeps),
-  createProductInGrocy,
+  createProductInBoth,
   resolveDefaultGrocyUnitId,
 };
 
@@ -564,11 +564,21 @@ export async function createDeviceProduct(
     throw new Error('No Grocy quantity units are available to create the product with.');
   }
 
-  const created = await deps.createProductInGrocy({ name, grocyUnitId });
+  // Create in Grocy *and* Mealie and link the two via a product mapping, so a
+  // device-created product behaves like any synced product (shows up in Mealie,
+  // and later shopping-list actions can resolve its Mealie food). Barcode
+  // linking is still done separately below — createProductInBoth doesn't do it.
+  const created = await deps.createProductInBoth({ name, grocyUnitId });
   if (!created.created) {
-    throw new DeviceConflictError('Product already exists', {
-      product: { id: created.grocyProductId, name: created.grocyProductName },
-    });
+    // A duplicate we can offer to link to only makes sense when a Grocy product
+    // already exists (the device links the barcode to a Grocy id). A Mealie-only
+    // duplicate has no Grocy id to link, so surface it as a plain error instead.
+    if (created.grocyProductId) {
+      throw new DeviceConflictError('Product already exists', {
+        product: { id: created.grocyProductId, name: created.grocyProductName },
+      });
+    }
+    throw new Error('A Mealie food with this name already exists.');
   }
   if (!created.grocyProductId) {
     throw new Error('Grocy did not return an id for the created product.');

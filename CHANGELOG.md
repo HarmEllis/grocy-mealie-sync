@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.14.1] - 2026-07-02
+
+This patch release fixes device product creation so scanned products land in both Grocy and Mealie, not just Grocy.
+
+### Fixed
+
+- The device API's create-product flow (`POST /api/device/v1/products`, used by the grocy-mealie-scanner "unknown barcode → add" action) now creates the product in **both** Grocy and Mealie and links them via a product mapping, instead of creating a Grocy-only product. Previously such products never appeared in Mealie and had no mapping, so `findMealieFoodIdForGrocyProduct` always returned `null` for them — which also prevented later "add to shopping list" actions from resolving their Mealie food. A duplicate Grocy name still returns a link-offer conflict; a Mealie-only duplicate (no Grocy id to link a barcode to) now surfaces as a plain error.
+
 ## [1.14.0] - 2026-07-01
 
 This minor release exposes `shoppingListAmount` on device products so the scanner can display needed stock amounts.
@@ -305,6 +313,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.14.1]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.14.0...v1.14.1
 [1.14.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.11.0...v1.12.0

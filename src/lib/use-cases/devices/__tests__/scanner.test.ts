@@ -73,11 +73,14 @@ function createDeps(overrides: Partial<DeviceScannerDeps> = {}): DeviceScannerDe
     addStock: vi.fn().mockResolvedValue({}),
     consumeStock: vi.fn().mockResolvedValue({}),
     markStockOpened: vi.fn().mockResolvedValue({}),
-    createProductInGrocy: vi.fn().mockResolvedValue({
+    createProductInBoth: vi.fn().mockResolvedValue({
       created: true,
       grocyProductId: 99,
       grocyProductName: 'New Product',
-      duplicateCheck: { skipped: false, exactGrocyMatches: 0 },
+      mealieFoodId: 'food-99',
+      mealieFoodName: 'New Product',
+      unitMappingId: null,
+      duplicateCheck: { skipped: false, exactGrocyMatches: 0, exactMealieMatches: 0 },
     }),
     resolveDefaultGrocyUnitId: vi.fn().mockResolvedValue(7),
     ...overrides,
@@ -367,7 +370,7 @@ describe('searchDeviceProducts', () => {
 });
 
 describe('createDeviceProduct', () => {
-  it('creates the product, links the barcode and returns the product', async () => {
+  it('creates the product in Grocy and Mealie, links the barcode and returns the product', async () => {
     const deps = createDeps({
       getProductDetails: vi.fn().mockResolvedValue(
         productDetails({ id: 99, name: 'New Product', stock: 0, opened: 0, min: 0 }),
@@ -379,7 +382,9 @@ describe('createDeviceProduct', () => {
       deps,
     );
 
-    expect(deps.createProductInGrocy).toHaveBeenCalledWith({ name: 'New Product', grocyUnitId: 7 });
+    // createProductInBoth creates the Grocy product, the Mealie food and the
+    // mapping between them; the barcode is linked separately afterwards.
+    expect(deps.createProductInBoth).toHaveBeenCalledWith({ name: 'New Product', grocyUnitId: 7 });
     expect(deps.createProductBarcode).toHaveBeenCalledWith({
       product_id: 99,
       barcode: '4006381333931',
@@ -387,13 +392,16 @@ describe('createDeviceProduct', () => {
     expect(product).toMatchObject({ id: 99, name: 'New Product', stockAmount: 0 });
   });
 
-  it('reports a duplicate name as a conflict with the existing product', async () => {
+  it('reports a duplicate Grocy name as a conflict with the existing product', async () => {
     const deps = createDeps({
-      createProductInGrocy: vi.fn().mockResolvedValue({
+      createProductInBoth: vi.fn().mockResolvedValue({
         created: false,
         grocyProductId: 42,
         grocyProductName: 'Heinz Tomato Ketchup',
-        duplicateCheck: { skipped: true, exactGrocyMatches: 1 },
+        mealieFoodId: null,
+        mealieFoodName: null,
+        unitMappingId: null,
+        duplicateCheck: { skipped: true, exactGrocyMatches: 1, exactMealieMatches: 0 },
       }),
     });
 
@@ -409,6 +417,29 @@ describe('createDeviceProduct', () => {
     expect(deps.createProductBarcode).not.toHaveBeenCalled();
   });
 
+  it('surfaces a Mealie-only duplicate as a plain error (no Grocy id to link)', async () => {
+    const deps = createDeps({
+      createProductInBoth: vi.fn().mockResolvedValue({
+        created: false,
+        grocyProductId: null,
+        grocyProductName: null,
+        mealieFoodId: 'food-7',
+        mealieFoodName: 'New Product',
+        unitMappingId: null,
+        duplicateCheck: { skipped: true, exactGrocyMatches: 0, exactMealieMatches: 1 },
+      }),
+    });
+
+    const error = await createDeviceProduct(
+      { name: 'New Product', barcode: '4006381333931' },
+      deps,
+    ).catch(e => e);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(DeviceConflictError);
+    expect(deps.createProductBarcode).not.toHaveBeenCalled();
+  });
+
   it('falls back to the first Grocy unit when no default unit is configured', async () => {
     const deps = createDeps({
       resolveDefaultGrocyUnitId: vi.fn().mockResolvedValue(null),
@@ -417,7 +448,7 @@ describe('createDeviceProduct', () => {
 
     await createDeviceProduct({ name: 'New Product', barcode: '4006381333931' }, deps);
 
-    expect(deps.createProductInGrocy).toHaveBeenCalledWith({ name: 'New Product', grocyUnitId: 3 });
+    expect(deps.createProductInBoth).toHaveBeenCalledWith({ name: 'New Product', grocyUnitId: 3 });
   });
 });
 
