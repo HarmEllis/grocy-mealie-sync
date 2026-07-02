@@ -82,6 +82,7 @@ function createDeps(overrides: Partial<DeviceScannerDeps> = {}): DeviceScannerDe
       unitMappingId: null,
       duplicateCheck: { skipped: false, exactGrocyMatches: 0, exactMealieMatches: 0 },
     }),
+    resolveMappedGrocyProduct: vi.fn().mockResolvedValue(null),
     resolveDefaultGrocyUnitId: vi.fn().mockResolvedValue(7),
     ...overrides,
   } as DeviceScannerDeps;
@@ -417,7 +418,37 @@ describe('createDeviceProduct', () => {
     expect(deps.createProductBarcode).not.toHaveBeenCalled();
   });
 
-  it('surfaces a Mealie-only duplicate as a plain error (no Grocy id to link)', async () => {
+  it('reports a mapped Mealie duplicate as a conflict with its Grocy product', async () => {
+    // The scanned name matches an existing Mealie food (by name or alias) whose
+    // mapped Grocy product has a different name, so there is no exact Grocy match
+    // but there is still a Grocy product to link the barcode to.
+    const deps = createDeps({
+      createProductInBoth: vi.fn().mockResolvedValue({
+        created: false,
+        grocyProductId: null,
+        grocyProductName: null,
+        mealieFoodId: 'food-7',
+        mealieFoodName: 'Whole Milk',
+        unitMappingId: null,
+        duplicateCheck: { skipped: true, exactGrocyMatches: 0, exactMealieMatches: 1 },
+      }),
+      resolveMappedGrocyProduct: vi.fn().mockResolvedValue({ id: 43, name: 'Semi-skimmed Milk' }),
+    });
+
+    const error = await createDeviceProduct(
+      { name: 'Whole Milk', barcode: '4006381333931' },
+      deps,
+    ).catch(e => e);
+
+    expect(deps.resolveMappedGrocyProduct).toHaveBeenCalledWith('food-7');
+    expect(error).toBeInstanceOf(DeviceConflictError);
+    expect((error as DeviceConflictError).payload).toEqual({
+      product: { id: 43, name: 'Semi-skimmed Milk' },
+    });
+    expect(deps.createProductBarcode).not.toHaveBeenCalled();
+  });
+
+  it('surfaces an unmapped Mealie-only duplicate as a plain error (no Grocy id to link)', async () => {
     const deps = createDeps({
       createProductInBoth: vi.fn().mockResolvedValue({
         created: false,
@@ -428,6 +459,7 @@ describe('createDeviceProduct', () => {
         unitMappingId: null,
         duplicateCheck: { skipped: true, exactGrocyMatches: 0, exactMealieMatches: 1 },
       }),
+      resolveMappedGrocyProduct: vi.fn().mockResolvedValue(null),
     });
 
     const error = await createDeviceProduct(
