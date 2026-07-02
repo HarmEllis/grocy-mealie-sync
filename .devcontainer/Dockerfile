@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/devcontainers/base:bookworm@sha256:17e6cc517b483d1108b333d4c34352b0a21617f0117052e9b259d47113a9dc37
+FROM mcr.microsoft.com/devcontainers/base:bookworm@sha256:bb7b81b6e5be17b5267f92f4ffda534fea37dab1df97b5e86c1f9b91da5c0b5d
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
