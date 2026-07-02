@@ -141,6 +141,7 @@ export interface DeviceScannerDeps extends SyncLockDeps {
   consumeStock: typeof consumeStock;
   markStockOpened: typeof markStockOpened;
   createProductInBoth: typeof createProductInBoth;
+  resolveMappedGrocyProduct: (mealieFoodId: string) => Promise<{ id: number; name: string } | null>;
   resolveDefaultGrocyUnitId: () => Promise<number | null>;
 }
 
@@ -185,6 +186,22 @@ async function findMealieFoodIdForGrocyProduct(grocyProductId: number): Promise<
   return rows[0]?.mealieFoodId ?? null;
 }
 
+// Resolve the Grocy product a Mealie food is mapped to. Used when a create is
+// skipped because the name matches an existing Mealie food (by name or alias)
+// whose mapped Grocy product has a different name: the device can still link
+// the barcode to that Grocy product instead of failing.
+async function resolveMappedGrocyProduct(
+  mealieFoodId: string,
+): Promise<{ id: number; name: string } | null> {
+  const rows = await db
+    .select({ id: productMappings.grocyProductId, name: productMappings.grocyProductName })
+    .from(productMappings)
+    .where(eq(productMappings.mealieFoodId, mealieFoodId))
+    .limit(1);
+  const row = rows[0];
+  return row ? { id: row.id, name: row.name } : null;
+}
+
 async function resolveDefaultGrocyUnitId(): Promise<number | null> {
   const allUnitMappings = await db
     .select({ id: unitMappings.id, grocyUnitId: unitMappings.grocyUnitId })
@@ -214,6 +231,7 @@ const defaultDeps: DeviceScannerDeps = {
   consumeStock: params => consumeStock(params, lockedInventoryDeps),
   markStockOpened: params => markStockOpened(params, lockedInventoryDeps),
   createProductInBoth,
+  resolveMappedGrocyProduct,
   resolveDefaultGrocyUnitId,
 };
 
@@ -570,14 +588,27 @@ export async function createDeviceProduct(
   // linking is still done separately below — createProductInBoth doesn't do it.
   const created = await deps.createProductInBoth({ name, grocyUnitId });
   if (!created.created) {
-    // A duplicate we can offer to link to only makes sense when a Grocy product
-    // already exists (the device links the barcode to a Grocy id). A Mealie-only
-    // duplicate has no Grocy id to link, so surface it as a plain error instead.
+    // The device links the barcode to a Grocy product id, so a conflict is only
+    // useful when we can resolve one to offer.
     if (created.grocyProductId) {
+      // Exact Grocy name match.
       throw new DeviceConflictError('Product already exists', {
         product: { id: created.grocyProductId, name: created.grocyProductName },
       });
     }
+    if (created.mealieFoodId) {
+      // The name matched an existing Mealie food (by name or alias) whose mapped
+      // Grocy product simply has a different name. That Grocy product is still a
+      // valid link target, so offer it as a conflict instead of failing.
+      const mapped = await deps.resolveMappedGrocyProduct(created.mealieFoodId);
+      if (mapped) {
+        throw new DeviceConflictError('Product already exists', {
+          product: { id: mapped.id, name: mapped.name },
+        });
+      }
+    }
+    // A Mealie food exists with this name but is not mapped to any Grocy product,
+    // so there is nothing to attach the barcode to.
     throw new Error('A Mealie food with this name already exists.');
   }
   if (!created.grocyProductId) {
