@@ -5,6 +5,12 @@
 - Prefer the documented npm scripts in [`README.md`](README.md) instead of ad-hoc commands when a script already exists.
 - Treat `src/lib/grocy/client/**` and `src/lib/mealie/client/**` as generated artifacts. Regenerate them via the documented OpenAPI workflow instead of editing them by hand.
 
+## Language
+
+- Write everything published to GitHub in **English**: pull request titles and
+  bodies, issue text, commit messages, code comments and docs. This holds
+  regardless of the language used in discussion.
+
 ## Release And Tag Prep
 
 When asked to prepare or create a new release tag, complete all of the steps below before creating the tag.
@@ -45,3 +51,13 @@ When asked to prepare or create a new release tag, complete all of the steps bel
 
 - `package.json` uses plain semver like `1.2.0`.
 - Git tags use a `v` prefix like `v1.2.0`.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
