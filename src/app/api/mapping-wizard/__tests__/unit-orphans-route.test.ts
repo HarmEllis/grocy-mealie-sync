@@ -91,7 +91,7 @@ describe('mapping wizard orphan unit route', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ deleted: 1, total: 1 });
+    expect(body).toEqual({ deleted: 1, total: 1, failed: 0 });
     expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
       trigger: 'manual',
       action: 'mapping_unit_delete_orphans',
@@ -121,7 +121,7 @@ describe('mapping wizard orphan unit route', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ deleted: 1, total: 2 });
+    expect(body).toEqual({ deleted: 1, total: 2, failed: 1 });
     expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
       action: 'mapping_unit_delete_orphans',
       status: 'partial',

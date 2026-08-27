@@ -206,7 +206,7 @@ describe('mapping wizard unit sync route', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ synced: 1, renamed: 0 });
+    expect(body).toEqual({ synced: 1, renamed: 0, renameFailed: 1 });
     expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
       action: 'mapping_unit_sync',
       status: 'partial',

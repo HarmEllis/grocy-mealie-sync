@@ -142,3 +142,28 @@ export function getPendingUnitMappings(
     return existingMappingsByMealieUnitId.get(mapping.mealieUnitId) !== mapping.grocyUnitId;
   });
 }
+
+/**
+ * Collect the target ids already claimed by a draft mapping, so a row can test
+ * availability in O(1).
+ *
+ * Previously each row filtered the full option list with a nested
+ * `Object.values(maps).some(...)`, i.e. one fresh array per option per row. At
+ * ~5000 rows x ~5000 options that is ~25M allocations and ~1.25e11 comparisons
+ * — the direct cause of the "Uncaught out of memory" in issue #46.
+ */
+export function buildTakenTargetIds<TDraft, TTarget extends string | number>(
+  maps: Record<string, TDraft>,
+  getTarget: (draft: TDraft) => TTarget | null | undefined,
+): Set<TTarget> {
+  const taken = new Set<TTarget>();
+
+  for (const draft of Object.values(maps)) {
+    const target = getTarget(draft);
+    if (target !== null && target !== undefined) {
+      taken.add(target);
+    }
+  }
+
+  return taken;
+}

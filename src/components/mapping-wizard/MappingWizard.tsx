@@ -48,6 +48,14 @@ import {
   type WizardTab,
 } from './state';
 import { applyBulkSuggestions, isSuggestionTargetAvailable } from './suggestion-actions';
+import {
+  postBulkChunk,
+  runChunked,
+  summarizeOutcome,
+  type BulkOutcome,
+  type ChunkProgress,
+} from './bulk';
+import { CHUNK_SIZE_CREATE, CHUNK_SIZE_DELETE, CHUNK_SIZE_SYNC } from '@/lib/bulk-limits';
 
 interface FetchTabDataOptions {
   preserveWizardState?: boolean;
@@ -112,6 +120,7 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
   const [tabErrors, setTabErrors] = useState(INITIAL_TAB_ERRORS);
   const [dirtyTabs, setDirtyTabs] = useState(INITIAL_DIRTY_TABS);
   const [actionRunning, setActionRunning] = useState<string | null>(null);
+  const [actionProgress, setActionProgress] = useState<ChunkProgress | null>(null);
   const [productSearch, setProductSearch] = useState('');
   const [grocyMinStockProductSearch, setGrocyMinStockProductSearch] = useState('');
   const [mappedProductSearch, setMappedProductSearch] = useState('');
@@ -444,16 +453,71 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
     return true;
   }
 
-  async function runAction(name: string, fn: () => Promise<void>) {
+  /**
+   * `fn` may return a follow-up to run *after* cleanup. Opening a confirmation
+   * from inside `fn` does not work: the `finally` below closes it again in the
+   * same batch, so the dialog never reaches the user.
+   */
+  async function runAction(name: string, fn: () => Promise<(() => void) | void>) {
+    let followUp: (() => void) | void = undefined;
+
     setActionRunning(name);
+    setActionProgress(null);
     try {
-      await fn();
+      followUp = await fn();
     } catch (error) {
-      toast.error(String(error));
+      toast.error(error instanceof Error ? error.message : String(error));
     } finally {
       setActionRunning(null);
+      setActionProgress(null);
       closeConfirm();
     }
+
+    followUp?.();
+  }
+
+  /** Report a finished bulk run: a partial result must not look like success. */
+  function reportOutcome(outcome: BulkOutcome, verb: string) {
+    const summary = summarizeOutcome(outcome, verb);
+    if (outcome.failed > 0 || outcome.aborted) {
+      toast.warning(summary);
+      for (const message of outcome.errors.slice(0, 2)) {
+        toast.error(message);
+      }
+      return;
+    }
+    toast.success(summary);
+  }
+
+  function accumulateCreate(
+    outcome: BulkOutcome,
+    result: {
+      created?: number;
+      skipped?: number;
+      failed?: number;
+      items?: Array<{ id: string; status: string; error?: string }>;
+    },
+  ) {
+    outcome.succeeded += result.created ?? 0;
+    outcome.skipped += result.skipped ?? 0;
+    outcome.failed += result.failed ?? 0;
+
+    // Without this the route's per-item reasons are discarded and a partial
+    // run only reports a count, leaving the user with nothing to act on.
+    for (const item of result.items ?? []) {
+      if (item.status === 'failed' && item.error && !outcome.errors.includes(item.error)) {
+        outcome.errors.push(item.error);
+      }
+    }
+  }
+
+  function accumulateSync(
+    outcome: BulkOutcome,
+    result: { synced?: number; skipped?: number; renameFailed?: number },
+  ) {
+    outcome.succeeded += result.synced ?? 0;
+    outcome.skipped += result.skipped ?? 0;
+    outcome.failed += result.renameFailed ?? 0;
   }
 
   function promptAutoCreate(field: 'autoCreateProducts' | 'autoCreateUnits', msg: string) {
@@ -1018,32 +1082,50 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
     }
 
     await runAction('syncProducts', async () => {
-      const res = await fetch('/api/mapping-wizard/products/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mappings: filled.map(mapping => ({
+      const conflicts: Array<{ reason: string }> = [];
+      const outcome = await runChunked({
+        items: filled,
+        chunkSize: CHUNK_SIZE_SYNC,
+        request: chunk => postBulkChunk<{
+          synced: number; renamed: number; renameFailed: number; skipped: number;
+          conflicts: Array<{ reason: string }>;
+        }>('/api/mapping-wizard/products/sync', {
+          mappings: chunk.map(mapping => ({
             mealieFoodId: mapping.mealieFoodId,
             grocyProductId: mapping.grocyProductId,
             grocyUnitId: mapping.grocyUnitId || 0,
           })),
         }),
+        accumulate: (acc, result) => {
+          accumulateSync(acc, result);
+          conflicts.push(...(result.conflicts ?? []));
+        },
+        onProgress: setActionProgress,
       });
-      const result = await res.json();
-      if (!res.ok) {
-        throw new Error(result.error);
-      }
 
       const refreshedData = await fetchTabData('products', { preserveWizardState: true, showLoading: false });
       markOtherLoadedTabsDirty('products');
+      reportOutcome(outcome, 'Synced');
 
-      if (refreshedData && 'unmappedMealieFoods' in refreshedData && refreshedData.unmappedMealieFoods.length === 0) {
-        toast.success(`Synced ${result.synced} products, renamed ${result.renamed}`);
-        promptAutoCreate('autoCreateProducts', 'All products are now mapped. Enable auto-create for future products?');
-        return;
+      // Conflicting entries are skipped rather than failing the batch, so the
+      // user has to be told which ones did not apply.
+      if (conflicts.length > 0) {
+        toast.warning(`${conflicts.length} mapping(s) skipped: ${conflicts[0].reason}`);
       }
 
-      toast.success(`Synced ${result.synced} products, renamed ${result.renamed}`);
+      if (
+        !outcome.aborted
+        && outcome.failed === 0
+        && conflicts.length === 0
+        && refreshedData
+        && 'unmappedMealieFoods' in refreshedData
+        && refreshedData.unmappedMealieFoods.length === 0
+      ) {
+        return () => promptAutoCreate(
+          'autoCreateProducts',
+          'All products are now mapped. Enable auto-create for future products?',
+        );
+      }
     });
   }
 
@@ -1063,34 +1145,46 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
     }
 
     await runAction('createProducts', async () => {
-      const res = await fetch('/api/mapping-wizard/products/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mealieFoodIds: checkedIds,
-          defaultGrocyUnitId: defaultCreateUnitId,
-          unitOverrides: Object.fromEntries(
-            checkedIds
-              .filter(id => productMaps[id]?.grocyUnitId != null)
-              .map(id => [id, productMaps[id].grocyUnitId]),
-          ),
-        }),
+      // Chunked: the server caps a single request at BULK_MAX_ITEMS, so
+      // posting every checked id at once failed outright above that (issue #46).
+      const outcome = await runChunked({
+        items: checkedIds,
+        chunkSize: CHUNK_SIZE_CREATE,
+        request: chunk => postBulkChunk<{
+          created: number; skipped: number; failed: number;
+          items?: Array<{ id: string; status: string; error?: string }>;
+        }>(
+          '/api/mapping-wizard/products/create',
+          {
+            mealieFoodIds: chunk,
+            defaultGrocyUnitId: defaultCreateUnitId,
+            unitOverrides: Object.fromEntries(
+              chunk
+                .filter(id => productMaps[id]?.grocyUnitId != null)
+                .map(id => [id, productMaps[id].grocyUnitId]),
+            ),
+          },
+        ),
+        accumulate: accumulateCreate,
+        onProgress: setActionProgress,
       });
-      const result = await res.json();
-      if (!res.ok) {
-        throw new Error(result.error);
-      }
 
       const refreshedData = await fetchTabData('products', { preserveWizardState: true, showLoading: false });
       markOtherLoadedTabsDirty('products');
+      reportOutcome(outcome, 'Created');
 
-      if (refreshedData && 'unmappedMealieFoods' in refreshedData && refreshedData.unmappedMealieFoods.length === 0) {
-        toast.success(`Created ${result.created} products`);
-        promptAutoCreate('autoCreateProducts', 'All products are now mapped. Enable auto-create for future products?');
-        return;
+      if (
+        !outcome.aborted
+        && outcome.failed === 0
+        && refreshedData
+        && 'unmappedMealieFoods' in refreshedData
+        && refreshedData.unmappedMealieFoods.length === 0
+      ) {
+        return () => promptAutoCreate(
+          'autoCreateProducts',
+          'All products are now mapped. Enable auto-create for future products?',
+        );
       }
-
-      toast.success(`Created ${result.created} products${result.skipped ? `, ${result.skipped} skipped` : ''}`);
     });
   }
 
@@ -1104,25 +1198,26 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
     }
 
     await runAction('syncGrocyMinStockProducts', async () => {
-      const res = await fetch('/api/mapping-wizard/products/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mappings: filled.map(mapping => ({
-            mealieFoodId: mapping.mealieFoodId,
-            grocyProductId: mapping.grocyProductId,
-            grocyUnitId: mapping.grocyUnitId || 0,
-          })),
-        }),
+      const outcome = await runChunked({
+        items: filled,
+        chunkSize: CHUNK_SIZE_SYNC,
+        request: chunk => postBulkChunk<{ synced: number; renameFailed: number; skipped: number }>(
+          '/api/mapping-wizard/products/sync',
+          {
+            mappings: chunk.map(mapping => ({
+              mealieFoodId: mapping.mealieFoodId,
+              grocyProductId: mapping.grocyProductId,
+              grocyUnitId: mapping.grocyUnitId || 0,
+            })),
+          },
+        ),
+        accumulate: accumulateSync,
+        onProgress: setActionProgress,
       });
-      const result = await res.json();
-      if (!res.ok) {
-        throw new Error(result.error || 'Failed to sync products');
-      }
 
       await fetchTabData('grocy-min-stock', { preserveWizardState: true, showLoading: false });
       markOtherLoadedTabsDirty('grocy-min-stock');
-      toast.success(`Synced ${result.synced} products, renamed ${result.renamed}`);
+      reportOutcome(outcome, 'Synced');
     });
   }
 
@@ -1134,24 +1229,25 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
     }
 
     await runAction('createMealieProducts', async () => {
-      const res = await fetch('/api/mapping-wizard/products/create-mealie', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          grocyProductIds: checkedIds,
-          unitSelections: Object.fromEntries(
-            checkedIds.map(id => [String(id), grocyMinStockProductMaps[String(id)]?.grocyUnitId ?? null]),
-          ),
-        }),
+      const outcome = await runChunked({
+        items: checkedIds,
+        chunkSize: CHUNK_SIZE_CREATE,
+        request: chunk => postBulkChunk<{ created: number; skipped: number; failed: number }>(
+          '/api/mapping-wizard/products/create-mealie',
+          {
+            grocyProductIds: chunk,
+            unitSelections: Object.fromEntries(
+              chunk.map(id => [String(id), grocyMinStockProductMaps[String(id)]?.grocyUnitId ?? null]),
+            ),
+          },
+        ),
+        accumulate: accumulateCreate,
+        onProgress: setActionProgress,
       });
-      const result = await res.json();
-      if (!res.ok) {
-        throw new Error(result.error || 'Failed to create Mealie products');
-      }
 
       await fetchTabData('grocy-min-stock', { preserveWizardState: true, showLoading: false });
       markOtherLoadedTabsDirty('grocy-min-stock');
-      toast.success(`Created ${result.created} Mealie products${result.skipped ? `, ${result.skipped} skipped` : ''}`);
+      reportOutcome(outcome, 'Created');
     });
   }
 
@@ -1162,19 +1258,23 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
         return;
       }
 
-      const res = await fetch('/api/mapping-wizard/products/orphans', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: true, ids: orphanIds }),
+      const outcome = await runChunked({
+        items: orphanIds,
+        chunkSize: CHUNK_SIZE_DELETE,
+        request: chunk => postBulkChunk<{ deleted: number; total: number; failed: number }>(
+          '/api/mapping-wizard/products/orphans',
+          { confirm: true, ids: chunk },
+        ),
+        accumulate: (acc, result) => {
+          acc.succeeded += result.deleted ?? 0;
+          acc.failed += result.failed ?? 0;
+        },
+        onProgress: setActionProgress,
       });
-      const result = await res.json();
-      if (!res.ok) {
-        throw new Error(result.error);
-      }
 
       await fetchTabData('products', { preserveWizardState: true, showLoading: false });
       markOtherLoadedTabsDirty('products');
-      toast.success(`Deleted ${result.deleted} orphan products`);
+      reportOutcome(outcome, 'Deleted');
     });
   }
 
@@ -1239,31 +1339,38 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
     }
 
     await runAction('syncUnits', async () => {
-      const res = await fetch('/api/mapping-wizard/units/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mappings: filled.map(mapping => ({
-            mealieUnitId: mapping.mealieUnitId,
-            grocyUnitId: mapping.grocyUnitId,
-          })),
-        }),
+      const outcome = await runChunked({
+        items: filled,
+        chunkSize: CHUNK_SIZE_SYNC,
+        request: chunk => postBulkChunk<{ synced: number; renamed: number; renameFailed: number }>(
+          '/api/mapping-wizard/units/sync',
+          {
+            mappings: chunk.map(mapping => ({
+              mealieUnitId: mapping.mealieUnitId,
+              grocyUnitId: mapping.grocyUnitId,
+            })),
+          },
+        ),
+        accumulate: accumulateSync,
+        onProgress: setActionProgress,
       });
-      const result = await res.json();
-      if (!res.ok) {
-        throw new Error(result.error);
-      }
 
       const refreshedData = await fetchTabData('units', { preserveWizardState: true, showLoading: false });
       markOtherLoadedTabsDirty('units');
+      reportOutcome(outcome, 'Synced');
 
-      if (refreshedData && 'unmappedMealieUnits' in refreshedData && refreshedData.unmappedMealieUnits.length === 0) {
-        toast.success(`Synced ${result.synced} units, renamed ${result.renamed}`);
-        promptAutoCreate('autoCreateUnits', 'All units are now mapped. Enable auto-create for future units?');
-        return;
+      if (
+        !outcome.aborted
+        && outcome.failed === 0
+        && refreshedData
+        && 'unmappedMealieUnits' in refreshedData
+        && refreshedData.unmappedMealieUnits.length === 0
+      ) {
+        return () => promptAutoCreate(
+          'autoCreateUnits',
+          'All units are now mapped. Enable auto-create for future units?',
+        );
       }
-
-      toast.success(`Synced ${result.synced} units, renamed ${result.renamed}`);
     });
   }
 
@@ -1279,26 +1386,33 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
     }
 
     await runAction('createUnits', async () => {
-      const res = await fetch('/api/mapping-wizard/units/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mealieUnitIds: checkedIds }),
+      const outcome = await runChunked({
+        items: checkedIds,
+        chunkSize: CHUNK_SIZE_CREATE,
+        request: chunk => postBulkChunk<{ created: number; skipped: number; failed: number }>(
+          '/api/mapping-wizard/units/create',
+          { mealieUnitIds: chunk },
+        ),
+        accumulate: accumulateCreate,
+        onProgress: setActionProgress,
       });
-      const result = await res.json();
-      if (!res.ok) {
-        throw new Error(result.error);
-      }
 
       const refreshedData = await fetchTabData('units', { preserveWizardState: true, showLoading: false });
       markOtherLoadedTabsDirty('units');
+      reportOutcome(outcome, 'Created');
 
-      if (refreshedData && 'unmappedMealieUnits' in refreshedData && refreshedData.unmappedMealieUnits.length === 0) {
-        toast.success(`Created ${result.created} units`);
-        promptAutoCreate('autoCreateUnits', 'All units are now mapped. Enable auto-create for future units?');
-        return;
+      if (
+        !outcome.aborted
+        && outcome.failed === 0
+        && refreshedData
+        && 'unmappedMealieUnits' in refreshedData
+        && refreshedData.unmappedMealieUnits.length === 0
+      ) {
+        return () => promptAutoCreate(
+          'autoCreateUnits',
+          'All units are now mapped. Enable auto-create for future units?',
+        );
       }
-
-      toast.success(`Created ${result.created} units${result.skipped ? `, ${result.skipped} skipped` : ''}`);
     });
   }
 
@@ -1309,19 +1423,23 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
         return;
       }
 
-      const res = await fetch('/api/mapping-wizard/units/orphans', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: true, ids: orphanIds }),
+      const outcome = await runChunked({
+        items: orphanIds,
+        chunkSize: CHUNK_SIZE_DELETE,
+        request: chunk => postBulkChunk<{ deleted: number; total: number; failed: number }>(
+          '/api/mapping-wizard/units/orphans',
+          { confirm: true, ids: chunk },
+        ),
+        accumulate: (acc, result) => {
+          acc.succeeded += result.deleted ?? 0;
+          acc.failed += result.failed ?? 0;
+        },
+        onProgress: setActionProgress,
       });
-      const result = await res.json();
-      if (!res.ok) {
-        throw new Error(result.error);
-      }
 
       await fetchTabData('units', { preserveWizardState: true, showLoading: false });
       markOtherLoadedTabsDirty('units');
-      toast.success(`Deleted ${result.deleted} orphan units`);
+      reportOutcome(outcome, 'Deleted');
     });
   }
 
@@ -1792,6 +1910,7 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
           tab={tab}
           tabLabel={currentTabLabel}
           actionRunning={actionRunning}
+          actionProgress={actionProgress}
           currentTabLoading={currentTabLoading}
           unitMappedCount={unitsData ? getPendingUnitMappings(unitsData, unitMaps).length : 0}
           checkedUnitCount={unmappedUnitIds.filter(id => createUnitChecked[id]).length}
@@ -2042,6 +2161,7 @@ interface WizardFooterProps {
   tab: WizardTab;
   tabLabel: string;
   actionRunning: string | null;
+  actionProgress: ChunkProgress | null;
   currentTabLoading: boolean;
   unitMappedCount: number;
   checkedUnitCount: number;
@@ -2067,6 +2187,7 @@ function WizardFooter({
   tab,
   tabLabel,
   actionRunning,
+  actionProgress,
   currentTabLoading,
   unitMappedCount,
   checkedUnitCount,
@@ -2090,6 +2211,13 @@ function WizardFooter({
   const isRunning = !!actionRunning;
   const actionButtonClassName = 'h-10 w-full justify-start sm:h-7 sm:w-auto sm:justify-center';
 
+  /**
+   * A bulk run is many sequential requests and can take minutes, so a bare
+   * "Creating..." leaves the user unable to tell progress from a hang.
+   */
+  const runningLabel = (base: string) =>
+    actionProgress ? `${base} ${actionProgress.done}/${actionProgress.total}` : base;
+
   let actions: React.ReactNode = null;
 
   if (tab === 'units') {
@@ -2097,11 +2225,11 @@ function WizardFooter({
       <>
         <Button size="sm" className={actionButtonClassName} onClick={onSyncUnits} disabled={isRunning || unitMappedCount === 0}>
           {actionRunning === 'syncUnits' ? <Loader2 className="size-4 animate-spin" /> : <Link className="size-4" />}
-          {actionRunning === 'syncUnits' ? 'Syncing...' : `Sync Mapped (${unitMappedCount})`}
+          {actionRunning === 'syncUnits' ? runningLabel('Syncing...') : `Sync Mapped (${unitMappedCount})`}
         </Button>
         <Button variant="secondary" size="sm" className={actionButtonClassName} onClick={onCreateUnits} disabled={isRunning || checkedUnitCount === 0}>
           {actionRunning === 'createUnits' ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-          {actionRunning === 'createUnits' ? 'Creating...' : `Create Checked in Grocy (${checkedUnitCount})`}
+          {actionRunning === 'createUnits' ? runningLabel('Creating...') : `Create Checked in Grocy (${checkedUnitCount})`}
         </Button>
         <Button variant="destructive" size="sm" className={actionButtonClassName} onClick={onDeleteOrphanUnits} disabled={isRunning || orphanUnitCount === 0}>
           <Trash2 className="size-4" />
@@ -2116,11 +2244,11 @@ function WizardFooter({
       <>
         <Button size="sm" className={actionButtonClassName} onClick={onSyncGrocyMinStockProducts} disabled={isRunning || grocyMinStockProductMappedCount === 0}>
           {actionRunning === 'syncGrocyMinStockProducts' ? <Loader2 className="size-4 animate-spin" /> : <Link className="size-4" />}
-          {actionRunning === 'syncGrocyMinStockProducts' ? 'Syncing...' : `Sync Mapped (${grocyMinStockProductMappedCount})`}
+          {actionRunning === 'syncGrocyMinStockProducts' ? runningLabel('Syncing...') : `Sync Mapped (${grocyMinStockProductMappedCount})`}
         </Button>
         <Button variant="secondary" size="sm" className={actionButtonClassName} onClick={onCreateMealieProducts} disabled={isRunning || checkedGrocyMinStockProductCount === 0}>
           {actionRunning === 'createMealieProducts' ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-          {actionRunning === 'createMealieProducts' ? 'Creating...' : `Create Checked in Mealie (${checkedGrocyMinStockProductCount})`}
+          {actionRunning === 'createMealieProducts' ? runningLabel('Creating...') : `Create Checked in Mealie (${checkedGrocyMinStockProductCount})`}
         </Button>
       </>
     );
@@ -2129,11 +2257,11 @@ function WizardFooter({
       <>
         <Button size="sm" className={actionButtonClassName} onClick={onSyncProducts} disabled={isRunning || productMappedCount === 0}>
           {actionRunning === 'syncProducts' ? <Loader2 className="size-4 animate-spin" /> : <Link className="size-4" />}
-          {actionRunning === 'syncProducts' ? 'Syncing...' : `Sync Mapped (${productMappedCount})`}
+          {actionRunning === 'syncProducts' ? runningLabel('Syncing...') : `Sync Mapped (${productMappedCount})`}
         </Button>
         <Button variant="secondary" size="sm" className={actionButtonClassName} onClick={onCreateProducts} disabled={isRunning || !defaultCreateUnitId || checkedProductCount === 0}>
           {actionRunning === 'createProducts' ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-          {actionRunning === 'createProducts' ? 'Creating...' : `Create Checked in Grocy (${checkedProductCount})`}
+          {actionRunning === 'createProducts' ? runningLabel('Creating...') : `Create Checked in Grocy (${checkedProductCount})`}
         </Button>
         <Button variant="destructive" size="sm" className={actionButtonClassName} onClick={onDeleteOrphanProducts} disabled={isRunning || orphanProductCount === 0}>
           <Trash2 className="size-4" />

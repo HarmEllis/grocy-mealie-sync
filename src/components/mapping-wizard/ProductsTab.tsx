@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -11,6 +11,9 @@ import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { SuggestionScoreIndicator } from './SuggestionScoreIndicator';
 import type { ProductsTabData, ProductMapping, SelectOption } from './types';
 import { sortByName } from './types';
+import { buildTakenTargetIds } from './state';
+import { buildPageWindow, DEFAULT_PAGE_SIZE } from './paging';
+import { Pagination } from './Pagination';
 
 interface ProductsTabProps {
   data: ProductsTabData;
@@ -51,12 +54,41 @@ export function ProductsTab({
 }: ProductsTabProps) {
   const isRunning = !!actionRunning;
 
+  const [offset, setOffset] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+
   const filteredFoods = useMemo(() => {
     const sorted = sortByName(data.unmappedMealieFoods);
     if (!productSearch) return sorted;
     const q = productSearch.toLowerCase();
     return sorted.filter(f => f.name.toLowerCase().includes(q));
-  }, [data, productSearch]);
+  }, [data.unmappedMealieFoods, productSearch]);
+
+  // A narrowed filter must not leave the user stranded on a now-empty page.
+  useEffect(() => { setOffset(0); }, [productSearch]);
+
+  const pageWindow = useMemo(
+    () => buildPageWindow(filteredFoods, offset, pageSize),
+    [filteredFoods, offset, pageSize],
+  );
+
+  // One shared option array for every row: each row's own selection is merged
+  // back in by SearchableSelect via `extraOption`, so no row allocates a
+  // filtered copy of the full ~5000-option list.
+  const takenGrocyProductIds = useMemo(
+    () => buildTakenTargetIds(productMaps, mapping => mapping.grocyProductId),
+    [productMaps],
+  );
+
+  const availableProductOptions = useMemo(
+    () => grocyProductOptions.filter(option => !takenGrocyProductIds.has(option.value)),
+    [grocyProductOptions, takenGrocyProductIds],
+  );
+
+  const grocyProductLabelById = useMemo(
+    () => new Map(grocyProductOptions.map(option => [option.value, option.label])),
+    [grocyProductOptions],
+  );
 
   const unmappedProductIds = useMemo(() =>
     Object.entries(productMaps).filter(([, m]) => m.grocyProductId === null).map(([id]) => id),
@@ -149,16 +181,21 @@ export function ProductsTab({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredFoods.map(food => {
+            {pageWindow.rows.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={5} className="py-6 text-center text-sm text-muted-foreground">
+                  No Mealie products match the current filter.
+                </TableCell>
+              </TableRow>
+            )}
+            {pageWindow.rows.map(food => {
               const mapping = productMaps[food.id];
               const suggestion = data.productSuggestions[food.id];
               const isAccepted = mapping?.grocyProductId !== null;
-              const rowProductOptions = grocyProductOptions.filter(option =>
-                option.value === mapping?.grocyProductId
-                || !Object.values(productMaps).some(other =>
-                  other.mealieFoodId !== food.id && other.grocyProductId === option.value,
-                ),
-              );
+              const selectedProductId = mapping?.grocyProductId ?? null;
+              const selectedProductLabel = selectedProductId === null
+                ? null
+                : grocyProductLabelById.get(selectedProductId) ?? null;
               return (
                 <TableRow key={food.id} className={isAccepted ? 'bg-success/5' : undefined}>
                   <TableCell className="text-center">
@@ -172,8 +209,11 @@ export function ProductsTab({
                   <TableCell className="font-medium">{food.name}</TableCell>
                   <TableCell>
                     <SearchableSelect
-                      options={rowProductOptions}
-                      value={mapping?.grocyProductId ?? null}
+                      options={availableProductOptions}
+                      extraOption={selectedProductId !== null && selectedProductLabel !== null
+                        ? { value: selectedProductId, label: selectedProductLabel }
+                        : null}
+                      value={selectedProductId}
                       onChange={val => {
                         const gp = data.grocyProducts.find(p => p.id === val);
                         setProductMaps(prev => ({
@@ -222,6 +262,13 @@ export function ProductsTab({
         </Table>
       </div>
 
+      <Pagination
+        window={pageWindow}
+        onOffsetChange={setOffset}
+        onPageSizeChange={size => { setPageSize(size); setOffset(0); }}
+        disabled={isRunning}
+        itemLabel="products"
+      />
     </div>
   );
 }

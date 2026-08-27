@@ -110,7 +110,7 @@ describe('mapping wizard create mealie products route', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ created: 1, skipped: 1 });
+    expect(body).toEqual({ created: 1, skipped: 1, failed: 0 });
     expect(mockState.createFood).toHaveBeenCalledWith({ name: 'Tomatoes' });
     expect(mockState.insertValuesCalls).toHaveLength(1);
     expect(mockState.insertValuesCalls[0]).toEqual(expect.objectContaining({
@@ -151,7 +151,7 @@ describe('mapping wizard create mealie products route', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ created: 1, skipped: 0 });
+    expect(body).toEqual({ created: 1, skipped: 0, failed: 0 });
     expect(mockState.insertValuesCalls).toHaveLength(1);
     expect(mockState.insertValuesCalls[0]).toEqual(expect.objectContaining({
       grocyProductId: 101,
@@ -183,7 +183,7 @@ describe('mapping wizard create mealie products route', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ created: 1, skipped: 0 });
+    expect(body).toEqual({ created: 1, skipped: 0, failed: 1 });
     expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
       action: 'mapping_product_create_mealie',
       status: 'partial',

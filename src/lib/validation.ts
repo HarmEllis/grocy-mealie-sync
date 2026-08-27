@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MIN_STOCK_STEP_VALUES } from './min-stock-step';
+import { BULK_MAX_ITEMS } from './bulk-limits';
 
 // --- Mapping Wizard: Products ---
 
@@ -12,19 +13,19 @@ export const productMappingEntrySchema = z.object({
 
 /** Schema for the products sync request body */
 export const productSyncRequestSchema = z.object({
-  mappings: z.array(productMappingEntrySchema).max(500),
+  mappings: z.array(productMappingEntrySchema).max(BULK_MAX_ITEMS),
 });
 
 /** Schema for the products create request body */
 export const productCreateRequestSchema = z.object({
-  mealieFoodIds: z.array(z.string()).max(500),
+  mealieFoodIds: z.array(z.string()).max(BULK_MAX_ITEMS),
   defaultGrocyUnitId: z.number(),
   unitOverrides: z.record(z.string(), z.number()).optional(),
 });
 
 /** Schema for creating Mealie products from Grocy products */
 export const productCreateMealieRequestSchema = z.object({
-  grocyProductIds: z.array(z.number()).max(500),
+  grocyProductIds: z.array(z.number()).max(BULK_MAX_ITEMS),
   unitSelections: z.record(z.string(), z.number().nullable()).optional(),
 });
 
@@ -51,12 +52,12 @@ export const unitMappingEntrySchema = z.object({
 
 /** Schema for the units sync request body */
 export const unitSyncRequestSchema = z.object({
-  mappings: z.array(unitMappingEntrySchema).max(500),
+  mappings: z.array(unitMappingEntrySchema).max(BULK_MAX_ITEMS),
 });
 
 /** Schema for the units create request body */
 export const unitCreateRequestSchema = z.object({
-  mealieUnitIds: z.array(z.string()).max(500),
+  mealieUnitIds: z.array(z.string()).max(BULK_MAX_ITEMS),
 });
 
 // --- Settings ---
@@ -83,5 +84,5 @@ export const settingsUpdateSchema = z.object({
 /** Schema for orphan deletion confirmation request body */
 export const orphanDeleteRequestSchema = z.object({
   confirm: z.literal(true),
-  ids: z.array(z.string()).max(500),
+  ids: z.array(z.string()).max(BULK_MAX_ITEMS),
 });

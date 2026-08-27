@@ -8,7 +8,8 @@ import { extractFoods } from '@/lib/mealie/types';
 import type { MealieFood } from '@/lib/mealie/types';
 import { log } from '@/lib/logger';
 import { orphanDeleteRequestSchema } from '@/lib/validation';
-import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
+import { defaultSyncLockDeps, runWithSyncLock } from '@/lib/use-cases/shared/sync-lock';
+import { mappingWizardErrorResponse } from '../../helpers';
 import { buildManualHistoryEvent, createManualHistoryRecorder, formatManualActionError } from '@/lib/manual-action-history';
 
 /** GET: List orphan products (Grocy products with no Mealie counterpart) */
@@ -45,12 +46,17 @@ export async function GET() {
 
 /** POST: Delete specified orphan products with confirmation */
 export async function POST(request: Request) {
-  if (!acquireSyncLock()) {
-    return NextResponse.json(
-      { error: 'A sync operation is already in progress. Please try again.' },
-      { status: 409 },
-    );
+  try {
+    // Poll for the lock rather than failing instantly: a chunked bulk run
+    // sends many sequential requests and one arriving mid-scheduler-cycle
+    // should wait instead of aborting the whole run.
+    return await runWithSyncLock(defaultSyncLockDeps, () => deleteOrphans(request), { maxWaitMs: 10_000 });
+  } catch (error) {
+    return mappingWizardErrorResponse(error);
   }
+}
+
+async function deleteOrphans(request: Request) {
 
   const history = createManualHistoryRecorder(
     'mapping_product_delete_orphans',
@@ -173,7 +179,7 @@ export async function POST(request: Request) {
         }),
       ],
     });
-    return NextResponse.json({ deleted, total: validIds.length });
+    return NextResponse.json({ deleted, total: validIds.length, failed });
   } catch (error) {
     await history.recordFailure({
       logMessage: '[MappingWizard] Orphan product deletion failed:',
@@ -192,7 +198,5 @@ export async function POST(request: Request) {
       ],
     });
     return NextResponse.json({ error: 'Orphan product deletion failed' }, { status: 500 });
-  } finally {
-    releaseSyncLock();
   }
 }

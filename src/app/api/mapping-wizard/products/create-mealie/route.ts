@@ -6,16 +6,22 @@ import { getGrocyEntities } from '@/lib/grocy/types';
 import { log } from '@/lib/logger';
 import { RecipesFoodsService } from '@/lib/mealie';
 import { productCreateMealieRequestSchema } from '@/lib/validation';
-import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
+import { defaultSyncLockDeps, runWithSyncLock } from '@/lib/use-cases/shared/sync-lock';
+import { mappingWizardErrorResponse } from '../../helpers';
 import { buildManualHistoryEvent, createManualHistoryRecorder, formatManualActionError } from '@/lib/manual-action-history';
 
 export async function POST(request: Request) {
-  if (!acquireSyncLock()) {
-    return NextResponse.json(
-      { error: 'A sync operation is already in progress. Please try again.' },
-      { status: 409 },
-    );
+  try {
+    // Poll for the lock rather than failing instantly: a chunked bulk run
+    // sends many sequential requests and one arriving mid-scheduler-cycle
+    // should wait instead of aborting the whole run.
+    return await runWithSyncLock(defaultSyncLockDeps, () => createMealieProducts(request), { maxWaitMs: 10_000 });
+  } catch (error) {
+    return mappingWizardErrorResponse(error);
   }
+}
+
+async function createMealieProducts(request: Request) {
 
   const history = createManualHistoryRecorder(
     'mapping_product_create_mealie',
@@ -128,7 +134,7 @@ export async function POST(request: Request) {
         }),
       ],
     });
-    return NextResponse.json({ created, skipped });
+    return NextResponse.json({ created, skipped, failed });
   } catch (error) {
     await history.recordFailure({
       logMessage: '[MappingWizard] Creating Mealie products from Grocy failed:',
@@ -147,7 +153,5 @@ export async function POST(request: Request) {
       ],
     });
     return NextResponse.json({ error: 'Creating Mealie products failed' }, { status: 500 });
-  } finally {
-    releaseSyncLock();
   }
 }

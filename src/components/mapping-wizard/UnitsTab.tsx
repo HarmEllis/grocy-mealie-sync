@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -11,6 +11,9 @@ import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { SuggestionScoreIndicator } from './SuggestionScoreIndicator';
 import type { UnitsTabData, UnitMapping, SelectOption } from './types';
 import { sortByName } from './types';
+import { buildTakenTargetIds } from './state';
+import { buildPageWindow, DEFAULT_PAGE_SIZE } from './paging';
+import { Pagination } from './Pagination';
 
 type UnitFilter = 'unmapped' | 'mapped' | 'all';
 
@@ -104,6 +107,28 @@ export function UnitsTab({
     return filteredUnits.filter(u => unmappedSet.has(u.id)).map(u => u.id);
   }, [unmappedUnitIds, filteredUnits]);
 
+  const [offset, setOffset] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+
+  useEffect(() => { setOffset(0); }, [unitSearch, unitFilter]);
+
+  const pageWindow = useMemo(
+    () => buildPageWindow(filteredUnits, offset, pageSize),
+    [filteredUnits, offset, pageSize],
+  );
+
+  // Shared across rows; each row's own selection is merged back in through
+  // SearchableSelect's `extraOption` instead of a per-row filtered copy.
+  const takenGrocyUnitIds = useMemo(
+    () => buildTakenTargetIds(unitMaps, mapping => mapping.grocyUnitId),
+    [unitMaps],
+  );
+
+  const availableUnitOptions = useMemo(
+    () => grocyUnitOptions.filter(option => !takenGrocyUnitIds.has(option.value)),
+    [grocyUnitOptions, takenGrocyUnitIds],
+  );
+
   const allVisibleUnitsChecked = visibleUnmappedUnitIds.length > 0 && visibleUnmappedUnitIds.every(id => createUnitChecked[id]);
   const checkedUnitCount = unmappedUnitIds.filter(id => createUnitChecked[id]).length;
   const unitMappedCount = Object.values(unitMaps).filter(m => m.grocyUnitId !== null).length;
@@ -170,24 +195,22 @@ export function UnitsTab({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredUnits.length === 0 && (
+            {pageWindow.rows.length === 0 && (
               <TableRow>
                 <TableCell colSpan={6} className="py-6 text-center text-sm text-muted-foreground">
                   No units match the current filters.
                 </TableCell>
               </TableRow>
             )}
-            {filteredUnits.map(unit => {
+            {pageWindow.rows.map(unit => {
               const mapping = unitMaps[unit.id];
               const suggestion = data.unitSuggestions[unit.id];
               const isAccepted = mapping?.grocyUnitId !== null;
               const persistedMapping = existingUnitMappingsByMealieUnitId.get(unit.id);
-              const rowOptions = grocyUnitOptions.filter(option =>
-                option.value === mapping?.grocyUnitId
-                || !Object.values(unitMaps).some(other =>
-                  other.mealieUnitId !== unit.id && other.grocyUnitId === option.value,
-                ),
-              );
+              const selectedUnitId = mapping?.grocyUnitId ?? null;
+              const selectedUnitLabel = selectedUnitId === null
+                ? null
+                : grocyUnitLabelById.get(selectedUnitId) ?? null;
 
               return (
                 <TableRow key={unit.id} className={isAccepted ? 'bg-success/5' : undefined}>
@@ -203,8 +226,11 @@ export function UnitsTab({
                   <TableCell className="text-muted-foreground">{unit.abbreviation || '-'}</TableCell>
                   <TableCell>
                     <SearchableSelect
-                      options={rowOptions}
-                      value={mapping?.grocyUnitId ?? null}
+                      options={availableUnitOptions}
+                      extraOption={selectedUnitId !== null && selectedUnitLabel !== null
+                        ? { value: selectedUnitId, label: selectedUnitLabel }
+                        : null}
+                      value={selectedUnitId}
                       onChange={val => {
                         setUnitMaps(prev => ({ ...prev, [unit.id]: { ...prev[unit.id], grocyUnitId: val } }));
                         if (val !== null) {
@@ -246,6 +272,13 @@ export function UnitsTab({
         </Table>
       </div>
 
+      <Pagination
+        window={pageWindow}
+        onOffsetChange={setOffset}
+        onPageSizeChange={size => { setPageSize(size); setOffset(0); }}
+        disabled={isRunning}
+        itemLabel="units"
+      />
     </div>
   );
 }

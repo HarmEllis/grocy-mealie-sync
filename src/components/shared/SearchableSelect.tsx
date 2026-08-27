@@ -21,6 +21,18 @@ interface SearchableSelectProps<T extends string | number> {
   controlClassName?: string;
   clearable?: boolean;
   disabled?: boolean;
+  /**
+   * An option to merge into `options` when it is not already there.
+   *
+   * Callers that enforce a one-to-one mapping pass a single shared `options`
+   * array with every claimed target already removed, plus this row's own
+   * selection. That avoids allocating a filtered copy of the full option list
+   * per row, which at ~5000 options x ~5000 rows exhausted browser memory
+   * (issue #46).
+   */
+  extraOption?: Option<T> | null;
+  /** Hard cap on rendered items. Guards against an unbounded popup. */
+  limit?: number;
 }
 
 export function SearchableSelect<T extends string | number>({
@@ -34,13 +46,41 @@ export function SearchableSelect<T extends string | number>({
   controlClassName,
   clearable = true,
   disabled = false,
+  extraOption = null,
+  limit = 200,
 }: SearchableSelectProps<T>) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
 
-  const selectedOption = useMemo(() => (
-    value === null ? null : options.find(option => option.value === value) ?? null
-  ), [options, value]);
+  // Depend on the primitives rather than the object so an inline `extraOption`
+  // literal does not invalidate this memo on every parent render.
+  const extraValue = extraOption?.value ?? null;
+  const extraLabel = extraOption?.label ?? null;
+
+  // Resolve the selected option without touching `items`, so a row whose
+  // selection was filtered out of the shared array still renders its name.
+  const selectedOption = useMemo(() => {
+    if (value === null) {
+      return null;
+    }
+    if (extraValue !== null && extraLabel !== null && extraValue === value) {
+      return { value: extraValue, label: extraLabel } as Option<T>;
+    }
+    return options.find(option => option.value === value) ?? null;
+  }, [options, value, extraValue, extraLabel]);
+
+  // Merge into the list only while the popup is open. Merging unconditionally
+  // would allocate a full copy of the option list for every selected row on the
+  // page; this way at most one row ever holds a copy.
+  const listOptions = useMemo(() => {
+    if (!open || extraValue === null || extraLabel === null) {
+      return options;
+    }
+    if (options.some(option => option.value === extraValue)) {
+      return options;
+    }
+    return [{ value: extraValue, label: extraLabel } as Option<T>, ...options];
+  }, [open, options, extraValue, extraLabel]);
 
   const inputValue = open ? query : (selectedOption?.label ?? '');
 
@@ -60,7 +100,8 @@ export function SearchableSelect<T extends string | number>({
   return (
     <div className={cn('relative min-w-0', className)}>
       <Combobox.Root<Option<T>>
-        items={options}
+        items={listOptions}
+        limit={limit}
         value={selectedOption}
         onValueChange={next => {
           onChange(next ? next.value : null);

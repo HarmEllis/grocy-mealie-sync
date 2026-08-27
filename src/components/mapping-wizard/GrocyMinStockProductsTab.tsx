@@ -12,6 +12,9 @@ import { SuggestionScoreIndicator } from './SuggestionScoreIndicator';
 import type { GrocyMinStockProductMapping, GrocyMinStockTabData, SelectOption } from './types';
 import { sortByName } from './types';
 import { isBelowMinimumStock } from './stock';
+import { buildTakenTargetIds } from './state';
+import { buildPageWindow, DEFAULT_PAGE_SIZE } from './paging';
+import { Pagination } from './Pagination';
 
 interface GrocyMinStockProductsTabProps {
   data: GrocyMinStockTabData;
@@ -101,13 +104,30 @@ export function GrocyMinStockProductsTab({
       .map(product => String(product.id));
   }, [filteredProducts, unmappedProductIds]);
 
-  const selectedMealieFoodIds = useMemo(() =>
-    new Set(
-      Object.values(productMaps)
-        .map(mapping => mapping.mealieFoodId)
-        .filter((id): id is string => id !== null),
-    ),
+  const selectedMealieFoodIds = useMemo(
+    () => buildTakenTargetIds(productMaps, mapping => mapping.mealieFoodId),
     [productMaps],
+  );
+
+  // Shared across rows; the row's own selection comes back via `extraOption`.
+  const availableMealieOptions = useMemo(
+    () => mealieProductOptions.filter(option => !selectedMealieFoodIds.has(option.value)),
+    [mealieProductOptions, selectedMealieFoodIds],
+  );
+
+  const mealieProductLabelById = useMemo(
+    () => new Map(mealieProductOptions.map(option => [option.value, option.label])),
+    [mealieProductOptions],
+  );
+
+  const [offset, setOffset] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+
+  useEffect(() => { setOffset(0); }, [productSearch, showOnlyBelowMinimumStock]);
+
+  const pageWindow = useMemo(
+    () => buildPageWindow(filteredProducts, offset, pageSize),
+    [filteredProducts, offset, pageSize],
   );
 
   const allVisibleProductsChecked = visibleUnmappedProductIds.length > 0 && visibleUnmappedProductIds.every(id => createProductChecked[id]);
@@ -186,14 +206,14 @@ export function GrocyMinStockProductsTab({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredProducts.length === 0 && (
+            {pageWindow.rows.length === 0 && (
               <TableRow>
                 <TableCell colSpan={6} className="py-6 text-center text-sm text-muted-foreground">
                   No Grocy min-stock products match the current filters.
                 </TableCell>
               </TableRow>
             )}
-            {filteredProducts.map(product => {
+            {pageWindow.rows.map(product => {
               const productKey = String(product.id);
               const mapping = productMaps[productKey];
               const suggestion = data.lowStockGrocyProductSuggestions[productKey];
@@ -203,9 +223,10 @@ export function GrocyMinStockProductsTab({
               const isInvalid = !Number.isFinite(parsedDraft) || parsedDraft < 0;
               const isDirty = !isInvalid && parsedDraft !== product.minStockAmount;
               const isSaving = savingGrocyProductId === product.id;
-              const rowOptions = mealieProductOptions.filter(option =>
-                option.value === mapping?.mealieFoodId || !selectedMealieFoodIds.has(option.value),
-              );
+              const selectedMealieFoodId = mapping?.mealieFoodId ?? null;
+              const selectedMealieFoodLabel = selectedMealieFoodId === null
+                ? null
+                : mealieProductLabelById.get(selectedMealieFoodId) ?? null;
 
               return (
                 <TableRow key={product.id} className={isAccepted ? 'bg-success/5' : undefined}>
@@ -252,8 +273,11 @@ export function GrocyMinStockProductsTab({
                   </TableCell>
                   <TableCell>
                     <SearchableSelect
-                      options={rowOptions}
-                      value={mapping?.mealieFoodId ?? null}
+                      options={availableMealieOptions}
+                      extraOption={selectedMealieFoodId !== null && selectedMealieFoodLabel !== null
+                        ? { value: selectedMealieFoodId, label: selectedMealieFoodLabel }
+                        : null}
+                      value={selectedMealieFoodId}
                       onChange={value => {
                         setProductMaps(prev => ({
                           ...prev,
@@ -307,6 +331,14 @@ export function GrocyMinStockProductsTab({
           </TableBody>
         </Table>
       </div>
+
+      <Pagination
+        window={pageWindow}
+        onOffsetChange={setOffset}
+        onPageSizeChange={size => { setPageSize(size); setOffset(0); }}
+        disabled={isRunning}
+        itemLabel="products"
+      />
     </div>
   );
 }

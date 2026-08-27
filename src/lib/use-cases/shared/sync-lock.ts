@@ -20,6 +20,23 @@ export const noopSyncLockDeps: SyncLockDeps = {
   releaseSyncLock: () => {},
 };
 
+/**
+ * Thrown when the sync lock could not be acquired within the deadline.
+ *
+ * Typed so routes can map it to a 409 with a stable machine-readable code:
+ * a chunked bulk run has to retry on the code, never on message text. Extends
+ * `Error` with the original message, so existing generic handlers are
+ * unaffected.
+ */
+export class SyncLockTimeoutError extends Error {
+  readonly code = 'SYNC_LOCKED';
+
+  constructor(public readonly maxWaitMs: number) {
+    super('A sync operation is already in progress. Please try again.');
+    this.name = 'SyncLockTimeoutError';
+  }
+}
+
 const DEFAULT_MAX_WAIT_MS = 10_000;
 const DEFAULT_INTERVAL_MS = 250;
 
@@ -49,7 +66,7 @@ export async function runWithSyncLock<T>(
     }
 
     if (Date.now() >= deadline) {
-      throw new Error('A sync operation is already in progress. Please try again.');
+      throw new SyncLockTimeoutError(maxWaitMs);
     }
 
     await new Promise<void>((resolve) => setTimeout(resolve, intervalMs));
