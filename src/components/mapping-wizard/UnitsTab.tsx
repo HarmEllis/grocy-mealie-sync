@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -117,16 +117,21 @@ export function UnitsTab({
     [filteredUnits, offset, pageSize],
   );
 
-  // Shared across rows; each row's own selection is merged back in through
-  // SearchableSelect's `extraOption` instead of a per-row filtered copy.
+  // Shared across rows: `isValueExcluded` hides picks made elsewhere and
+  // `extraOption` restores this row's own, so `options` keeps a stable
+  // identity instead of being re-filtered per selection.
   const takenGrocyUnitIds = useMemo(
     () => buildTakenTargetIds(unitMaps, mapping => mapping.grocyUnitId),
     [unitMaps],
   );
 
-  const availableUnitOptions = useMemo(
-    () => grocyUnitOptions.filter(option => !takenGrocyUnitIds.has(option.value)),
-    [grocyUnitOptions, takenGrocyUnitIds],
+  // Read through a ref so the callback identity never changes: a fresh
+  // callback would re-render every row on every pick.
+  const takenGrocyUnitIdsRef = useRef(takenGrocyUnitIds);
+  useEffect(() => { takenGrocyUnitIdsRef.current = takenGrocyUnitIds; }, [takenGrocyUnitIds]);
+  const isGrocyUnitTaken = useCallback(
+    (id: number) => takenGrocyUnitIdsRef.current.has(id),
+    [],
   );
 
   const allVisibleUnitsChecked = visibleUnmappedUnitIds.length > 0 && visibleUnmappedUnitIds.every(id => createUnitChecked[id]);
@@ -226,7 +231,8 @@ export function UnitsTab({
                   <TableCell className="text-muted-foreground">{unit.abbreviation || '-'}</TableCell>
                   <TableCell>
                     <SearchableSelect
-                      options={availableUnitOptions}
+                      options={grocyUnitOptions}
+                      isValueExcluded={isGrocyUnitTaken}
                       extraOption={selectedUnitId !== null && selectedUnitLabel !== null
                         ? { value: selectedUnitId, label: selectedUnitLabel }
                         : null}

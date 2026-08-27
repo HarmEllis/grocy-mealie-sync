@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, Loader2, Save } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -9,12 +9,145 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { SuggestionScoreIndicator } from './SuggestionScoreIndicator';
-import type { GrocyMinStockProductMapping, GrocyMinStockTabData, SelectOption } from './types';
+import type {
+  GrocyMinStockProduct,
+  GrocyMinStockProductMapping,
+  GrocyMinStockTabData,
+  ReverseProductSuggestion,
+  SelectOption,
+} from './types';
 import { sortByName } from './types';
 import { isBelowMinimumStock } from './stock';
 import { buildTakenTargetIds } from './state';
 import { buildPageWindow, DEFAULT_PAGE_SIZE } from './paging';
 import { Pagination } from './Pagination';
+
+interface MinStockRowProps {
+  product: GrocyMinStockProduct;
+  mapping: GrocyMinStockProductMapping | undefined;
+  suggestion: ReverseProductSuggestion | undefined;
+  checked: boolean;
+  draftValue: string;
+  isSaving: boolean;
+  minStockStep: string;
+  selectedMealieFoodLabel: string | null;
+  mealieProductOptions: SelectOption<string>[];
+  grocyUnitOptions: SelectOption[];
+  isMealieFoodTaken: (id: string) => boolean;
+  onToggleChecked: (productKey: string, checked: boolean) => void;
+  onDraftChange: (grocyProductId: number, value: string) => void;
+  onSaveMinStock: (grocyProductId: number) => void;
+  onSelectMealieFood: (product: GrocyMinStockProduct, mealieFoodId: string | null) => void;
+  onSelectUnit: (productKey: string, grocyUnitId: number | null) => void;
+  onAcceptSuggestion: (grocyProductId: number) => void;
+}
+
+/**
+ * Memoised for the same reason as `ProductRow` in ProductsTab: without it a
+ * single checkbox re-rendered all ~100 comboboxes on the page.
+ */
+const MinStockRow = memo(function MinStockRow({
+  product,
+  mapping,
+  suggestion,
+  checked,
+  draftValue,
+  isSaving,
+  minStockStep,
+  selectedMealieFoodLabel,
+  mealieProductOptions,
+  grocyUnitOptions,
+  isMealieFoodTaken,
+  onToggleChecked,
+  onDraftChange,
+  onSaveMinStock,
+  onSelectMealieFood,
+  onSelectUnit,
+  onAcceptSuggestion,
+}: MinStockRowProps) {
+  const productKey = String(product.id);
+  const selectedMealieFoodId = mapping?.mealieFoodId ?? null;
+  const isAccepted = selectedMealieFoodId !== null;
+  const parsedDraft = Number(draftValue);
+  const isInvalid = !Number.isFinite(parsedDraft) || parsedDraft < 0;
+  const isDirty = !isInvalid && parsedDraft !== product.minStockAmount;
+
+  return (
+    <TableRow className={isAccepted ? 'bg-success/5' : undefined}>
+      <TableCell className="text-center">
+        {!isAccepted && (
+          <Checkbox
+            checked={checked}
+            onCheckedChange={(next: boolean) => onToggleChecked(productKey, next)}
+          />
+        )}
+      </TableCell>
+      <TableCell className="font-medium">{product.name}</TableCell>
+      <TableCell>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Input
+            type="number"
+            min="0"
+            step={minStockStep}
+            value={draftValue}
+            onChange={event => onDraftChange(product.id, event.target.value)}
+            onKeyDown={event => {
+              if (event.key === 'Enter' && isDirty && !isSaving) {
+                event.preventDefault();
+                onSaveMinStock(product.id);
+              }
+            }}
+            className="h-8 min-w-[11rem]"
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => onSaveMinStock(product.id)}
+            disabled={isSaving || !isDirty}
+            aria-label={`Save minimum stock for ${product.name}`}
+            title={`Save minimum stock for ${product.name}`}
+            className="w-full sm:w-auto sm:shrink-0"
+          >
+            {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+          </Button>
+        </div>
+      </TableCell>
+      <TableCell>
+        <SearchableSelect
+          options={mealieProductOptions}
+          isValueExcluded={isMealieFoodTaken}
+          extraOption={selectedMealieFoodId !== null && selectedMealieFoodLabel !== null
+            ? { value: selectedMealieFoodId, label: selectedMealieFoodLabel }
+            : null}
+          value={selectedMealieFoodId}
+          onChange={value => onSelectMealieFood(product, typeof value === 'string' ? value : null)}
+          placeholder="Select Mealie product..."
+          className="max-w-[260px]"
+        />
+      </TableCell>
+      <TableCell>
+        <SearchableSelect
+          options={grocyUnitOptions}
+          value={mapping?.grocyUnitId ?? null}
+          onChange={value => onSelectUnit(productKey, value)}
+          placeholder="Select Grocy unit..."
+          className="max-w-[160px]"
+        />
+      </TableCell>
+      <TableCell>
+        {suggestion ? (
+          <SuggestionScoreIndicator
+            score={suggestion.score}
+            ambiguous={suggestion.ambiguous}
+            runnerUp={suggestion.runnerUp}
+            acceptTitle={`Accept: ${suggestion.mealieFoodName}`}
+            onAccept={!isAccepted ? () => onAcceptSuggestion(product.id) : undefined}
+          />
+        ) : null}
+      </TableCell>
+    </TableRow>
+  );
+});
 
 interface GrocyMinStockProductsTabProps {
   data: GrocyMinStockTabData;
@@ -109,11 +242,62 @@ export function GrocyMinStockProductsTab({
     [productMaps],
   );
 
-  // Shared across rows; the row's own selection comes back via `extraOption`.
-  const availableMealieOptions = useMemo(
-    () => mealieProductOptions.filter(option => !selectedMealieFoodIds.has(option.value)),
-    [mealieProductOptions, selectedMealieFoodIds],
+  // Read through a ref so the callback identity never changes: a fresh
+  // callback would re-render every row on every pick.
+  const selectedMealieFoodIdsRef = useRef(selectedMealieFoodIds);
+  useEffect(() => { selectedMealieFoodIdsRef.current = selectedMealieFoodIds; }, [selectedMealieFoodIds]);
+  const isMealieFoodTaken = useCallback(
+    (id: string) => selectedMealieFoodIdsRef.current.has(id),
+    [],
   );
+
+  // `saveMinStock` and `onAcceptSuggestion` are re-created on every render;
+  // routing them through a ref keeps the row props stable.
+  const saveMinStockRef = useRef(saveMinStock);
+  useEffect(() => { saveMinStockRef.current = saveMinStock; });
+  const handleSaveMinStock = useCallback((grocyProductId: number) => {
+    void saveMinStockRef.current(grocyProductId);
+  }, []);
+
+  const acceptSuggestionRef = useRef(onAcceptSuggestion);
+  useEffect(() => { acceptSuggestionRef.current = onAcceptSuggestion; }, [onAcceptSuggestion]);
+  const handleAcceptSuggestion = useCallback((grocyProductId: number) => {
+    acceptSuggestionRef.current(grocyProductId);
+  }, []);
+
+  const handleToggleChecked = useCallback((productKey: string, next: boolean) => {
+    setCreateProductChecked(prev => ({ ...prev, [productKey]: next }));
+  }, [setCreateProductChecked]);
+
+  const handleDraftChange = useCallback((grocyProductId: number, value: string) => {
+    setDraftMinStock(prev => ({ ...prev, [grocyProductId]: value }));
+  }, []);
+
+  const handleSelectMealieFood = useCallback((product: GrocyMinStockProduct, mealieFoodId: string | null) => {
+    const productKey = String(product.id);
+    setProductMaps(prev => ({
+      ...prev,
+      [productKey]: {
+        ...prev[productKey],
+        mealieFoodId,
+        grocyUnitId: product.quIdPurchase || prev[productKey]?.grocyUnitId || null,
+      },
+    }));
+    if (mealieFoodId !== null) {
+      setCreateProductChecked(prev => {
+        const next = { ...prev };
+        delete next[productKey];
+        return next;
+      });
+    }
+  }, [setProductMaps, setCreateProductChecked]);
+
+  const handleSelectUnit = useCallback((productKey: string, grocyUnitId: number | null) => {
+    setProductMaps(prev => ({
+      ...prev,
+      [productKey]: { ...prev[productKey], grocyUnitId },
+    }));
+  }, [setProductMaps]);
 
   const mealieProductLabelById = useMemo(
     () => new Map(mealieProductOptions.map(option => [option.value, option.label])),
@@ -213,121 +397,32 @@ export function GrocyMinStockProductsTab({
                 </TableCell>
               </TableRow>
             )}
-            {pageWindow.rows.map(product => {
-              const productKey = String(product.id);
-              const mapping = productMaps[productKey];
-              const suggestion = data.lowStockGrocyProductSuggestions[productKey];
-              const isAccepted = mapping?.mealieFoodId !== null;
-              const draftValue = draftMinStock[product.id] ?? String(product.minStockAmount);
-              const parsedDraft = Number(draftValue);
-              const isInvalid = !Number.isFinite(parsedDraft) || parsedDraft < 0;
-              const isDirty = !isInvalid && parsedDraft !== product.minStockAmount;
-              const isSaving = savingGrocyProductId === product.id;
-              const selectedMealieFoodId = mapping?.mealieFoodId ?? null;
-              const selectedMealieFoodLabel = selectedMealieFoodId === null
-                ? null
-                : mealieProductLabelById.get(selectedMealieFoodId) ?? null;
-
-              return (
-                <TableRow key={product.id} className={isAccepted ? 'bg-success/5' : undefined}>
-                  <TableCell className="text-center">
-                    {!isAccepted && (
-                      <Checkbox
-                        checked={!!createProductChecked[productKey]}
-                        onCheckedChange={(checked: boolean) => setCreateProductChecked(prev => ({ ...prev, [productKey]: checked }))}
-                      />
-                    )}
-                  </TableCell>
-                  <TableCell className="font-medium">{product.name}</TableCell>
-                  <TableCell>
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                      <Input
-                        type="number"
-                        min="0"
-                        step={data.minStockStep}
-                        value={draftValue}
-                        onChange={event => {
-                          const value = event.target.value;
-                          setDraftMinStock(prev => ({ ...prev, [product.id]: value }));
-                        }}
-                        onKeyDown={event => {
-                          if (event.key === 'Enter' && isDirty && !isSaving) {
-                            event.preventDefault();
-                            void saveMinStock(product.id);
-                          }
-                        }}
-                        className="h-8 min-w-[11rem]"
-                      />
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        onClick={() => void saveMinStock(product.id)}
-                        disabled={isSaving || !isDirty}
-                        aria-label={`Save minimum stock for ${product.name}`}
-                        title={`Save minimum stock for ${product.name}`}
-                        className="w-full sm:w-auto sm:shrink-0"
-                      >
-                        {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                      </Button>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <SearchableSelect
-                      options={availableMealieOptions}
-                      extraOption={selectedMealieFoodId !== null && selectedMealieFoodLabel !== null
-                        ? { value: selectedMealieFoodId, label: selectedMealieFoodLabel }
-                        : null}
-                      value={selectedMealieFoodId}
-                      onChange={value => {
-                        setProductMaps(prev => ({
-                          ...prev,
-                          [productKey]: {
-                            ...prev[productKey],
-                            mealieFoodId: typeof value === 'string' ? value : null,
-                            grocyUnitId: product.quIdPurchase || prev[productKey]?.grocyUnitId || null,
-                          },
-                        }));
-                        if (value !== null) {
-                          setCreateProductChecked(prev => {
-                            const next = { ...prev };
-                            delete next[productKey];
-                            return next;
-                          });
-                        }
-                      }}
-                      placeholder="Select Mealie product..."
-                      className="max-w-[260px]"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <SearchableSelect
-                      options={grocyUnitOptions}
-                      value={mapping?.grocyUnitId ?? null}
-                      onChange={value => setProductMaps(prev => ({
-                        ...prev,
-                        [productKey]: {
-                          ...prev[productKey],
-                          grocyUnitId: value,
-                        },
-                      }))}
-                      placeholder="Select Grocy unit..."
-                      className="max-w-[160px]"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {suggestion ? (
-                      <SuggestionScoreIndicator
-                        score={suggestion.score}
-                        ambiguous={suggestion.ambiguous}
-                        runnerUp={suggestion.runnerUp}
-                        acceptTitle={`Accept: ${suggestion.mealieFoodName}`}
-                        onAccept={!isAccepted ? () => onAcceptSuggestion(product.id) : undefined}
-                      />
-                    ) : null}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+            {pageWindow.rows.map(product => (
+              <MinStockRow
+                key={product.id}
+                product={product}
+                mapping={productMaps[String(product.id)]}
+                suggestion={data.lowStockGrocyProductSuggestions[String(product.id)]}
+                checked={!!createProductChecked[String(product.id)]}
+                draftValue={draftMinStock[product.id] ?? String(product.minStockAmount)}
+                isSaving={savingGrocyProductId === product.id}
+                minStockStep={data.minStockStep}
+                selectedMealieFoodLabel={
+                  productMaps[String(product.id)]?.mealieFoodId != null
+                    ? mealieProductLabelById.get(productMaps[String(product.id)].mealieFoodId!) ?? null
+                    : null
+                }
+                mealieProductOptions={mealieProductOptions}
+                grocyUnitOptions={grocyUnitOptions}
+                isMealieFoodTaken={isMealieFoodTaken}
+                onToggleChecked={handleToggleChecked}
+                onDraftChange={handleDraftChange}
+                onSaveMinStock={handleSaveMinStock}
+                onSelectMealieFood={handleSelectMealieFood}
+                onSelectUnit={handleSelectUnit}
+                onAcceptSuggestion={handleAcceptSuggestion}
+              />
+            ))}
           </TableBody>
         </Table>
       </div>
