@@ -20,5 +20,9 @@ export const CHUNK_SIZE_CREATE = 200;
 /** DB upsert plus an occasional rename. */
 export const CHUNK_SIZE_SYNC = 500;
 
-/** Destructive: keep the blast radius of a single failed chunk small. */
-export const CHUNK_SIZE_DELETE = 100;
+/*
+ * There is deliberately no delete chunk size. Orphan deletion is guarded by a
+ * server-side circuit breaker that refuses to remove more than half the Grocy
+ * catalogue, and that guard only holds when the entire confirmed set is
+ * validated in one request.
+ */

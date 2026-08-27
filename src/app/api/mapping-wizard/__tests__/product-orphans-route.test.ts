@@ -72,6 +72,52 @@ describe('mapping wizard orphan product route', () => {
     mockState.logWarn.mockClear();
   });
 
+  it('refuses to delete more than half the Grocy catalogue', async () => {
+    // Safety guard against an incomplete upstream response. It is evaluated
+    // per request against the current total, so the caller must submit the
+    // whole confirmed set at once — splitting it would let each part pass
+    // while the set as a whole blew through the limit.
+    mockState.grocyProducts = Array.from({ length: 10 }, (_, index) => ({
+      id: index + 1,
+      name: `Orphan ${index + 1}`,
+    }));
+    mockState.mealieFoods = [{ id: 'food-1', name: 'Unrelated' }];
+    mockState.deleteGrocyEntity.mockResolvedValue(undefined);
+
+    const response = await POST(new Request('http://localhost/api/mapping-wizard/products/orphans', {
+      method: 'POST',
+      body: JSON.stringify({
+        confirm: true,
+        ids: ['1', '2', '3', '4', '5', '6'],
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toContain('Refusing to delete 6 of 10');
+    expect(mockState.deleteGrocyEntity).not.toHaveBeenCalled();
+  });
+
+  it('allows a deletion that stays within the circuit breaker', async () => {
+    mockState.grocyProducts = Array.from({ length: 10 }, (_, index) => ({
+      id: index + 1,
+      name: `Orphan ${index + 1}`,
+    }));
+    mockState.mealieFoods = [{ id: 'food-1', name: 'Unrelated' }];
+    mockState.deleteGrocyEntity.mockResolvedValue(undefined);
+
+    const response = await POST(new Request('http://localhost/api/mapping-wizard/products/orphans', {
+      method: 'POST',
+      body: JSON.stringify({
+        confirm: true,
+        ids: ['1', '2', '3', '4', '5'],
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mockState.deleteGrocyEntity).toHaveBeenCalledTimes(5);
+  });
+
   it('records manual history when orphan Grocy products are deleted', async () => {
     mockState.grocyProducts = [
       { id: 1, name: 'Orphan product' },

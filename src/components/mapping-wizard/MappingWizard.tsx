@@ -55,7 +55,7 @@ import {
   type BulkOutcome,
   type ChunkProgress,
 } from './bulk';
-import { CHUNK_SIZE_CREATE, CHUNK_SIZE_DELETE, CHUNK_SIZE_SYNC } from '@/lib/bulk-limits';
+import { CHUNK_SIZE_CREATE, CHUNK_SIZE_SYNC } from '@/lib/bulk-limits';
 
 interface FetchTabDataOptions {
   preserveWizardState?: boolean;
@@ -1258,23 +1258,25 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
         return;
       }
 
-      const outcome = await runChunked({
-        items: orphanIds,
-        chunkSize: CHUNK_SIZE_DELETE,
-        request: chunk => postBulkChunk<{ deleted: number; total: number; failed: number }>(
-          '/api/mapping-wizard/products/orphans',
-          { confirm: true, ids: chunk },
-        ),
-        accumulate: (acc, result) => {
-          acc.succeeded += result.deleted ?? 0;
-          acc.failed += result.failed ?? 0;
-        },
-        onProgress: setActionProgress,
-      });
+      // Deliberately NOT chunked. The endpoint refuses a request that would
+      // remove more than half the Grocy catalogue, and that guard is evaluated
+      // per request against the *current* total. Splitting the ids would let
+      // each chunk pass on its own while the set as a whole blew straight
+      // through the limit — and the denominator shrinks with every chunk that
+      // succeeds. The whole confirmed set has to be validated at once.
+      const result = await postBulkChunk<{ deleted: number; total: number; failed: number }>(
+        '/api/mapping-wizard/products/orphans',
+        { confirm: true, ids: orphanIds },
+      );
 
       await fetchTabData('products', { preserveWizardState: true, showLoading: false });
       markOtherLoadedTabsDirty('products');
-      reportOutcome(outcome, 'Deleted');
+
+      if (result.failed > 0) {
+        toast.warning(`Deleted ${result.deleted} of ${result.total} orphan products, ${result.failed} failed`);
+      } else {
+        toast.success(`Deleted ${result.deleted} orphan products`);
+      }
     });
   }
 
@@ -1423,23 +1425,25 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
         return;
       }
 
-      const outcome = await runChunked({
-        items: orphanIds,
-        chunkSize: CHUNK_SIZE_DELETE,
-        request: chunk => postBulkChunk<{ deleted: number; total: number; failed: number }>(
-          '/api/mapping-wizard/units/orphans',
-          { confirm: true, ids: chunk },
-        ),
-        accumulate: (acc, result) => {
-          acc.succeeded += result.deleted ?? 0;
-          acc.failed += result.failed ?? 0;
-        },
-        onProgress: setActionProgress,
-      });
+      // Deliberately NOT chunked. The endpoint refuses a request that would
+      // remove more than half the Grocy catalogue, and that guard is evaluated
+      // per request against the *current* total. Splitting the ids would let
+      // each chunk pass on its own while the set as a whole blew straight
+      // through the limit — and the denominator shrinks with every chunk that
+      // succeeds. The whole confirmed set has to be validated at once.
+      const result = await postBulkChunk<{ deleted: number; total: number; failed: number }>(
+        '/api/mapping-wizard/units/orphans',
+        { confirm: true, ids: orphanIds },
+      );
 
       await fetchTabData('units', { preserveWizardState: true, showLoading: false });
       markOtherLoadedTabsDirty('units');
-      reportOutcome(outcome, 'Deleted');
+
+      if (result.failed > 0) {
+        toast.warning(`Deleted ${result.deleted} of ${result.total} orphan units, ${result.failed} failed`);
+      } else {
+        toast.success(`Deleted ${result.deleted} orphan units`);
+      }
     });
   }
 
