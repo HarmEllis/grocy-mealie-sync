@@ -5,6 +5,12 @@
 - Prefer the documented npm scripts in [`README.md`](README.md) instead of ad-hoc commands when a script already exists.
 - Treat `src/lib/grocy/client/**` and `src/lib/mealie/client/**` as generated artifacts. Regenerate them via the documented OpenAPI workflow instead of editing them by hand.
 
+## Language
+
+- Write everything published to GitHub in **English**: pull request titles and
+  bodies, issue text, commit messages, code comments and docs. This holds
+  regardless of the language used in discussion.
+
 ## Release And Tag Prep
 
 When asked to prepare or create a new release tag, complete all of the steps below before creating the tag.
