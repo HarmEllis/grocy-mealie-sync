@@ -385,18 +385,29 @@ async function openTab(page, tabName, endpointPath) {
   await waitForLoad;
 }
 
-async function refreshCurrentTab(page, buttonName, endpointPath, getCount, expectedCount) {
+/**
+ * Asserts how many requests the refresh button itself triggers.
+ *
+ * Measured as a delta around the click rather than a cumulative total: React
+ * double-invokes effects in development, so the number of requests fired while
+ * mounting is a property of the dev server, not of this button. A production
+ * build loads each tab once; `next dev` under React strict effects loads it
+ * twice. Counting the delta keeps the assertion about the behaviour under test.
+ */
+async function refreshCurrentTab(page, buttonName, endpointPath, getCount, expectedDelta) {
   const refreshButton = page.getByRole('button', { name: buttonName });
   await refreshButton.waitFor();
+
+  const countBeforeClick = getCount();
 
   await Promise.all([
     waitForGet(page, endpointPath),
     refreshButton.click(),
   ]);
 
-  const actualCount = getCount();
-  if (actualCount !== expectedCount) {
-    throw new Error(`Expected ${buttonName} to trigger ${expectedCount} requests for ${endpointPath}, but saw ${actualCount}.`);
+  const actualDelta = getCount() - countBeforeClick;
+  if (actualDelta !== expectedDelta) {
+    throw new Error(`Expected ${buttonName} to trigger ${expectedDelta} request(s) for ${endpointPath}, but saw ${actualDelta}.`);
   }
 }
 
@@ -429,7 +440,7 @@ async function main() {
         'Refresh Units',
         '/api/mapping-wizard/data?tab=units',
         () => requestCounts.units,
-        2,
+        1,
       );
 
       await openTab(page, /^Products/, '/api/mapping-wizard/data?tab=products');
@@ -438,7 +449,7 @@ async function main() {
         'Refresh Products',
         '/api/mapping-wizard/data?tab=products',
         () => requestCounts.products,
-        2,
+        1,
       );
 
       await openTab(page, /^Grocy Min Stock/, '/api/mapping-wizard/data?tab=grocy-min-stock');
@@ -447,7 +458,7 @@ async function main() {
         'Refresh Grocy Min Stock',
         '/api/mapping-wizard/data?tab=grocy-min-stock',
         () => requestCounts.grocyMinStock,
-        2,
+        1,
       );
 
       await openTab(page, /^Mapped Products/, '/api/mapping-wizard/products/mapped');
@@ -456,7 +467,7 @@ async function main() {
         'Refresh Mapped Products',
         '/api/mapping-wizard/products/mapped',
         () => requestCounts.mappedProducts,
-        2,
+        1,
       );
 
       await openTab(page, /^Conflicts/, '/api/mapping-wizard/conflicts');
@@ -465,7 +476,7 @@ async function main() {
         'Refresh Conflicts',
         '/api/mapping-wizard/conflicts',
         () => requestCounts.conflicts,
-        2,
+        1,
       );
 
       console.log('[Playwright] Mapping wizard refresh buttons reloaded all tab datasets.');
