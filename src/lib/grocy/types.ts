@@ -255,8 +255,53 @@ export interface UpdateProductGroupBody {
 // ---------------------------------------------------------------------------
 
 /**
+ * Describe an unexpected Grocy payload well enough to debug it from the logs,
+ * without dumping a full (potentially huge) response body.
+ */
+function describeGrocyPayload(raw: unknown): string {
+  if (raw === null) return 'null';
+  if (typeof raw === 'string') {
+    const preview = raw.trim().slice(0, 200);
+    return `string ("${preview}${raw.trim().length > 200 ? '…' : ''}")`;
+  }
+  if (typeof raw !== 'object') return typeof raw;
+
+  const keys = Object.keys(raw as Record<string, unknown>);
+  return `object (keys: ${keys.slice(0, 10).join(', ') || 'none'})`;
+}
+
+/**
+ * Guard a Grocy endpoint that is documented to return an array.
+ *
+ * Grocy (or a reverse proxy in front of it) can answer `200 OK` with a
+ * non-array body -- an `{ error_message }` object, or an HTML error page that
+ * `getResponseBody` hands back as a string. Callers immediately `.map()` over
+ * the result, so without this guard the failure surfaces as a bare
+ * `TypeError: x.map is not a function` with no hint of where it came from.
+ *
+ * Deliberately throws instead of falling back to `[]`: an empty stock list is
+ * indistinguishable from "nothing is in stock", which would make dependent
+ * syncs take destructive action (e.g. clearing "In possession" on every food).
+ */
+function assertGrocyArray<T>(raw: unknown, endpoint: string): T[] {
+  if (!Array.isArray(raw)) {
+    throw new Error(
+      `Grocy ${endpoint} returned an unexpected payload: expected an array, got ${describeGrocyPayload(raw)}`,
+    );
+  }
+
+  return raw as T[];
+}
+
+/**
  * Fetch all objects of a given Grocy entity.
- * Returns a properly typed array; returns `[]` when the raw response is not an array.
+ *
+ * Throws when the response is not an array. This used to fall back to `[]`,
+ * which reads as "this entity is empty" — during a Grocy outage that made the
+ * conflict check report every mapped product and unit as "no longer exists",
+ * and left the Mapping Wizard showing an empty catalogue with no error. An
+ * empty Grocy really does return `[]`, so a legitimately empty entity is
+ * unaffected.
  */
 export async function getGrocyEntities<E extends GrocyListableEntity>(
   entity: E,
@@ -264,7 +309,7 @@ export async function getGrocyEntities<E extends GrocyListableEntity>(
   // The `as any` here is required because the generated ExposedEntity_* types
   // are plain `string` aliases and do not accept string literal types.
   const raw = await GenericEntityInteractionsService.getObjects(entity as any);
-  return (Array.isArray(raw) ? raw : []) as GrocyEntityTypeMap[E][];
+  return assertGrocyArray<GrocyEntityTypeMap[E]>(raw, `/objects/${entity}`);
 }
 
 /**
@@ -407,45 +452,6 @@ export interface GrocyVolatileStock {
   overdue_products?: CurrentVolatilStockResponse['overdue_products'];
   expired_products?: CurrentVolatilStockResponse['expired_products'];
   missing_products?: GrocyMissingProduct[];
-}
-
-/**
- * Describe an unexpected Grocy payload well enough to debug it from the logs,
- * without dumping a full (potentially huge) response body.
- */
-function describeGrocyPayload(raw: unknown): string {
-  if (raw === null) return 'null';
-  if (typeof raw === 'string') {
-    const preview = raw.trim().slice(0, 200);
-    return `string ("${preview}${raw.trim().length > 200 ? '…' : ''}")`;
-  }
-  if (typeof raw !== 'object') return typeof raw;
-
-  const keys = Object.keys(raw as Record<string, unknown>);
-  return `object (keys: ${keys.slice(0, 10).join(', ') || 'none'})`;
-}
-
-/**
- * Guard a Grocy endpoint that is documented to return an array.
- *
- * Grocy (or a reverse proxy in front of it) can answer `200 OK` with a
- * non-array body -- an `{ error_message }` object, or an HTML error page that
- * `getResponseBody` hands back as a string. Callers immediately `.map()` over
- * the result, so without this guard the failure surfaces as a bare
- * `TypeError: x.map is not a function` with no hint of where it came from.
- *
- * Deliberately throws instead of falling back to `[]`: an empty stock list is
- * indistinguishable from "nothing is in stock", which would make dependent
- * syncs take destructive action (e.g. clearing "In possession" on every food).
- */
-function assertGrocyArray<T>(raw: unknown, endpoint: string): T[] {
-  if (!Array.isArray(raw)) {
-    throw new Error(
-      `Grocy ${endpoint} returned an unexpected payload: expected an array, got ${describeGrocyPayload(raw)}`,
-    );
-  }
-
-  return raw as T[];
 }
 
 /**

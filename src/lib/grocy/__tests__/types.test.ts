@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mockState = vi.hoisted(() => ({
   getObject: vi.fn(),
   putObject: vi.fn(),
+  getObjects: vi.fn(),
   getStock: vi.fn(),
   getStockVolatile: vi.fn(),
 }));
@@ -11,6 +12,7 @@ vi.mock('../init', () => ({}));
 
 vi.mock('../client', () => ({
   GenericEntityInteractionsService: {
+    getObjects: mockState.getObjects,
     getObjects1: mockState.getObject,
     putObjects: mockState.putObject,
   },
@@ -20,7 +22,7 @@ vi.mock('../client', () => ({
   },
 }));
 
-import { getCurrentStock, getVolatileStock, updateGrocyEntity } from '../types';
+import { getCurrentStock, getGrocyEntities, getVolatileStock, updateGrocyEntity } from '../types';
 
 describe('updateGrocyEntity', () => {
   beforeEach(() => {
@@ -104,6 +106,34 @@ describe('getVolatileStock', () => {
 
     await expect(getVolatileStock()).rejects.toThrow(
       /Grocy \/stock\/volatile returned an unexpected payload/,
+    );
+  });
+});
+
+describe('getGrocyEntities', () => {
+  beforeEach(() => {
+    mockState.getObjects.mockReset();
+  });
+
+  it('returns the entity rows when Grocy answers with an array', async () => {
+    mockState.getObjects.mockResolvedValue([{ id: 1, name: 'Melk' }]);
+
+    await expect(getGrocyEntities('products')).resolves.toEqual([{ id: 1, name: 'Melk' }]);
+  });
+
+  it('passes an empty entity through, because Grocy really does return []', async () => {
+    mockState.getObjects.mockResolvedValue([]);
+
+    await expect(getGrocyEntities('products')).resolves.toEqual([]);
+  });
+
+  it('throws instead of reporting an empty catalogue when Grocy answers with an error page', async () => {
+    mockState.getObjects.mockResolvedValue('<html><body>Invalid setting in config.php</body></html>');
+
+    // Falling back to [] here made the conflict check flag every mapped product
+    // as "no longer exists" for the duration of a Grocy outage.
+    await expect(getGrocyEntities('products')).rejects.toThrow(
+      /Grocy \/objects\/products returned an unexpected payload.*got string/,
     );
   });
 });
