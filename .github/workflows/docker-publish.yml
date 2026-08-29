@@ -179,12 +179,12 @@ jobs:
             type=semver,pattern={{version}},value=${{ steps.version.outputs.tag }}
             type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.tag }}
             type=semver,pattern={{major}},value=${{ steps.version.outputs.tag }}
-            type=raw,value=latest,enable=${{ !contains(steps.version.outputs.tag, '-') }}
 
-      # metadata-action already withholds latest (the enable expression above) and
-      # skips {{major}}/{{major}}.{{minor}} for pre-releases. This asserts that,
-      # because the cost of it silently regressing is someone's `latest` being
-      # replaced by a release candidate.
+      # metadata-action's default `latest=auto` flavor already adds `latest` for
+      # a stable semver and withholds it for a pre-release, along with
+      # {{major}}/{{major}}.{{minor}}. This asserts that, because the cost of it
+      # silently regressing is someone's `latest` being replaced by a release
+      # candidate.
       - name: Ensure a pre-release owns no moving tag
         if: steps.validate.outputs.prerelease == 'true'
         env:
