@@ -1,7 +1,7 @@
 services:
   grocy:
     # SECURITY: Pin to a specific version for reproducible builds. Update deliberately.
-    image: lscr.io/linuxserver/grocy:4.6.0@sha256:7e84250a8549975fe0a3e305a1edac187005d65e9dc33f21932632d7f845e4e2
+    image: lscr.io/linuxserver/grocy:4.7.0@sha256:f20d27df7b7056797c2eefd13647c2feb462e32519ad84280381b18fb4ef5f08
     container_name: grocy
     environment:
       - PUID=1000
@@ -22,7 +22,7 @@ services:
 
   mealie:
     # SECURITY: Pin to a specific version for reproducible builds. Update deliberately.
-    image: ghcr.io/mealie-recipes/mealie:v3.14.0@sha256:b9fac07e6daaabd8c29d0dc97965c2f500ce7d6b188b0c51f494627f23ad32f2
+    image: ghcr.io/mealie-recipes/mealie:v3.24.0@sha256:0b08ac3a9f0a65b8298bcb3a9fcb596f870f92fbefbecd8fffe075fa9b6d2d5d
     container_name: mealie
     ports:
       - 9000:9000
