@@ -406,7 +406,12 @@ export async function pollGrocyForMissingStock(
     state.lastGrocyPoll = new Date();
     await saveSyncState(state);
 
-    const partial = summary.unmappedProducts > 0 || inPossessionResult.status === 'error';
+    // Unmapped low-stock products are a backlog, not a failure: they are a normal
+    // steady state (a catalogue can carry hundreds), and counting them as 'partial'
+    // put every scheduler cycle into /fail on Healthchecks, drowning out real
+    // breakage. The count stays in the summary, the run message and the history
+    // event; only the status is reserved for things that actually went wrong.
+    const partial = inPossessionResult.status === 'error';
 
     if (partial) {
       return {

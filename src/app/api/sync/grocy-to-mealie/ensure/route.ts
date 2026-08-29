@@ -95,9 +95,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const responseStatus = result.status === 'partial' || result.summary.unmappedProducts > 0
-      ? 'partial'
-      : 'ok';
+    const responseStatus = result.status === 'partial' ? 'partial' : 'ok';
     return NextResponse.json({
       status: responseStatus,
       message: responseStatus === 'partial'

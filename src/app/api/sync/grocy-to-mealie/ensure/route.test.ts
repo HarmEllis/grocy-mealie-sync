@@ -40,7 +40,7 @@ describe('grocy-to-mealie ensure route', () => {
     mockState.logError.mockClear();
   });
 
-  it('returns a partial response with ensure counts when products are unmapped', async () => {
+  it('still reports the unmapped count, but as an ok response rather than partial', async () => {
     mockState.ensureGrocyMissingStockOnMealie.mockResolvedValue({
       status: 'ok',
       inPossessionSummary: null,
@@ -61,7 +61,7 @@ describe('grocy-to-mealie ensure route', () => {
 
     expect(response.status).toBe(200);
     expect(body).toEqual({
-      status: 'partial',
+      status: 'ok',
       message: 'Ensured 3 low-stock products in Mealie. Skipped 1 product because it is not mapped.',
       summary: {
         processedProducts: 4,

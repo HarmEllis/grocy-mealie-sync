@@ -90,9 +90,9 @@ describe('grocy-to-mealie route', () => {
     expect(mockState.releaseSyncLock).toHaveBeenCalledTimes(1);
   });
 
-  it('returns partial when low-stock products were skipped because they are not mapped', async () => {
+  it('names the skipped unmapped products without downgrading the run to partial', async () => {
     mockState.pollGrocyForMissingStock.mockResolvedValue({
-      status: 'partial',
+      status: 'ok',
       inPossessionStatus: 'ok',
       inPossessionSummary: null,
       summary: {
@@ -107,8 +107,8 @@ describe('grocy-to-mealie route', () => {
 
     expect(response.status).toBe(200);
     expect(body).toEqual({
-      status: 'partial',
-      message: 'Grocy→Mealie check partially completed. Skipped 1 low-stock product because it is not mapped.',
+      status: 'ok',
+      message: 'Grocy→Mealie check completed. Skipped 1 low-stock product because it is not mapped.',
       summary: {
         processedProducts: 3,
         ensuredProducts: 2,
