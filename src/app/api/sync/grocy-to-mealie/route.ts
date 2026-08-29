@@ -103,7 +103,9 @@ export async function POST() {
 
     return NextResponse.json({
       status: 'ok',
-      message: 'Grocy→Mealie check completed',
+      message: result.summary.unmappedProducts > 0
+        ? `Grocy→Mealie check completed. ${formatUnmappedProductsMessage(result.summary.unmappedProducts)}`
+        : 'Grocy→Mealie check completed',
       summary: result.summary,
     });
   } catch (error) {

@@ -549,7 +549,9 @@ describe('pollGrocyForMissingStock', () => {
       const result = await pollGrocyForMissingStock({ ensureAllPresent: true });
 
       expect(result).toMatchObject({
-        status: 'partial',
+        // Unmapped products are a backlog, not a degradation — the run stays 'ok'
+        // and only the summary reports the count.
+        status: 'ok',
         inPossessionStatus: 'skipped',
         inPossessionSummary: {
           processedProducts: 0,
@@ -584,7 +586,9 @@ describe('pollGrocyForMissingStock', () => {
       const result = await pollGrocyForMissingStock();
 
       expect(result).toMatchObject({
-        status: 'partial',
+        // Unmapped products are a backlog, not a degradation — the run stays 'ok'
+        // and only the summary reports the count.
+        status: 'ok',
         inPossessionStatus: 'skipped',
         inPossessionSummary: {
           processedProducts: 0,

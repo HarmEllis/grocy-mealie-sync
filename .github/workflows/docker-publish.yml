@@ -56,6 +56,38 @@ jobs:
 
           echo "sha=${object_sha}" >> "$GITHUB_OUTPUT"
 
+      # A stable tag owns `latest`, {{major}} and {{major}}.{{minor}}, so it must
+      # come from a commit that reached main. That used to be implied by
+      # filtering CI runs on event=push (ci.yml only pushes on main), which
+      # broke the moment pre-releases needed to accept a pull_request run.
+      # Assert the property directly instead of inferring it from a trigger.
+      - name: Require the tagged commit to be on main for a stable release
+        if: ${{ !contains(steps.version.outputs.tag, '-') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ steps.resolve_commit.outputs.sha }}
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # compare/main...<sha> reports "identical" when the commit is main's
+          # tip and "behind" when it is an ancestor of main. Anything else
+          # ("ahead", "diverged") means the commit is not on main.
+          status="$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...${TARGET_SHA}" --jq '.status')"
+
+          case "$status" in
+            identical|behind)
+              echo "${TAG} (${TARGET_SHA}) is on main (compare status: ${status})."
+              ;;
+            *)
+              echo "${TAG} (${TARGET_SHA}) is not on main (compare status: ${status})." >&2
+              echo "A stable release owns the moving tags, so it must be tagged on a commit merged into main." >&2
+              echo "To publish an unmerged commit for testing, use a pre-release tag such as ${TAG}-rc.1." >&2
+              exit 1
+              ;;
+          esac
+
       - name: Require successful CI workflow for tagged commit
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -65,7 +97,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          runs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?event=push&status=completed&head_sha=${TARGET_SHA}&per_page=100")"
+          # Any completed CI run on this exact commit counts, whatever triggered
+          # it. This asserts only that the tests passed on this code; the step
+          # above is what asserts a stable release came from main. Pre-release
+          # tags sit on a feature branch, where CI runs from the pull request or
+          # a manual dispatch rather than from a push to main.
+          runs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?status=completed&head_sha=${TARGET_SHA}&per_page=100")"
           success_count="$(printf '%s' "$runs_json" | jq '[.workflow_runs[] | select(.name == "CI" and .head_sha == "'"${TARGET_SHA}"'" and .conclusion == "success")] | length')"
 
           if [ "$success_count" -eq 0 ]; then
@@ -75,7 +112,8 @@ jobs:
             fi
 
             echo "No successful CI workflow run found for ${TAG} (${TARGET_SHA}). Matching CI runs: ${matching_runs}" >&2
-            echo "Push the release commit to main, wait for CI to pass on that exact commit, and only then push the release tag." >&2
+            echo "Wait for CI to pass on that exact commit before pushing the tag." >&2
+            echo "Release: merge into main and let CI run there. Pre-release: use the branch's pull request run, or dispatch the CI workflow on the branch." >&2
             exit 1
           fi
 
@@ -100,21 +138,26 @@ jobs:
           fi
 
       - name: Validate release tag
+        id: validate
         env:
           TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
         run: |
-          case "$TAG" in
-            v[0-9]*.[0-9]*.[0-9]*)
-              ;;
-            *)
-              echo "Expected tag in form vMAJOR.MINOR.PATCH, got: $TAG" >&2
-              exit 1
-              ;;
-          esac
+          set -euo pipefail
 
-          if ! printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "Expected tag in form vMAJOR.MINOR.PATCH, got: $TAG" >&2
+          # vMAJOR.MINOR.PATCH, optionally followed by a semver pre-release such as
+          # -rc.1 or -beta.2. Semver build metadata (+meta) is rejected because a
+          # Docker tag cannot contain '+'.
+          if ! printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$'; then
+            echo "Expected tag in form vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-PRERELEASE, got: $TAG" >&2
             exit 1
+          fi
+
+          if printf '%s\n' "$TAG" | grep -q -- '-'; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "$TAG is a pre-release: publishing the exact version tag only."
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Normalize image reference
@@ -137,6 +180,27 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.tag }}
             type=semver,pattern={{major}},value=${{ steps.version.outputs.tag }}
             type=raw,value=latest,enable=${{ !contains(steps.version.outputs.tag, '-') }}
+
+      # metadata-action already withholds latest (the enable expression above) and
+      # skips {{major}}/{{major}}.{{minor}} for pre-releases. This asserts that,
+      # because the cost of it silently regressing is someone's `latest` being
+      # replaced by a release candidate.
+      - name: Ensure a pre-release owns no moving tag
+        if: steps.validate.outputs.prerelease == 'true'
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if printf '%s\n' "$TAGS" | grep -Eq ':(latest|[0-9]+|[0-9]+\.[0-9]+)$'; then
+            echo "Pre-release produced a moving tag it must never own:" >&2
+            printf '%s\n' "$TAGS" >&2
+            exit 1
+          fi
+
+          echo "Pre-release tags verified:"
+          printf '%s\n' "$TAGS"
 
       - name: Capture primary tag
         id: primary_tag

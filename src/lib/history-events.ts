@@ -259,9 +259,14 @@ export function buildGrocyToMealieHistoryOutcome(
   action: 'grocy_to_mealie' | 'ensure_low_stock',
   result: GrocyMissingStockPollResult,
 ): HistoryOutcome {
-  const lowStockMessage = action === 'ensure_low_stock'
-    ? `Processed ${result.summary.processedProducts} low-stock product(s); ensured ${result.summary.ensuredProducts}; unmapped ${result.summary.unmappedProducts}.`
-    : `Processed ${result.summary.processedProducts} low-stock product(s); ensured ${result.summary.ensuredProducts}; unmapped ${result.summary.unmappedProducts}.`;
+  const lowStockMessage = [
+    `Processed ${result.summary.processedProducts} low-stock product(s); ensured ${result.summary.ensuredProducts}; unmapped ${result.summary.unmappedProducts}.`,
+    // A failing "In possession" step is the usual reason for a 'partial' run, so
+    // name it in the run message instead of hiding it in the event list.
+    result.inPossessionStatus === 'error'
+      ? `"In possession" sync failed${result.inPossessionError ? `: ${result.inPossessionError}` : '.'}`
+      : null,
+  ].filter((part): part is string => part !== null).join(' ');
 
   const events: HistoryEventInput[] = [
     {
@@ -297,8 +302,13 @@ export function buildGrocyToMealieHistoryOutcome(
       category: 'sync',
       entityKind: 'product',
       entityRef: 'in-possession',
-      message: `In possession sync ${result.inPossessionStatus === 'ok' ? 'succeeded' : result.inPossessionStatus}.`,
-      details: result.inPossessionSummary ?? null,
+      message: result.inPossessionStatus === 'error' && result.inPossessionError
+        ? `In possession sync failed: ${result.inPossessionError}`
+        : `In possession sync ${result.inPossessionStatus === 'ok' ? 'succeeded' : result.inPossessionStatus}.`,
+      details: {
+        error: result.inPossessionError ?? null,
+        summary: result.inPossessionSummary ?? null,
+      },
     });
   }
 
@@ -309,6 +319,7 @@ export function buildGrocyToMealieHistoryOutcome(
       reason: result.reason ?? null,
       lowStock: result.summary,
       inPossessionStatus: result.inPossessionStatus ?? null,
+      inPossessionError: result.inPossessionError ?? null,
       inPossessionSummary: result.inPossessionSummary ?? null,
     },
     events,

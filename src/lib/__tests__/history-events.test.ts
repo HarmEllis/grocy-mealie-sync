@@ -239,4 +239,32 @@ describe('history events', () => {
       message: 'Sync failed.',
     }));
   });
+
+  it('names the "In possession" failure cause in the partial run message and event', () => {
+    const outcome = buildGrocyToMealieHistoryOutcome('grocy_to_mealie', {
+      status: 'partial',
+      summary: {
+        processedProducts: 4,
+        ensuredProducts: 2,
+        unmappedProducts: 0,
+      },
+      inPossessionStatus: 'error',
+      inPossessionError: 'Grocy /stock returned an unexpected payload: expected an array, got string',
+      inPossessionSummary: {
+        processedProducts: 0,
+        updatedProducts: 0,
+        enabledProducts: 0,
+        disabledProducts: 0,
+        unchangedProducts: 0,
+        failedProducts: 0,
+      },
+    });
+
+    expect(outcome.status).toBe('partial');
+    expect(outcome.message).toContain('"In possession" sync failed: Grocy /stock returned an unexpected payload');
+    expect(outcome.events[1]).toEqual(expect.objectContaining({
+      level: 'error',
+      message: 'In possession sync failed: Grocy /stock returned an unexpected payload: expected an array, got string',
+    }));
+  });
 });

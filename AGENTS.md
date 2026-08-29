@@ -47,10 +47,47 @@ When asked to prepare or create a new release tag, complete all of the steps bel
    - prefer validating `gh` authentication and running the GitHub release command outside the sandbox when the first sandboxed attempt is inconclusive or reports credential/network problems
    - if the user does not approve, stop after the local release commit and report that the release has not been pushed, tagged remotely, or drafted on GitHub
 
+## Pre-Release Tags
+
+A pre-release publishes a testable Docker image before a release is final, so
+changes can be tried on real data without anyone on a moving tag receiving them.
+It is deliberately lighter than the full release prep above.
+
+When asked to cut a pre-release:
+
+1. Pick the next release version plus a semver pre-release suffix, counting up
+   from any existing pre-release for that version: `v1.15.0-rc.1`, then
+   `-rc.2`. `-beta.N` and `-alpha.N` work too.
+2. Bump `package.json` to the pre-release version (`1.15.0-rc.1`), keeping
+   `package-lock.json` in sync including `packages[""].version`.
+3. Skip the release-only steps: no `CHANGELOG.md` section, no
+   `npm run docs:screenshot`, no migration upgrade-path verification. Those
+   belong to the final release, which is what users actually upgrade to.
+4. Run `npm run typecheck` and `npm test` locally before pushing.
+5. Push the branch and make sure CI passes on the exact commit you intend to
+   tag. The image workflow requires a green `CI` run for that commit and will
+   refuse to build without one. On a feature branch CI runs from the branch's
+   pull request, or from a manual `CI` workflow dispatch on that branch.
+6. Ask the user before pushing the tag, as with a release. When approved, tag
+   that exact commit and push the tag.
+7. Create the GitHub release for the tag **marked as a pre-release**
+   (`gh release create --prerelease`), with notes describing what needs testing.
+   A pre-release must never be marked as the latest release.
+
+The image workflow handles the rest: a tag containing `-` publishes only
+`<version>` (for example `1.15.0-rc.1`) and is blocked from ever owning
+`latest`, `{{major}}` or `{{major}}.{{minor}}`.
+
+Cutting the final release afterwards follows the full process above, including
+the `CHANGELOG.md` section covering everything the pre-releases contained.
+
 ## Version Format
 
 - `package.json` uses plain semver like `1.2.0`.
 - Git tags use a `v` prefix like `v1.2.0`.
+- Pre-release versions append a semver suffix: `1.2.0-rc.1`, tagged `v1.2.0-rc.1`.
+  Semver build metadata (`+meta`) is not supported, because a Docker tag cannot
+  contain `+`.
 
 <!-- BEGIN:nextjs-agent-rules -->
 
