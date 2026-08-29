@@ -2,6 +2,31 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.15.0] - 2026-08-29
+
+This minor release keeps the sync working — and honest about it — when Grocy returns a malformed response, and stops a normal backlog of unmapped products from reading as a permanent failure. It also adds pre-release builds so changes can be tested on real data before a release is final.
+
+Grocy 4.7.0 moved its authentication middleware into a sub-namespace. A `config.php` carried over from an earlier version still names the old class, and Grocy then answers **every** request with an HTML error page under HTTP 200. If you upgrade Grocy to 4.7.0, set `AUTH_CLASS` in your `config.php` to `Grocy\Middleware\Auth\DefaultAuthMiddleware` (see `config-dist.php` for the current default).
+
+### Fixed
+
+- Grocy responses that are not the documented shape are now reported instead of being used as data. `getCurrentStock`, `getVolatileStock` and `getGrocyEntities` validate the payload and raise an error naming the endpoint and what actually came back. Previously a non-array body reached `currentStock.map()` and the "In possession" sync died with `TypeError: u.map is not a function`, with nothing in the message pointing at Grocy.
+- These raise an error rather than falling back to an empty result, because an empty result is indistinguishable from a genuinely empty Grocy. That fallback was silently destructive: with no volatile stock the sync treated every low-stock product as restocked and removed it from the Mealie shopping list, with no products it cleared "In possession" on every mapped food, and with no entity list the conflict check opened a "no longer exists" conflict for every mapped product and unit while the Mapping Wizard showed an empty catalogue. A legitimately empty Grocy is unaffected, since it returns a real empty array.
+- A failing "In possession" sync now reports its cause in the run message and history event instead of a bare "error".
+- The dashboard headline reflects the recorded runs. It previously read "Sync healthy" whenever the status query itself succeeded, so a sync failing on every poll left the dashboard looking green.
+
+### Changed
+
+- Unmapped low-stock products no longer mark a run as partial. They are a backlog, not a failure, and a catalogue can carry hundreds of them indefinitely. Because run status drives the Healthchecks ping, every scheduler cycle was pinging `<url>/fail` and a real failure was indistinguishable from the steady state. The count still appears in the run summary, the run message and the history event, and the dashboard keeps its "not yet mapped" card.
+
+### Added
+
+- Pre-release tags (`vMAJOR.MINOR.PATCH-rc.N`) publish a Docker image tagged with the exact version only. `latest` and the major and minor tags are never moved to a pre-release, and the publish workflow fails if they ever would be. Stable tags must be on `main`.
+
+### Security
+
+- Resolved high-severity npm audit advisories.
+
 ## [1.14.2] - 2026-07-02
 
 This patch release fixes an edge case in device product creation where a scanned name matching a mapped Mealie food (with a differently-named Grocy product) failed instead of offering to link.
@@ -321,6 +346,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.15.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.14.2...v1.15.0
 [1.14.2]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.14.1...v1.14.2
 [1.14.1]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.14.0...v1.14.1
 [1.14.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.13.0...v1.14.0
