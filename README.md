@@ -88,6 +88,26 @@ volumes:
   sync-data:
 ```
 
+**Image tags:**
+
+| Tag | Points at |
+| --- | --- |
+| `latest` | the newest stable release |
+| `1`, `1.15` | the newest release in that major / minor line |
+| `1.15.0` | that exact release, forever |
+| `1.15.0-rc.1` | that exact pre-release, forever |
+
+Pre-releases are published for testing before a release is final. They only ever
+get their exact version tag — never `latest`, `1` or `1.15` — so pulling a
+moving tag can never hand you a release candidate. To test one, pin it:
+
+```yaml
+image: ghcr.io/harmellis/grocy-mealie-sync:1.15.0-rc.1
+```
+
+Pre-releases are marked as such on the GitHub releases page and are not
+recommended for unattended production use.
+
 **Local development:**
 
 ```bash
