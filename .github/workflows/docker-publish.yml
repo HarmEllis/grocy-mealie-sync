@@ -56,6 +56,38 @@ jobs:
 
           echo "sha=${object_sha}" >> "$GITHUB_OUTPUT"
 
+      # A stable tag owns `latest`, {{major}} and {{major}}.{{minor}}, so it must
+      # come from a commit that reached main. That used to be implied by
+      # filtering CI runs on event=push (ci.yml only pushes on main), which
+      # broke the moment pre-releases needed to accept a pull_request run.
+      # Assert the property directly instead of inferring it from a trigger.
+      - name: Require the tagged commit to be on main for a stable release
+        if: ${{ !contains(steps.version.outputs.tag, '-') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ steps.resolve_commit.outputs.sha }}
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # compare/main...<sha> reports "identical" when the commit is main's
+          # tip and "behind" when it is an ancestor of main. Anything else
+          # ("ahead", "diverged") means the commit is not on main.
+          status="$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...${TARGET_SHA}" --jq '.status')"
+
+          case "$status" in
+            identical|behind)
+              echo "${TAG} (${TARGET_SHA}) is on main (compare status: ${status})."
+              ;;
+            *)
+              echo "${TAG} (${TARGET_SHA}) is not on main (compare status: ${status})." >&2
+              echo "A stable release owns the moving tags, so it must be tagged on a commit merged into main." >&2
+              echo "To publish an unmerged commit for testing, use a pre-release tag such as ${TAG}-rc.1." >&2
+              exit 1
+              ;;
+          esac
+
       - name: Require successful CI workflow for tagged commit
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -65,9 +97,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Any completed CI run on this exact commit counts, whatever triggered it.
-          # Pre-release tags sit on a feature branch, where CI runs from the pull
-          # request or a manual dispatch rather than from a push to main.
+          # Any completed CI run on this exact commit counts, whatever triggered
+          # it. This asserts only that the tests passed on this code; the step
+          # above is what asserts a stable release came from main. Pre-release
+          # tags sit on a feature branch, where CI runs from the pull request or
+          # a manual dispatch rather than from a push to main.
           runs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?status=completed&head_sha=${TARGET_SHA}&per_page=100")"
           success_count="$(printf '%s' "$runs_json" | jq '[.workflow_runs[] | select(.name == "CI" and .head_sha == "'"${TARGET_SHA}"'" and .conclusion == "success")] | length')"
 
