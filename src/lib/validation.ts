@@ -60,6 +60,11 @@ export const unitCreateRequestSchema = z.object({
   mealieUnitIds: z.array(z.string()).max(BULK_MAX_ITEMS),
 });
 
+/** Schema for creating Mealie units from unmapped Grocy units */
+export const unitCreateMealieRequestSchema = z.object({
+  grocyUnitIds: z.array(z.number()).max(BULK_MAX_ITEMS),
+});
+
 // --- Settings ---
 
 /** Schema for the settings update request body */

@@ -233,6 +233,9 @@ async function configureRoutes(page) {
         unmappedMealieUnits: [
           { id: 'unit-1', name: 'Bottle', abbreviation: 'bt' },
         ],
+        unmappedGrocyUnits: [
+          { id: 10, name: 'Bottle', mealieCounterpartName: 'Bottle' },
+        ],
         grocyUnits: [
           { id: 10, name: 'Bottle' },
         ],
@@ -294,6 +297,7 @@ async function configureRoutes(page) {
         grocyUnits: [
           { id: 10, name: 'Bottle' },
         ],
+        existingUnitMappings: [],
         unmappedMealieFoods: [
           { id: 'food-1', name: 'Milk' },
         ],

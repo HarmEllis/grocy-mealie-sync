@@ -269,18 +269,29 @@ export function GrocyMinStockProductsTab({
     setCreateProductChecked(prev => ({ ...prev, [productKey]: next }));
   }, [setCreateProductChecked]);
 
+  const selectableUnitIds = useMemo(
+    () => new Set(grocyUnitOptions.map(option => option.value)),
+    [grocyUnitOptions],
+  );
+
   const handleDraftChange = useCallback((grocyProductId: number, value: string) => {
     setDraftMinStock(prev => ({ ...prev, [grocyProductId]: value }));
   }, []);
 
   const handleSelectMealieFood = useCallback((product: GrocyMinStockProduct, mealieFoodId: string | null) => {
     const productKey = String(product.id);
+    // Only a mapped unit can be stored on a product mapping, so an unmappable
+    // purchase unit must not be prefilled: it is not in the dropdown either,
+    // and the sync would drop it without saying so.
+    const purchaseUnitId = product.quIdPurchase && selectableUnitIds.has(product.quIdPurchase)
+      ? product.quIdPurchase
+      : null;
     setProductMaps(prev => ({
       ...prev,
       [productKey]: {
         ...prev[productKey],
         mealieFoodId,
-        grocyUnitId: product.quIdPurchase || prev[productKey]?.grocyUnitId || null,
+        grocyUnitId: purchaseUnitId || prev[productKey]?.grocyUnitId || null,
       },
     }));
     if (mealieFoodId !== null) {
@@ -290,7 +301,7 @@ export function GrocyMinStockProductsTab({
         return next;
       });
     }
-  }, [setProductMaps, setCreateProductChecked]);
+  }, [selectableUnitIds, setProductMaps, setCreateProductChecked]);
 
   const handleSelectUnit = useCallback((productKey: string, grocyUnitId: number | null) => {
     setProductMaps(prev => ({

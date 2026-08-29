@@ -21,7 +21,7 @@ import { AppBadge, AppButton, ProgressRing } from '@/components/redesign/primiti
 import { ConflictsTab } from './ConflictsTab';
 import { GrocyMinStockProductsTab } from './GrocyMinStockProductsTab';
 import { MappedProductsTab } from './MappedProductsTab';
-import { UnitsTab } from './UnitsTab';
+import { UnitsTab, type UnitFilter } from './UnitsTab';
 import { ProductsTab } from './ProductsTab';
 import type {
   ConflictRemapData,
@@ -46,6 +46,7 @@ import {
   mergeProductMaps,
   mergeUnitMaps,
   type WizardTab,
+  toMappedUnitOptions,
 } from './state';
 import { applyBulkSuggestions, isSuggestionTargetAvailable } from './suggestion-actions';
 import {
@@ -125,7 +126,7 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
   const [grocyMinStockProductSearch, setGrocyMinStockProductSearch] = useState('');
   const [mappedProductSearch, setMappedProductSearch] = useState('');
   const [unitSearch, setUnitSearch] = useState('');
-  const [unitFilter, setUnitFilter] = useState<'unmapped' | 'mapped' | 'all'>('unmapped');
+  const [unitFilter, setUnitFilter] = useState<UnitFilter>('unmapped');
   const [showOnlyGrocyMinStockBelowMinimum, setShowOnlyGrocyMinStockBelowMinimum] = useState(false);
   const [showOnlyMappedProductsBelowMinimum, setShowOnlyMappedProductsBelowMinimum] = useState(false);
   const [dismissedUnitSuggestions, setDismissedUnitSuggestions] = useState<string[]>([]);
@@ -165,6 +166,7 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
   const [createProductChecked, setCreateProductChecked] = useState<Record<string, boolean>>({});
   const [createMealieProductChecked, setCreateMealieProductChecked] = useState<Record<string, boolean>>({});
   const [createUnitChecked, setCreateUnitChecked] = useState<Record<string, boolean>>({});
+  const [createGrocyUnitChecked, setCreateGrocyUnitChecked] = useState<Record<number, boolean>>({});
 
   // setTimeout cleanup
   const messageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -358,12 +360,12 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
     productsData ? sortByName(productsData.grocyProducts).map(product => ({ value: product.id, label: product.name })) : [],
     [productsData],
   );
-  const productGrocyUnitOptions = useMemo(() =>
-    productsData ? sortByName(productsData.grocyUnits).map(unit => ({ value: unit.id, label: unit.name })) : [],
-    [productsData],
-  );
+  // Only units that carry a mapping. A product mapping stores its unit as a
+  // `unitMappingId`, so an unmapped Grocy unit cannot be persisted: offering
+  // one meant the pick was silently dropped on sync. The Units tab's "Grocy
+  // only" filter is where such a unit gets its Mealie counterpart.
   const grocyMinStockGrocyUnitOptions = useMemo(() =>
-    grocyMinStockData ? sortByName(grocyMinStockData.grocyUnits).map(unit => ({ value: unit.id, label: unit.name })) : [],
+    grocyMinStockData ? toMappedUnitOptions(grocyMinStockData.existingUnitMappings) : [],
     [grocyMinStockData],
   );
   const mealieProductOptions = useMemo(() =>
@@ -373,12 +375,7 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
     [grocyMinStockData],
   );
   const mappedUnitOptions = useMemo(() =>
-    productsData
-      ? sortByName(productsData.existingUnitMappings.map(mapping => ({
-        name: mapping.grocyUnitName,
-        id: mapping.grocyUnitId,
-      }))).map(unit => ({ value: unit.id, label: unit.name }))
-      : [],
+    productsData ? toMappedUnitOptions(productsData.existingUnitMappings) : [],
     [productsData],
   );
   const remapMealieFoodOptions = useMemo(() =>
@@ -1376,6 +1373,39 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
     });
   }
 
+  /**
+   * The mirror of `createUnmappedUnits`: a Grocy unit with no Mealie
+   * counterpart gets one, so it becomes usable as a product's unit.
+   */
+  async function createMealieUnitsFromGrocy() {
+    const checkedIds = Object.entries(createGrocyUnitChecked)
+      .filter(([, checked]) => checked)
+      .map(([id]) => Number(id));
+
+    if (checkedIds.length === 0) {
+      toast.info('No Grocy units checked for creation');
+      return;
+    }
+
+    await runAction('createMealieUnits', async () => {
+      const outcome = await runChunked({
+        items: checkedIds,
+        chunkSize: CHUNK_SIZE_CREATE,
+        request: chunk => postBulkChunk<{ created: number; skipped: number; failed: number }>(
+          '/api/mapping-wizard/units/create-mealie',
+          { grocyUnitIds: chunk },
+        ),
+        accumulate: accumulateCreate,
+        onProgress: setActionProgress,
+      });
+
+      setCreateGrocyUnitChecked({});
+      await fetchTabData('units', { preserveWizardState: true, showLoading: false });
+      markOtherLoadedTabsDirty('units');
+      reportOutcome(outcome, 'Created');
+    });
+  }
+
   async function createUnmappedUnits() {
     if (!unitsData) {
       return;
@@ -1680,6 +1710,8 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
             setUnitMaps={setUnitMaps}
             createUnitChecked={createUnitChecked}
             setCreateUnitChecked={setCreateUnitChecked}
+            createGrocyUnitChecked={createGrocyUnitChecked}
+            setCreateGrocyUnitChecked={setCreateGrocyUnitChecked}
             unitSearch={unitSearch}
             setUnitSearch={setUnitSearch}
             unitFilter={unitFilter}
@@ -1709,7 +1741,6 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
             productSearch={productSearch}
             setProductSearch={setProductSearch}
             grocyProductOptions={productGrocyProductOptions}
-            grocyUnitOptions={productGrocyUnitOptions}
             mappedUnitOptions={mappedUnitOptions}
             defaultCreateUnitId={defaultCreateUnitId}
             setDefaultCreateUnitId={setDefaultCreateUnitId}
@@ -1918,6 +1949,7 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
           currentTabLoading={currentTabLoading}
           unitMappedCount={unitsData ? getPendingUnitMappings(unitsData, unitMaps).length : 0}
           checkedUnitCount={unmappedUnitIds.filter(id => createUnitChecked[id]).length}
+          checkedGrocyUnitCount={Object.values(createGrocyUnitChecked).filter(Boolean).length}
           orphanUnitCount={unitsData?.orphanGrocyUnitCount ?? 0}
           productMappedCount={Object.values(productMaps).filter(mapping => mapping.grocyProductId !== null).length}
           checkedProductCount={unmappedProductIds.filter(id => createProductChecked[id]).length}
@@ -1928,6 +1960,7 @@ export function MappingWizard({ timeZone, timeZoneLocale, initialTab = 'units' }
           onRefreshTab={() => { void refreshTab(tab); }}
           onSyncUnits={syncUnits}
           onCreateUnits={createUnmappedUnits}
+          onCreateMealieUnits={createMealieUnitsFromGrocy}
           onDeleteOrphanUnits={handleDeleteOrphanUnits}
           onSyncProducts={syncProducts}
           onCreateProducts={createUnmappedProducts}
@@ -2169,6 +2202,7 @@ interface WizardFooterProps {
   currentTabLoading: boolean;
   unitMappedCount: number;
   checkedUnitCount: number;
+  checkedGrocyUnitCount: number;
   orphanUnitCount: number;
   productMappedCount: number;
   checkedProductCount: number;
@@ -2179,6 +2213,7 @@ interface WizardFooterProps {
   onRefreshTab: () => void;
   onSyncUnits: () => void;
   onCreateUnits: () => void;
+  onCreateMealieUnits: () => void;
   onDeleteOrphanUnits: () => void;
   onSyncProducts: () => void;
   onCreateProducts: () => void;
@@ -2195,6 +2230,7 @@ function WizardFooter({
   currentTabLoading,
   unitMappedCount,
   checkedUnitCount,
+  checkedGrocyUnitCount,
   orphanUnitCount,
   productMappedCount,
   checkedProductCount,
@@ -2205,6 +2241,7 @@ function WizardFooter({
   onRefreshTab,
   onSyncUnits,
   onCreateUnits,
+  onCreateMealieUnits,
   onDeleteOrphanUnits,
   onSyncProducts,
   onCreateProducts,
@@ -2234,6 +2271,10 @@ function WizardFooter({
         <Button variant="secondary" size="sm" className={actionButtonClassName} onClick={onCreateUnits} disabled={isRunning || checkedUnitCount === 0}>
           {actionRunning === 'createUnits' ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
           {actionRunning === 'createUnits' ? runningLabel('Creating...') : `Create Checked in Grocy (${checkedUnitCount})`}
+        </Button>
+        <Button variant="secondary" size="sm" className={actionButtonClassName} onClick={onCreateMealieUnits} disabled={isRunning || checkedGrocyUnitCount === 0}>
+          {actionRunning === 'createMealieUnits' ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+          {actionRunning === 'createMealieUnits' ? runningLabel('Creating...') : `Create Checked in Mealie (${checkedGrocyUnitCount})`}
         </Button>
         <Button variant="destructive" size="sm" className={actionButtonClassName} onClick={onDeleteOrphanUnits} disabled={isRunning || orphanUnitCount === 0}>
           <Trash2 className="size-4" />

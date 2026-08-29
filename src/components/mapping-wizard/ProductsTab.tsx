@@ -115,7 +115,6 @@ interface ProductsTabProps {
   productSearch: string;
   setProductSearch: (value: string) => void;
   grocyProductOptions: SelectOption[];
-  grocyUnitOptions: SelectOption[];
   mappedUnitOptions: SelectOption[];
   defaultCreateUnitId: number | null;
   setDefaultCreateUnitId: (value: number | null) => void;
@@ -134,7 +133,6 @@ export function ProductsTab({
   productSearch,
   setProductSearch,
   grocyProductOptions,
-  grocyUnitOptions,
   mappedUnitOptions,
   defaultCreateUnitId,
   setDefaultCreateUnitId,
@@ -180,6 +178,11 @@ export function ProductsTab({
     [],
   );
 
+  const selectableUnitIds = useMemo(
+    () => new Set(mappedUnitOptions.map(option => option.value)),
+    [mappedUnitOptions],
+  );
+
   const grocyProductById = useMemo(
     () => new Map(data.grocyProducts.map(product => [product.id, product])),
     [data.grocyProducts],
@@ -195,12 +198,18 @@ export function ProductsTab({
 
   const handleSelectProduct = useCallback((foodId: string, grocyProductId: number | null) => {
     const grocyProduct = grocyProductId === null ? undefined : grocyProductById.get(grocyProductId);
+    // Prefill the Grocy product's purchase unit only when it is mappable.
+    // An unmapped one cannot be stored, and filling it in would show a unit
+    // the dropdown does not list and the sync would drop.
+    const purchaseUnitId = grocyProduct?.quIdPurchase && selectableUnitIds.has(grocyProduct.quIdPurchase)
+      ? grocyProduct.quIdPurchase
+      : null;
     setProductMaps(prev => ({
       ...prev,
       [foodId]: {
         ...prev[foodId],
         grocyProductId,
-        grocyUnitId: grocyProduct?.quIdPurchase || prev[foodId]?.grocyUnitId || null,
+        grocyUnitId: purchaseUnitId || prev[foodId]?.grocyUnitId || null,
       },
     }));
     if (grocyProductId !== null) {
@@ -210,7 +219,7 @@ export function ProductsTab({
         return next;
       });
     }
-  }, [grocyProductById, setProductMaps, setCreateProductChecked]);
+  }, [grocyProductById, selectableUnitIds, setProductMaps, setCreateProductChecked]);
 
   const handleSelectUnit = useCallback((foodId: string, grocyUnitId: number | null) => {
     setProductMaps(prev => ({ ...prev, [foodId]: { ...prev[foodId], grocyUnitId } }));
@@ -332,7 +341,7 @@ export function ProductsTab({
                     : null
                 }
                 grocyProductOptions={grocyProductOptions}
-                grocyUnitOptions={grocyUnitOptions}
+                grocyUnitOptions={mappedUnitOptions}
                 isGrocyProductTaken={isGrocyProductTaken}
                 unitPlaceholder={unitPlaceholder}
                 onToggleChecked={handleToggleChecked}

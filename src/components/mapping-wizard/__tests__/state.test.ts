@@ -11,6 +11,7 @@ import {
   mergeGrocyMinStockProductMaps,
   mergeProductMaps,
   mergeUnitMaps,
+  toMappedUnitOptions,
 } from '../state';
 
 function createWizardData(overrides: Partial<WizardData> = {}): WizardData {
@@ -35,6 +36,7 @@ function createWizardData(overrides: Partial<WizardData> = {}): WizardData {
       { id: 10, name: 'Piece' },
       { id: 11, name: 'Liter' },
     ],
+    unmappedGrocyUnits: [],
     unmappedGrocyMinStockProducts: [
       { id: 1, name: 'Milk', quIdPurchase: 10, minStockAmount: 1, currentStock: 0, isBelowMinimum: true },
     ],
@@ -284,5 +286,27 @@ describe('buildTakenTargetIds', () => {
     );
 
     expect(taken).toEqual(new Set(['food-a']));
+  });
+});
+
+describe('toMappedUnitOptions', () => {
+  const mapping = (grocyUnitId: number, grocyUnitName: string) => ({
+    id: `map-${grocyUnitId}`,
+    mealieUnitId: `unit-${grocyUnitId}`,
+    mealieUnitName: grocyUnitName,
+    mealieUnitAbbreviation: '',
+    grocyUnitId,
+    grocyUnitName,
+  });
+
+  it('offers the Grocy unit of every mapping, sorted by name', () => {
+    expect(toMappedUnitOptions([mapping(11, 'Liter'), mapping(10, 'Bak')])).toEqual([
+      { value: 10, label: 'Bak' },
+      { value: 11, label: 'Liter' },
+    ]);
+  });
+
+  it('offers nothing when no unit is mapped, so no unmappable unit can be picked', () => {
+    expect(toMappedUnitOptions([])).toEqual([]);
   });
 });

@@ -201,6 +201,9 @@ describe('mapping wizard data route', () => {
       unmappedMealieUnits: [
         { id: 'unit-2', name: 'Liter', abbreviation: 'l' },
       ],
+      unmappedGrocyUnits: [
+        { id: 11, name: 'Liter', mealieCounterpartName: 'Liter' },
+      ],
       grocyUnits: [
         { id: 10, name: 'Piece' },
         { id: 11, name: 'Liter' },
@@ -226,6 +229,36 @@ describe('mapping wizard data route', () => {
       },
       orphanGrocyUnitCount: 0,
     });
+  });
+
+  it('reports an unmapped Grocy unit that has no Mealie counterpart', async () => {
+    // Such a unit is invisible in the Mealie-keyed unit list, and it cannot be
+    // stored on a product mapping either, so the tab has to surface it itself.
+    mockState.mealieUnits = [
+      { id: 'unit-1', name: 'Piece', abbreviation: 'pc' },
+    ];
+    mockState.grocyUnits = [
+      { id: 10, name: 'Piece' },
+      { id: 11, name: 'Bak' },
+    ];
+    mockState.unitMappingsRows = [
+      {
+        id: 'unit-map-1',
+        mealieUnitId: 'unit-1',
+        mealieUnitAbbreviation: 'pc',
+        grocyUnitId: 10,
+        grocyUnitName: 'Piece',
+        mealieUnitName: 'Piece',
+      },
+    ];
+
+    const response = await GET(createRequest('http://localhost/api/mapping-wizard/data?tab=units'));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.unmappedGrocyUnits).toEqual([
+      { id: 11, name: 'Bak', mealieCounterpartName: null },
+    ]);
   });
 
   it('filters stale unit mappings out of the products tab default-unit data', async () => {

@@ -3,10 +3,13 @@ import type {
   GrocyMinStockTabData,
   ProductMapping,
   ProductsTabData,
+  SelectOption,
   UnitMapping,
+  UnitMappingRef,
   UnitsTabData,
   WizardData,
 } from './types';
+import { sortByName } from './types';
 
 export type WizardTab = 'units' | 'products' | 'grocy-min-stock' | 'mapped-products' | 'conflicts';
 
@@ -24,6 +27,22 @@ export function getDefaultWizardTab(data: WizardData): WizardTab {
   }
 
   return 'units';
+}
+
+/**
+ * The Grocy units a product's unit column may offer.
+ *
+ * A product mapping stores its unit as a `unitMappingId`, so a Grocy unit with
+ * no mapping cannot be persisted at all: the sync routes look the mapping up by
+ * `grocyUnitId` and store `null` when they find none. Offering the full unit
+ * list therefore let a pick vanish without any error. Unmapped Grocy units are
+ * handled in the Units tab instead, under the "Grocy only" filter.
+ */
+export function toMappedUnitOptions(unitMappings: UnitMappingRef[]): SelectOption[] {
+  return sortByName(unitMappings.map(mapping => ({
+    name: mapping.grocyUnitName,
+    id: mapping.grocyUnitId,
+  }))).map(unit => ({ value: unit.id, label: unit.name }));
 }
 
 export function buildProductMaps(
