@@ -77,6 +77,31 @@ async function getStatus(): Promise<DashboardStatus | null> {
   }
 }
 
+/**
+ * The headline dot used to report only "the status query succeeded", which read
+ * as healthy even while every scheduled run was failing. Derive it from the
+ * recorded runs instead so a failing or partial sync is visible up front.
+ */
+function summariseRunHealth(runs: HistoryRunRecord[]): {
+  tone: 'success' | 'warning' | 'error';
+  label: string;
+} | null {
+  const relevantRuns = runs.filter(run => run.status !== 'skipped');
+  if (relevantRuns.length === 0) {
+    return null;
+  }
+
+  if (relevantRuns.some(run => run.status === 'failure')) {
+    return { tone: 'error', label: 'Sync failing' };
+  }
+
+  if (relevantRuns.some(run => run.status === 'partial')) {
+    return { tone: 'warning', label: 'Sync partially completed' };
+  }
+
+  return { tone: 'success', label: 'Sync healthy' };
+}
+
 function runDuration(run: HistoryRunRecord): string {
   const durationMs = run.finishedAt.getTime() - run.startedAt.getTime();
 
@@ -117,6 +142,7 @@ export default async function Home() {
   const schedulerPassiveByStartupLock = status?.schedulerStatus === 'passive_startup_lock';
   const historyState = getHistoryFeatureState();
   const recentRuns = historyState.enabled ? await listHistoryRuns(4) : [];
+  const runHealth = summariseRunHealth(recentRuns);
   const mostRecentPoll = status
     ? [status.lastGrocyPoll, status.lastMealiePoll]
       .filter((value): value is string | Date => Boolean(value))
@@ -132,11 +158,30 @@ export default async function Home() {
         <div className="flex flex-wrap items-center justify-between gap-6">
           <div className="flex items-center gap-2">
             <AppStatusDot
-              status={status ? (schedulerPassiveByStartupLock ? 'warning' : 'success') : 'warning'}
+              status={
+                status
+                  ? schedulerPassiveByStartupLock
+                    ? 'warning'
+                    : runHealth?.tone ?? 'success'
+                  : 'warning'
+              }
               pulse={status !== null}
             />
-            <span className={cn('text-sm font-semibold', schedulerPassiveByStartupLock ? 'text-warning' : 'text-text-1')}>
-              {status ? (schedulerPassiveByStartupLock ? 'Scheduler paused' : 'Sync healthy') : 'Status unavailable'}
+            <span
+              className={cn(
+                'text-sm font-semibold',
+                schedulerPassiveByStartupLock || runHealth?.tone === 'warning'
+                  ? 'text-warning'
+                  : runHealth?.tone === 'error'
+                    ? 'text-destructive'
+                    : 'text-text-1',
+              )}
+            >
+              {status
+                ? schedulerPassiveByStartupLock
+                  ? 'Scheduler paused'
+                  : runHealth?.label ?? 'Sync healthy'
+                : 'Status unavailable'}
             </span>
           </div>
           {schedulerPassiveByStartupLock ? (

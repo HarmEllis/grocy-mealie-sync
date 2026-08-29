@@ -410,12 +410,58 @@ export interface GrocyVolatileStock {
 }
 
 /**
+ * Describe an unexpected Grocy payload well enough to debug it from the logs,
+ * without dumping a full (potentially huge) response body.
+ */
+function describeGrocyPayload(raw: unknown): string {
+  if (raw === null) return 'null';
+  if (typeof raw === 'string') {
+    const preview = raw.trim().slice(0, 200);
+    return `string ("${preview}${raw.trim().length > 200 ? '…' : ''}")`;
+  }
+  if (typeof raw !== 'object') return typeof raw;
+
+  const keys = Object.keys(raw as Record<string, unknown>);
+  return `object (keys: ${keys.slice(0, 10).join(', ') || 'none'})`;
+}
+
+/**
+ * Guard a Grocy endpoint that is documented to return an array.
+ *
+ * Grocy (or a reverse proxy in front of it) can answer `200 OK` with a
+ * non-array body -- an `{ error_message }` object, or an HTML error page that
+ * `getResponseBody` hands back as a string. Callers immediately `.map()` over
+ * the result, so without this guard the failure surfaces as a bare
+ * `TypeError: x.map is not a function` with no hint of where it came from.
+ *
+ * Deliberately throws instead of falling back to `[]`: an empty stock list is
+ * indistinguishable from "nothing is in stock", which would make dependent
+ * syncs take destructive action (e.g. clearing "In possession" on every food).
+ */
+function assertGrocyArray<T>(raw: unknown, endpoint: string): T[] {
+  if (!Array.isArray(raw)) {
+    throw new Error(
+      `Grocy ${endpoint} returned an unexpected payload: expected an array, got ${describeGrocyPayload(raw)}`,
+    );
+  }
+
+  return raw as T[];
+}
+
+/**
  * Fetch volatile stock data (due, overdue, expired, missing).
  * The generated type has `missing_products: Array<any>` -- this wrapper
  * returns a properly typed version.
  */
 export async function getVolatileStock(): Promise<GrocyVolatileStock> {
   const raw = await StockService.getStockVolatile();
+
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error(
+      `Grocy /stock/volatile returned an unexpected payload: expected an object, got ${describeGrocyPayload(raw)}`,
+    );
+  }
+
   return raw as GrocyVolatileStock;
 }
 
@@ -423,7 +469,8 @@ export async function getVolatileStock(): Promise<GrocyVolatileStock> {
  * Fetch the current stock overview for all products currently in stock.
  */
 export async function getCurrentStock(): Promise<CurrentStockResponse[]> {
-  return StockService.getStock();
+  const raw = await StockService.getStock();
+  return assertGrocyArray<CurrentStockResponse>(raw, '/stock');
 }
 
 /**

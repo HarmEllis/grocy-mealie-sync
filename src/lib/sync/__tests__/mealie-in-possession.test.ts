@@ -5,6 +5,7 @@ const mockState = vi.hoisted(() => ({
   mappingsRows: [] as Array<Record<string, unknown>>,
   grocyProducts: [] as Array<Record<string, unknown>>,
   currentStock: [] as Array<Record<string, unknown>>,
+  currentStockError: null as Error | null,
   foodsById: {} as Record<string, Record<string, unknown>>,
   syncEnabled: true,
   onlyAboveMinStock: false,
@@ -45,7 +46,13 @@ vi.mock('../../grocy/types', () => ({
 
     throw new Error(`Unexpected Grocy entity: ${entity}`);
   }),
-  getCurrentStock: vi.fn(async () => mockState.currentStock),
+  getCurrentStock: vi.fn(async () => {
+    if (mockState.currentStockError) {
+      throw mockState.currentStockError;
+    }
+
+    return mockState.currentStock;
+  }),
 }));
 
 vi.mock('../../mealie', () => ({
@@ -123,6 +130,7 @@ describe('mealie in-possession sync', () => {
     mockState.foodsById = {
       'food-1': createFood(),
     };
+    mockState.currentStockError = null;
     mockState.syncEnabled = true;
     mockState.onlyAboveMinStock = false;
     mockState.loggedInUser = { householdSlug: 'family' };
@@ -242,6 +250,37 @@ describe('mealie in-possession sync', () => {
     const result = await syncMealieInPossessionFromGrocy(state);
 
     expect(result.summary.enabledProducts).toBe(1);
+    expect(state.mealieInPossessionByGrocyProduct).toEqual({ '101': true });
+  });
+
+  it('reports the failure cause and keeps tracked state when Grocy stock cannot be read', async () => {
+    mockState.currentStockError = new Error(
+      'Grocy /stock returned an unexpected payload: expected an array, got string ("<html>")',
+    );
+
+    const state = {
+      lastGrocyPoll: null,
+      lastMealiePoll: null,
+      grocyBelowMinStock: {},
+      mealieCheckedItems: {},
+      mealieInPossessionByGrocyProduct: { '101': true },
+      syncRestockedProducts: {},
+      mealieCheckedAt: {},
+      mealieItemsSyncedToGrocy: {},
+      lastCleanupRun: null,
+      grocyEffectiveParentByOriginalId: {},
+      mealieSubRestockProgress: {},
+      grocyParentOwnStockDeficit: {},
+      grocySkippedRestockAmounts: {},
+    };
+
+    const result = await syncMealieInPossessionFromGrocy(state);
+
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('Grocy /stock returned an unexpected payload');
+    expect(mockState.updateFood).not.toHaveBeenCalled();
+    // Tracked state must survive the failure, otherwise the next run would
+    // re-evaluate every product against stock data we never received.
     expect(state.mealieInPossessionByGrocyProduct).toEqual({ '101': true });
   });
 

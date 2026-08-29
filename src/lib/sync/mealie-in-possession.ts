@@ -23,6 +23,8 @@ export interface MealieInPossessionSyncSummary {
 export interface MealieInPossessionSyncResult {
   status: 'ok' | 'skipped' | 'error';
   reason?: 'disabled';
+  /** Human-readable failure cause, so history/dashboard can show why the sync failed. */
+  error?: string;
   summary: MealieInPossessionSyncSummary;
 }
 
@@ -269,6 +271,7 @@ async function runMealieInPossessionSync(
     log.error('[Grocy→Mealie] Failed to run "In possession" sync:', error);
     return {
       status: 'error',
+      error: error instanceof Error ? error.message : String(error),
       summary,
     };
   }

@@ -57,6 +57,7 @@ export interface GrocyMissingStockPollResult {
   status: 'ok' | 'partial' | 'skipped' | 'error';
   reason?: 'no-shopping-list';
   inPossessionStatus?: MealieInPossessionSyncResult['status'];
+  inPossessionError?: string;
   inPossessionSummary?: MealieInPossessionSyncResult['summary'];
   summary: GrocyMissingStockSyncSummary;
 }
@@ -395,7 +396,9 @@ export async function pollGrocyForMissingStock(
 
     const inPossessionResult = await syncMealieInPossessionFromGrocy(state);
     if (inPossessionResult.status === 'error') {
-      log.error('[Grocy→Mealie] "In possession" sync failed after low-stock processing completed');
+      log.error(
+        `[Grocy→Mealie] "In possession" sync failed after low-stock processing completed${inPossessionResult.error ? `: ${inPossessionResult.error}` : ''}`,
+      );
     }
 
     state.syncRestockedProducts = {};
@@ -410,6 +413,7 @@ export async function pollGrocyForMissingStock(
         status: 'partial',
         reason: lowStockSyncSkipped ? 'no-shopping-list' : undefined,
         inPossessionStatus: inPossessionResult.status,
+        inPossessionError: inPossessionResult.error,
         inPossessionSummary: inPossessionResult.summary,
         summary,
       };
@@ -420,6 +424,7 @@ export async function pollGrocyForMissingStock(
         status: 'skipped',
         reason: 'no-shopping-list',
         inPossessionStatus: inPossessionResult.status,
+        inPossessionError: inPossessionResult.error,
         inPossessionSummary: inPossessionResult.summary,
         summary,
       };
@@ -428,6 +433,7 @@ export async function pollGrocyForMissingStock(
     return {
       status: 'ok',
       inPossessionStatus: inPossessionResult.status,
+      inPossessionError: inPossessionResult.error,
       inPossessionSummary: inPossessionResult.summary,
       summary,
     };
