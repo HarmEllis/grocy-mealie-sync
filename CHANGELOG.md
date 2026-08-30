@@ -2,6 +2,30 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.16.0] - 2026-08-30
+
+This minor release makes the Mapping Wizard usable on a large catalogue. Bulk actions now handle a selection of any size instead of failing above 500 items, the page no longer runs out of memory with thousands of products, editing a row is roughly twice as fast, and the unit column only offers units a mapping can actually store.
+
+### Fixed
+
+- The Mapping Wizard no longer crashes the browser tab with "Uncaught out of memory" on a large catalogue (#46). The Products tab rebuilt a 5000-entry array once per option per row, and every mapping tab mounted a combobox for every filtered row. The tabs now render a bounded window of 50 rows, and the rows share one option array instead of each keeping a filtered copy.
+- Bulk actions complete for a selection of any size. The client posted every checked id in one request, which the server rejects above 500 ids, so a 5000-item create failed with HTTP 400 before doing any work. Work is now dispatched in sequential chunks with a progress counter on the button, such as `Creating... 400/5000`.
+- Partial failures are reported instead of counted as success. The bulk routes returned a `failed` count that the client dropped, and `products/create` now returns per-item outcomes.
+- `products/sync` skips and reports conflicting entries instead of rejecting the whole batch. Under chunking one stale duplicate discarded up to 499 valid mappings, and a second duplicate group reached the unique index mid-loop and failed after partial writes.
+- A chunk that arrives during a scheduler cycle waits for the sync lock and is reported as `409 SYNC_LOCKED`, so it can be retried. It previously surfaced as a bare 500, which no client could act on.
+- Orphan deletion is submitted as a single request again. The guard that refuses to remove more than half the Grocy catalogue runs per request against the current total, so splitting the ids let every chunk pass while the set as a whole blew through the limit, and the denominator shrank with each chunk that succeeded.
+- The Products tab and the Grocy min-stock tab no longer offer units a product mapping cannot store. A mapping keeps its unit as a `unitMappingId`, so an unmapped Grocy unit was silently discarded on save and the Mapped Products tab hid the loss by falling back to the product's purchase unit. Both tabs now offer the same mapped-only list as "Default unit for new products", and the prefill skips a purchase unit that cannot be stored.
+- The auto-create prompt can appear again. The action's `finally` closed the confirmation it had just opened.
+
+### Added
+
+- A "Grocy only" filter in the Units tab, listing Grocy units that no Mealie unit maps to. Checking them and using "Create Checked in Mealie" creates the missing Mealie unit and maps the pair. A Grocy unit whose name a Mealie unit already carries is reported as skipped, since it can be mapped from the regular list.
+
+### Changed
+
+- Editing in the Mapping Wizard is roughly twice as fast. Every state change re-rendered all ~100 comboboxes on the page, each redoing work proportional to the full option list. Measured on a production build with 5000 Mealie foods and 5000 Grocy products: ticking a checkbox went from 59ms to 26ms, picking a product from 207ms to 102ms.
+- The image workflow no longer asks for the `latest` tag twice. The `latest=auto` flavor already derives it from the first semver entry, so every stable release published a tag list carrying `latest` twice. Pre-releases still never move a floating tag.
+
 ## [1.15.0] - 2026-08-29
 
 This minor release keeps the sync working — and honest about it — when Grocy returns a malformed response, and stops a normal backlog of unmapped products from reading as a permanent failure. It also adds pre-release builds so changes can be tested on real data before a release is final.
@@ -346,6 +370,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.16.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.15.0...v1.16.0
 [1.15.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.14.2...v1.15.0
 [1.14.2]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.14.1...v1.14.2
 [1.14.1]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.14.0...v1.14.1
