@@ -4,6 +4,16 @@ export interface MealieFood { id: string; name: string }
 export interface MealieUnit { id: string; name: string; abbreviation: string }
 export interface GrocyProduct { id: number; name: string; quIdPurchase: number; minStockAmount: number }
 export interface GrocyUnit { id: number; name: string }
+/**
+ * A Grocy unit with no unit mapping. Such a unit cannot be stored on a product
+ * mapping — that column holds a `unitMappingId` — so it must never be offered
+ * as a product's unit. It is listed separately instead, with the Mealie unit
+ * that already carries its name when there is one: that unit is mappable from
+ * the normal list, so creating a second Mealie unit for it would be a duplicate.
+ */
+export interface UnmappedGrocyUnit extends GrocyUnit {
+  mealieCounterpartName: string | null;
+}
 export interface GrocyMinStockProduct {
   id: number;
   name: string;
@@ -52,6 +62,7 @@ export interface WizardData {
   unmappedMealieFoods: MealieFood[];
   mealieUnits: MealieUnit[];
   unmappedMealieUnits: MealieUnit[];
+  unmappedGrocyUnits: UnmappedGrocyUnit[];
   unmappedGrocyMinStockProducts: GrocyMinStockProduct[];
   grocyProducts: GrocyProduct[];
   grocyUnits: GrocyUnit[];
@@ -65,7 +76,13 @@ export interface WizardData {
 
 export type UnitsTabData = Pick<
   WizardData,
-  'mealieUnits' | 'unmappedMealieUnits' | 'grocyUnits' | 'existingUnitMappings' | 'unitSuggestions' | 'orphanGrocyUnitCount'
+  | 'mealieUnits'
+  | 'unmappedMealieUnits'
+  | 'unmappedGrocyUnits'
+  | 'grocyUnits'
+  | 'existingUnitMappings'
+  | 'unitSuggestions'
+  | 'orphanGrocyUnitCount'
 >;
 
 export type ProductsTabData = Pick<
@@ -83,7 +100,11 @@ export type ProductsTabData = Pick<
 
 export type GrocyMinStockTabData = Pick<
   WizardData,
-  'unmappedGrocyMinStockProducts' | 'grocyUnits' | 'unmappedMealieFoods' | 'lowStockGrocyProductSuggestions'
+  | 'unmappedGrocyMinStockProducts'
+  | 'grocyUnits'
+  | 'existingUnitMappings'
+  | 'unmappedMealieFoods'
+  | 'lowStockGrocyProductSuggestions'
 > & {
   minStockStep: MinStockStep;
   totalMinStockProducts: number;

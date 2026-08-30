@@ -197,6 +197,7 @@ async function configureRoutes(page) {
       body: JSON.stringify({
         mealieUnits: [],
         unmappedMealieUnits: [],
+        unmappedGrocyUnits: [],
         grocyUnits: [],
         existingUnitMappings: [],
         unitSuggestions: {},

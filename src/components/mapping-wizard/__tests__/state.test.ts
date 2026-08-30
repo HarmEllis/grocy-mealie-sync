@@ -5,11 +5,13 @@ import {
   buildProductMaps,
   buildUnitMaps,
   getPendingUnitMappings,
+  buildTakenTargetIds,
   getDefaultWizardTab,
   mergeCheckedState,
   mergeGrocyMinStockProductMaps,
   mergeProductMaps,
   mergeUnitMaps,
+  toMappedUnitOptions,
 } from '../state';
 
 function createWizardData(overrides: Partial<WizardData> = {}): WizardData {
@@ -34,6 +36,7 @@ function createWizardData(overrides: Partial<WizardData> = {}): WizardData {
       { id: 10, name: 'Piece' },
       { id: 11, name: 'Liter' },
     ],
+    unmappedGrocyUnits: [],
     unmappedGrocyMinStockProducts: [
       { id: 1, name: 'Milk', quIdPurchase: 10, minStockAmount: 1, currentStock: 0, isBelowMinimum: true },
     ],
@@ -243,5 +246,67 @@ describe('getPendingUnitMappings', () => {
       { mealieUnitId: 'unit-2', grocyUnitId: 12 },
       { mealieUnitId: 'unit-3', grocyUnitId: 13 },
     ]);
+  });
+});
+
+describe('buildTakenTargetIds', () => {
+  it('collects assigned target ids and skips unassigned drafts', () => {
+    const taken = buildTakenTargetIds(
+      {
+        a: { mealieFoodId: 'a', grocyProductId: 1, grocyUnitId: null },
+        b: { mealieFoodId: 'b', grocyProductId: null, grocyUnitId: null },
+        c: { mealieFoodId: 'c', grocyProductId: 7, grocyUnitId: null },
+      },
+      mapping => mapping.grocyProductId,
+    );
+
+    expect(taken).toEqual(new Set([1, 7]));
+  });
+
+  it('returns an empty set for an empty draft map', () => {
+    expect(buildTakenTargetIds({}, (m: { id: number | null }) => m.id).size).toBe(0);
+  });
+
+  it('deduplicates a target claimed twice', () => {
+    const taken = buildTakenTargetIds(
+      { a: { id: 4 }, b: { id: 4 } },
+      (mapping: { id: number | null }) => mapping.id,
+    );
+
+    expect(taken).toEqual(new Set([4]));
+  });
+
+  it('supports string target ids (reverse min-stock direction)', () => {
+    const taken = buildTakenTargetIds(
+      {
+        '10': { grocyProductId: 10, mealieFoodId: 'food-a', grocyUnitId: null },
+        '11': { grocyProductId: 11, mealieFoodId: null, grocyUnitId: null },
+      },
+      mapping => mapping.mealieFoodId,
+    );
+
+    expect(taken).toEqual(new Set(['food-a']));
+  });
+});
+
+describe('toMappedUnitOptions', () => {
+  const mapping = (grocyUnitId: number, grocyUnitName: string) => ({
+    id: `map-${grocyUnitId}`,
+    mealieUnitId: `unit-${grocyUnitId}`,
+    mealieUnitName: grocyUnitName,
+    mealieUnitAbbreviation: '',
+    grocyUnitId,
+    grocyUnitName,
+  });
+
+  it('offers the Grocy unit of every mapping, sorted by name', () => {
+    expect(toMappedUnitOptions([mapping(11, 'Liter'), mapping(10, 'Bak')])).toEqual([
+      { value: 10, label: 'Bak' },
+      { value: 11, label: 'Liter' },
+    ]);
+  });
+
+  it('offers nothing when no unit is mapped, so no unmappable unit can be picked', () => {
+    expect(toMappedUnitOptions([])).toEqual([]);
   });
 });

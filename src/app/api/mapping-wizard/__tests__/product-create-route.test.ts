@@ -104,12 +104,41 @@ describe('mapping wizard product create route', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ created: 1, skipped: 1 });
+    expect(body).toEqual({
+      created: 1,
+      skipped: 1,
+      failed: 0,
+      items: [
+        { id: 'food-1', status: 'created' },
+        { id: 'food-2', status: 'skipped' },
+      ],
+    });
     expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
       trigger: 'manual',
       action: 'mapping_product_create',
       status: 'success',
     }));
+  });
+
+  it('returns 409 with a machine-readable code when the sync lock stays held', async () => {
+    mockState.acquireSyncLock.mockReturnValue(false);
+    vi.useFakeTimers();
+
+    const pending = POST(new Request('http://localhost/api/mapping-wizard/products/create', {
+      method: 'POST',
+      body: JSON.stringify({ mealieFoodIds: ['food-1'], defaultGrocyUnitId: 3 }),
+    }));
+
+    // The route polls for the lock rather than failing instantly, so the
+    // deadline has to elapse before it gives up.
+    await vi.advanceTimersByTimeAsync(11_000);
+    const response = await pending;
+    vi.useRealTimers();
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    // The chunked client retries on this code, never on the message text.
+    expect(body.code).toBe('SYNC_LOCKED');
   });
 
   it('records partial history when one of the Grocy product creations fails', async () => {
@@ -133,7 +162,17 @@ describe('mapping wizard product create route', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ created: 1, skipped: 0 });
+    // `failed` used to be counted server-side and then dropped from the
+    // response, so the UI reported "Created 1 products" for a partial failure.
+    expect(body).toEqual({
+      created: 1,
+      skipped: 0,
+      failed: 1,
+      items: [
+        { id: 'food-1', status: 'created' },
+        { id: 'food-2', status: 'failed', error: 'Grocy unavailable' },
+      ],
+    });
     expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
       action: 'mapping_product_create',
       status: 'partial',

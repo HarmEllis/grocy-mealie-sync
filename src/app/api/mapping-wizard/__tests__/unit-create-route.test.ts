@@ -90,7 +90,7 @@ describe('mapping wizard unit create route', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ created: 1, skipped: 1 });
+    expect(body).toEqual({ created: 1, skipped: 1, failed: 0 });
     expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
       trigger: 'manual',
       action: 'mapping_unit_create',
@@ -116,7 +116,7 @@ describe('mapping wizard unit create route', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ created: 1, skipped: 0 });
+    expect(body).toEqual({ created: 1, skipped: 0, failed: 1 });
     expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
       action: 'mapping_unit_create',
       status: 'partial',

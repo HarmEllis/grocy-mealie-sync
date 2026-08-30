@@ -8,7 +8,8 @@ import { log } from '@/lib/logger';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { unitSyncRequestSchema } from '@/lib/validation';
-import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
+import { defaultSyncLockDeps, runWithSyncLock } from '@/lib/use-cases/shared/sync-lock';
+import { mappingWizardErrorResponse } from '../../helpers';
 import {
   findDuplicateGrocyUnitAssignment,
   findUnitMappingConflict,
@@ -17,12 +18,17 @@ import {
 import { buildManualHistoryEvent, createManualHistoryRecorder, formatManualActionError } from '@/lib/manual-action-history';
 
 export async function POST(request: Request) {
-  if (!acquireSyncLock()) {
-    return NextResponse.json(
-      { error: 'A sync operation is already in progress. Please try again.' },
-      { status: 409 },
-    );
+  try {
+    // Poll for the lock rather than failing instantly: a chunked bulk run
+    // sends many sequential requests and one arriving mid-scheduler-cycle
+    // should wait instead of aborting the whole run.
+    return await runWithSyncLock(defaultSyncLockDeps, () => syncUnits(request), { maxWaitMs: 10_000 });
+  } catch (error) {
+    return mappingWizardErrorResponse(error);
   }
+}
+
+async function syncUnits(request: Request) {
 
   const history = createManualHistoryRecorder(
     'mapping_unit_sync',
@@ -161,7 +167,7 @@ export async function POST(request: Request) {
         }),
       ],
     });
-    return NextResponse.json({ synced, renamed });
+    return NextResponse.json({ synced, renamed, renameFailed });
   } catch (error) {
     await history.recordFailure({
       logMessage: '[MappingWizard] Unit sync failed:',
@@ -180,7 +186,5 @@ export async function POST(request: Request) {
       ],
     });
     return NextResponse.json({ error: 'Unit sync failed' }, { status: 500 });
-  } finally {
-    releaseSyncLock();
   }
 }

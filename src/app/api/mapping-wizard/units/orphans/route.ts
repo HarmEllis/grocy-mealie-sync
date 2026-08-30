@@ -8,7 +8,8 @@ import { extractUnits } from '@/lib/mealie/types';
 import type { MealieUnit } from '@/lib/mealie/types';
 import { log } from '@/lib/logger';
 import { orphanDeleteRequestSchema } from '@/lib/validation';
-import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
+import { defaultSyncLockDeps, runWithSyncLock } from '@/lib/use-cases/shared/sync-lock';
+import { mappingWizardErrorResponse } from '../../helpers';
 import { buildManualHistoryEvent, createManualHistoryRecorder, formatManualActionError } from '@/lib/manual-action-history';
 
 /** GET: List orphan units (Grocy units with no Mealie counterpart) */
@@ -48,12 +49,17 @@ export async function GET() {
 
 /** POST: Delete specified orphan units with confirmation */
 export async function POST(request: Request) {
-  if (!acquireSyncLock()) {
-    return NextResponse.json(
-      { error: 'A sync operation is already in progress. Please try again.' },
-      { status: 409 },
-    );
+  try {
+    // Poll for the lock rather than failing instantly: a chunked bulk run
+    // sends many sequential requests and one arriving mid-scheduler-cycle
+    // should wait instead of aborting the whole run.
+    return await runWithSyncLock(defaultSyncLockDeps, () => deleteOrphanUnits(request), { maxWaitMs: 10_000 });
+  } catch (error) {
+    return mappingWizardErrorResponse(error);
   }
+}
+
+async function deleteOrphanUnits(request: Request) {
 
   const history = createManualHistoryRecorder(
     'mapping_unit_delete_orphans',
@@ -179,7 +185,7 @@ export async function POST(request: Request) {
         }),
       ],
     });
-    return NextResponse.json({ deleted, total: validIds.length });
+    return NextResponse.json({ deleted, total: validIds.length, failed });
   } catch (error) {
     await history.recordFailure({
       logMessage: '[MappingWizard] Orphan unit deletion failed:',
@@ -198,7 +204,5 @@ export async function POST(request: Request) {
       ],
     });
     return NextResponse.json({ error: 'Orphan unit deletion failed' }, { status: 500 });
-  } finally {
-    releaseSyncLock();
   }
 }

@@ -8,17 +8,22 @@ import { log } from '@/lib/logger';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { productCreateRequestSchema } from '@/lib/validation';
-import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
+import { defaultSyncLockDeps, runWithSyncLock } from '@/lib/use-cases/shared/sync-lock';
+import { mappingWizardErrorResponse } from '../../helpers';
 import { buildManualHistoryEvent, createManualHistoryRecorder, formatManualActionError } from '@/lib/manual-action-history';
 
 export async function POST(request: Request) {
-  if (!acquireSyncLock()) {
-    return NextResponse.json(
-      { error: 'A sync operation is already in progress. Please try again.' },
-      { status: 409 },
-    );
+  try {
+    // Poll for the lock instead of failing instantly: a chunked bulk run sends
+    // many sequential requests, and one arriving mid-scheduler-cycle should
+    // wait rather than abort the whole run.
+    return await runWithSyncLock(defaultSyncLockDeps, () => createProducts(request), { maxWaitMs: 10_000 });
+  } catch (error) {
+    return mappingWizardErrorResponse(error);
   }
+}
 
+async function createProducts(request: Request) {
   const history = createManualHistoryRecorder(
     'mapping_product_create',
     '[History] Failed to record product creation:',
@@ -48,7 +53,7 @@ export async function POST(request: Request) {
     const mealieFoodsRes = await RecipesFoodsService.getAllApiFoodsGet(
       undefined, undefined, undefined, undefined, undefined, undefined, 1, 10000,
     );
-    const mealieFoods = extractFoods(mealieFoodsRes);
+    const mealieFoodsById = new Map(extractFoods(mealieFoodsRes).map(food => [food.id, food]));
 
     // Find unit mapping for the default unit
     const allUnitMappings = await db.select().from(unitMappings);
@@ -73,18 +78,26 @@ export async function POST(request: Request) {
     const existingMappings = await db.select().from(productMappings);
     const mappedMealieFoodIds = new Set(existingMappings.map(m => m.mealieFoodId));
 
+    const unitMappingByGrocyUnitId = new Map(allUnitMappings.map(mapping => [mapping.grocyUnitId, mapping]));
+
     let created = 0;
     let skipped = 0;
     let failed = 0;
+    const items: Array<{ id: string; status: 'created' | 'skipped' | 'failed'; error?: string }> = [];
 
     for (const mealieFoodId of mealieFoodIds) {
       if (mappedMealieFoodIds.has(mealieFoodId)) {
         skipped++;
+        items.push({ id: mealieFoodId, status: 'skipped' });
         continue;
       }
 
-      const mFood = mealieFoods.find(f => f.id === mealieFoodId);
-      if (!mFood) continue;
+      const mFood = mealieFoodsById.get(mealieFoodId);
+      if (!mFood) {
+        skipped++;
+        items.push({ id: mealieFoodId, status: 'skipped', error: 'Mealie food no longer exists' });
+        continue;
+      }
 
       const name = mFood.name || 'Unknown';
       const grocyUnitId = unitOverrides?.[mealieFoodId] ?? defaultGrocyUnitId;
@@ -98,7 +111,7 @@ export async function POST(request: Request) {
           location_id: locationId,
         });
 
-        const perUnitMapping = allUnitMappings.find(u => u.grocyUnitId === grocyUnitId);
+        const perUnitMapping = unitMappingByGrocyUnitId.get(grocyUnitId);
 
         await db.insert(productMappings).values({
           id: randomUUID(),
@@ -111,9 +124,14 @@ export async function POST(request: Request) {
           updatedAt: new Date(),
         });
 
+        // Claim the id inside this request too, so a duplicate id in one
+        // payload cannot create the same product twice.
+        mappedMealieFoodIds.add(mealieFoodId);
         created++;
+        items.push({ id: mealieFoodId, status: 'created' });
       } catch (e) {
         failed++;
+        items.push({ id: mealieFoodId, status: 'failed', error: e instanceof Error ? e.message : String(e) });
         log.error(`[MappingWizard] Failed to create Grocy product "${name}":`, e);
       }
     }
@@ -146,7 +164,7 @@ export async function POST(request: Request) {
         }),
       ],
     });
-    return NextResponse.json({ created, skipped });
+    return NextResponse.json({ created, skipped, failed, items });
   } catch (error) {
     await history.recordFailure({
       logMessage: '[MappingWizard] Product creation failed:',
@@ -165,7 +183,5 @@ export async function POST(request: Request) {
       ],
     });
     return NextResponse.json({ error: 'Product creation failed' }, { status: 500 });
-  } finally {
-    releaseSyncLock();
   }
 }

@@ -18,6 +18,7 @@ import type {
   ProductsTabData,
   UnitMappingRef,
   UnitsTabData,
+  UnmappedGrocyUnit,
   WizardData,
 } from '@/components/mapping-wizard/types';
 
@@ -372,6 +373,32 @@ function countOrphanGrocyProducts(
   ).length;
 }
 
+/**
+ * Grocy units that no unit mapping points at.
+ *
+ * A product mapping stores its unit as a `unitMappingId`, so one of these can
+ * never be persisted as a product's unit. They used to be offered in the
+ * Products tab's unit column all the same, where picking one was silently
+ * discarded on sync. They are surfaced here instead, so the wizard can show
+ * them and offer to create the missing Mealie counterpart.
+ */
+function buildUnmappedGrocyUnits(
+  mealieUnits: MealieUnit[],
+  grocyUnits: GrocyUnit[],
+  existingUnitMappings: UnitMappingRow[],
+): UnmappedGrocyUnit[] {
+  const mappedGrocyUnitIds = new Set(existingUnitMappings.map(mapping => mapping.grocyUnitId));
+  const mealieUnitNamesByLowerName = new Map(mealieUnits.map(unit => [unit.name.toLowerCase(), unit.name]));
+
+  return grocyUnits
+    .filter(unit => !mappedGrocyUnitIds.has(unit.id))
+    .map(unit => ({
+      id: unit.id,
+      name: unit.name,
+      mealieCounterpartName: mealieUnitNamesByLowerName.get(unit.name.toLowerCase()) ?? null,
+    }));
+}
+
 function countOrphanGrocyUnits(
   mealieUnits: MealieUnit[],
   grocyUnits: GrocyUnit[],
@@ -401,6 +428,7 @@ async function loadUnitsTabData(): Promise<UnitsTabData> {
   return {
     mealieUnits: toPublicMealieUnits(mealieUnits),
     unmappedMealieUnits: toPublicMealieUnits(unmappedMealieUnits),
+    unmappedGrocyUnits: buildUnmappedGrocyUnits(mealieUnits, grocyUnits, activeUnitMappings),
     grocyUnits: toPublicGrocyUnits(grocyUnits),
     existingUnitMappings: activeUnitMappings,
     unitSuggestions: buildUnitSuggestions(unmappedMealieUnits, grocyUnits, activeUnitMappings),
@@ -440,15 +468,18 @@ async function loadProductsTabData(): Promise<ProductsTabData> {
 }
 
 async function loadGrocyMinStockTabData(): Promise<GrocyMinStockTabData> {
-  const [mealieFoods, grocyProducts, grocyUnits, existingProductMappings, stockByProductId, missingProductIds, minStockStep] = await Promise.all([
+  const [mealieFoods, mealieUnits, grocyProducts, grocyUnits, existingProductMappings, existingUnitMappings, stockByProductId, missingProductIds, minStockStep] = await Promise.all([
     fetchMealieFoods(),
+    fetchMealieUnits(),
     fetchGrocyProducts(),
     fetchGrocyUnits(),
     fetchExistingProductMappings(),
+    fetchExistingUnitMappings(),
     fetchGrocyCurrentStockByProductId(),
     fetchGrocyMissingProductIds(),
     resolveMappingWizardMinStockStep(),
   ]);
+  const activeUnitMappings = filterActiveUnitMappings(existingUnitMappings, mealieUnits, grocyUnits);
 
   const unmappedMealieFoods = buildUnmappedMealieFoods(mealieFoods, existingProductMappings);
   const unmappedGrocyMinStockProducts = buildUnmappedGrocyMinStockProducts(
@@ -470,6 +501,7 @@ async function loadGrocyMinStockTabData(): Promise<GrocyMinStockTabData> {
     urgentUnmappedMinStockProducts,
     unmappedMealieFoods: toPublicMealieFoods(unmappedMealieFoods),
     grocyUnits: toPublicGrocyUnits(grocyUnits),
+    existingUnitMappings: activeUnitMappings,
     unmappedGrocyMinStockProducts,
     lowStockGrocyProductSuggestions: buildLowStockGrocyProductSuggestions(
       unmappedGrocyMinStockProducts,
@@ -505,6 +537,7 @@ async function loadFullWizardData(): Promise<WizardData> {
     unmappedMealieFoods: toPublicMealieFoods(unmappedMealieFoods),
     mealieUnits: toPublicMealieUnits(mealieUnits),
     unmappedMealieUnits: toPublicMealieUnits(unmappedMealieUnits),
+    unmappedGrocyUnits: buildUnmappedGrocyUnits(mealieUnits, grocyUnits, activeUnitMappings),
     unmappedGrocyMinStockProducts,
     grocyProducts,
     grocyUnits: toPublicGrocyUnits(grocyUnits),
