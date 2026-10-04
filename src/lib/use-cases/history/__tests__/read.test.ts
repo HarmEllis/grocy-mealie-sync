@@ -60,6 +60,7 @@ describe('history read use-cases', () => {
             {
               id: 'event-1',
               runId: 'run-1',
+              kind: 'mutation' as const, productName: null, source: null, target: null, reason: null,
               level: 'info' as const,
               category: 'mapping' as const,
               entityKind: 'product' as const,
@@ -89,6 +90,7 @@ describe('history read use-cases', () => {
         {
           id: 'event-1',
           runId: 'run-1',
+          kind: 'mutation', productName: null, source: null, target: null, reason: null,
           level: 'info',
           category: 'mapping',
           entityKind: 'product',

@@ -29,6 +29,8 @@ let started = false;
 let schedulerLockHeld = false;
 let startupLockBlocked = false;
 let nextCleanupRun: Date | null = null;
+type ReportedHistoryIssues = Map<SchedulerStepName, Map<string, Map<string, number>>>;
+let reportedHistoryIssues: ReportedHistoryIssues = new Map();
 
 export type SchedulerRuntimeStatus = 'active' | 'passive_startup_lock' | 'inactive';
 
@@ -137,6 +139,44 @@ function formatSchedulerCycleHistoryMessage(
   return messageParts.join(' ');
 }
 
+function filterRepeatedHistoryIssues(
+  step: SchedulerStepName,
+  status: SchedulerStepStatus,
+  events: HistoryEventInput[],
+  reported: ReportedHistoryIssues,
+): HistoryEventInput[] {
+  const previous = reported.get(step) ?? new Map<string, Map<string, number>>();
+  const current = new Map<string, Map<string, number>>();
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const retentionMs = (config.historyRetentionDays ?? 7) * dayMs;
+  const reportIntervalMs = retentionMs > 0 ? Math.min(dayMs, retentionMs / 2) : dayMs;
+  const filtered = events.filter(event => {
+    if (event.kind !== 'issue') return true;
+    const key = JSON.stringify([
+      event.category, event.entityKind, event.entityRef, event.productName, event.source, event.target,
+    ]);
+    const error = (event.details as { error?: unknown } | null)?.error;
+    const fingerprint = JSON.stringify([
+      event.level, event.category, event.entityKind, event.entityRef, event.productName,
+      event.source, event.target, event.message, event.reason, error,
+    ]);
+    const lastReportedAt = previous.get(key)?.get(fingerprint);
+    const shouldReport = lastReportedAt === undefined || now - lastReportedAt >= reportIntervalMs;
+    const fingerprints = current.get(key) ?? new Map<string, number>();
+    fingerprints.set(fingerprint, shouldReport ? now : lastReportedAt);
+    current.set(key, fingerprints);
+    return shouldReport;
+  });
+  // A failed step may have stopped before checking previously failing products.
+  // Keep those issues until a completed check confirms recovery.
+  const aborted = status === 'failure' || events.some(event =>
+    event.kind === 'issue' && event.level === 'error' && !event.entityRef,
+  );
+  reported.set(step, aborted ? new Map([...previous, ...current]) : current);
+  return filtered;
+}
+
 async function runSchedulerCycle(
   cycleType: SchedulerCycleType,
   steps: SchedulerStepDefinition[],
@@ -144,6 +184,7 @@ async function runSchedulerCycle(
   const startedAt = new Date();
   const stepResults: SchedulerStepResult[] = [];
   const historyEvents: HistoryEventInput[] = [];
+  const pendingHistoryIssues = new Map(reportedHistoryIssues);
 
   for (const step of steps) {
     try {
@@ -156,6 +197,7 @@ async function runSchedulerCycle(
         summary: result?.summary,
       });
       historyEvents.push({
+        kind: 'diagnostic',
         level: getSchedulerStepEventLevel(status),
         category: getSchedulerStepCategory(step.name),
         entityKind: status === 'failure' ? 'system' : null,
@@ -163,9 +205,11 @@ async function runSchedulerCycle(
         message: `${getSchedulerStepLabel(step.name)} step ${status}.`,
         details: result?.summary ?? null,
       });
-      if (result?.events?.length) {
-        historyEvents.push(...prefixHistoryEvents(getSchedulerStepLabel(step.name), result.events));
-      }
+      historyEvents.push(...filterRepeatedHistoryIssues(
+        step.name, status,
+        prefixHistoryEvents(getSchedulerStepLabel(step.name), result?.events ?? []),
+        pendingHistoryIssues,
+      ));
     } catch (error) {
       const formattedError = formatSchedulerError(error);
       log.error(step.failureLogPrefix, error);
@@ -174,14 +218,15 @@ async function runSchedulerCycle(
         status: 'failure',
         error: formattedError,
       });
-      historyEvents.push({
+      historyEvents.push(...filterRepeatedHistoryIssues(step.name, 'failure', [{
+        kind: 'issue',
         level: 'error',
         category: getSchedulerStepCategory(step.name),
         entityKind: 'system',
         entityRef: step.name,
         message: `${getSchedulerStepLabel(step.name)} step failed.`,
         details: { error: formattedError },
-      });
+      }], pendingHistoryIssues));
     }
   }
 
@@ -196,7 +241,7 @@ async function runSchedulerCycle(
   await sendSchedulerNotifications(cycleSummary);
 
   try {
-    await recordHistoryRun({
+    if (historyEvents.some(event => event.kind === 'mutation' || event.kind === 'issue')) await recordHistoryRun({
       trigger: 'scheduler',
       action: 'scheduler_cycle',
       status: cycleSummary.status,
@@ -210,6 +255,8 @@ async function runSchedulerCycle(
       },
       events: historyEvents,
     });
+    // Only suppress retries after their history was successfully stored.
+    reportedHistoryIssues = pendingHistoryIssues;
   } catch (error) {
     log.warn('[Scheduler] Failed to record history:', error);
   }
@@ -374,6 +421,7 @@ function startTimers(): void {
 
 export function stopScheduler(): void {
   started = false;
+  reportedHistoryIssues.clear();
   startupLockBlocked = false;
   setSchedulerRuntimeStatus('inactive');
   if (pollTimer) {

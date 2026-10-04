@@ -1,4 +1,4 @@
-export const historyRunTriggers = ['scheduler', 'manual'] as const;
+export const historyRunTriggers = ['scheduler', 'manual', 'scanner'] as const;
 export type HistoryRunTrigger = (typeof historyRunTriggers)[number];
 
 export const historyRunActions = [
@@ -21,6 +21,7 @@ export const historyRunActions = [
   'product_update_basic',
   'product_update_stock_settings',
   'product_delete',
+  'product_link_barcode',
   'product_update_units',
   'mapping_unit_create',
   'mapping_unit_create_mealie',
@@ -60,6 +61,8 @@ export type HistoryRunAction = (typeof historyRunActions)[number];
 export const historyRunStatuses = ['success', 'partial', 'failure', 'skipped'] as const;
 export type HistoryRunStatus = (typeof historyRunStatuses)[number];
 export type HistoryEventLevel = 'info' | 'warning' | 'error';
+export type HistoryEventKind = 'mutation' | 'issue' | 'diagnostic';
+export type HistorySystem = 'Grocy' | 'Mealie' | 'Scanner' | 'App';
 export type HistoryEventCategory =
   | 'sync'
   | 'conflict'

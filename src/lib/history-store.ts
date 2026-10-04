@@ -3,6 +3,7 @@ import { and, asc, count, desc, eq, gte, inArray, like, lte, lt, or, type SQL } 
 import { config } from './config';
 import { db } from './db';
 import { historyEvents, historyRuns } from './db/schema';
+import { containsText } from './db/text-search';
 import {
   historyRunActions,
   historyRunStatuses,
@@ -13,6 +14,8 @@ import {
   type HistoryEventCategory,
   type HistoryEventEntityKind,
   type HistoryEventLevel,
+  type HistoryEventKind,
+  type HistorySystem,
   type HistoryRunAction,
   type HistoryRunStatus,
   type HistoryRunTrigger,
@@ -36,6 +39,12 @@ export type {
 };
 
 export interface HistoryEventInput {
+  kind?: HistoryEventKind;
+  productName?: string | null;
+  source?: HistorySystem | null;
+  target?: HistorySystem | null;
+  reason?: string | null;
+  createdAt?: Date;
   level: HistoryEventLevel;
   category: HistoryEventCategory;
   entityKind?: HistoryEventEntityKind;
@@ -69,6 +78,11 @@ export interface HistoryRunRecord {
 }
 
 export interface HistoryEventRecord {
+  kind: HistoryEventKind;
+  productName: string | null;
+  source: HistorySystem | null;
+  target: HistorySystem | null;
+  reason: string | null;
   id: string;
   runId: string;
   level: HistoryEventLevel;
@@ -148,6 +162,11 @@ function mapRunRow(row: {
 }
 
 function mapEventRow(row: {
+  kind: string;
+  productName: string | null;
+  source: string | null;
+  target: string | null;
+  reason: string | null;
   id: string;
   runId: string;
   level: string;
@@ -159,6 +178,11 @@ function mapEventRow(row: {
   createdAt: Date;
 }): HistoryEventRecord {
   return {
+    kind: row.kind as HistoryEventKind,
+    productName: row.productName,
+    source: row.source as HistorySystem | null,
+    target: row.target as HistorySystem | null,
+    reason: row.reason,
     id: row.id,
     runId: row.runId,
     level: row.level as HistoryEventLevel,
@@ -314,12 +338,17 @@ export async function recordHistoryRun(input: RecordHistoryRunInput): Promise<st
         id: randomUUID(),
         runId,
         level: event.level,
+        kind: event.kind ?? inferEventKind(input, event),
+        productName: event.productName ?? inferProductName(event),
+        source: event.source ?? (input.trigger === 'scanner' ? 'Scanner' : input.trigger === 'manual' ? 'App' : null),
+        target: event.target ?? (event.category === 'inventory' ? 'Grocy' : event.category === 'shopping' ? 'Mealie' : null),
+        reason: event.reason ?? (input.trigger === 'manual' ? 'Manual action.' : null),
         category: event.category,
         entityKind: event.entityKind ?? null,
         entityRef: event.entityRef ?? null,
         message: event.message,
         detailsJson: serializeJsonValue(event.details),
-        createdAt: input.finishedAt,
+        createdAt: event.createdAt ?? input.finishedAt,
       }))).run();
     }
   });
@@ -412,6 +441,11 @@ export async function getHistoryRunDetails(runId: string): Promise<HistoryRunDet
   }
 
   const eventRows = db.select({
+    kind: historyEvents.kind,
+    productName: historyEvents.productName,
+    source: historyEvents.source,
+    target: historyEvents.target,
+    reason: historyEvents.reason,
     id: historyEvents.id,
     runId: historyEvents.runId,
     level: historyEvents.level,
@@ -437,4 +471,65 @@ export async function getHistoryRunDetails(runId: string): Promise<HistoryRunDet
     }),
     events,
   };
+}
+
+function inferEventKind(run: RecordHistoryRunInput, event: HistoryEventInput): HistoryEventKind {
+  if (run.status === 'skipped') return 'diagnostic';
+  if (event.level !== 'info') return 'issue';
+  if (run.trigger !== 'scheduler' && run.action !== 'product_sync' && event.category !== 'sync') return 'mutation';
+  return 'diagnostic';
+}
+
+function inferProductName(event: HistoryEventInput): string | null {
+  if (!['product', 'shopping_item', 'stock_entry'].includes(event.entityKind ?? '') || !event.details || typeof event.details !== 'object') return null;
+  const details = event.details as Record<string, unknown>;
+  for (const key of ['grocyProductName', 'mealieFoodName', 'productName', 'foodName', 'name']) {
+    if (typeof details[key] === 'string' && details[key]) return details[key];
+  }
+  return null;
+}
+
+export interface HistoryActivityRecord extends HistoryEventRecord {
+  trigger: HistoryRunTrigger;
+  action: HistoryRunAction;
+  status: HistoryRunStatus;
+}
+
+export interface HistoryActivityFilters extends HistoryRunListFilters {
+  kind?: 'mutation' | 'issue' | null;
+  offset?: number;
+}
+
+/** Filter events before limiting: quiet cycles never crowd out product activity. */
+export async function listHistoryActivity(limit = 50, filters: HistoryActivityFilters = {}): Promise<HistoryActivityRecord[]> {
+  if (!config.historyEnabled) return [];
+  const clauses: SQL<unknown>[] = [inArray(historyEvents.kind, filters.kind ? [filters.kind] : ['mutation', 'issue'])];
+  const search = filters.search?.trim();
+  if (search) {
+    clauses.push(containsText([historyEvents.productName, historyEvents.message, historyEvents.entityRef, historyEvents.reason, historyEvents.detailsJson], search));
+  }
+  if (filters.action) clauses.push(eq(historyRuns.action, filters.action));
+  if (filters.trigger) clauses.push(eq(historyRuns.trigger, filters.trigger));
+  if (filters.status) clauses.push(eq(historyRuns.status, filters.status));
+  if (filters.dateFrom) clauses.push(gte(historyEvents.createdAt, filters.dateFrom));
+  if (filters.dateTo) clauses.push(lte(historyEvents.createdAt, filters.dateTo));
+  const cutoff = getRetentionCutoff(new Date());
+  if (cutoff !== null) clauses.push(gte(historyRuns.finishedAt, new Date(cutoff)));
+  const rows = db.select({
+    id: historyEvents.id, runId: historyEvents.runId, level: historyEvents.level,
+    kind: historyEvents.kind, productName: historyEvents.productName,
+    source: historyEvents.source, target: historyEvents.target, reason: historyEvents.reason,
+    category: historyEvents.category, entityKind: historyEvents.entityKind,
+    entityRef: historyEvents.entityRef, message: historyEvents.message,
+    detailsJson: historyEvents.detailsJson, createdAt: historyEvents.createdAt,
+    trigger: historyRuns.trigger, action: historyRuns.action, status: historyRuns.status,
+  }).from(historyEvents).innerJoin(historyRuns, eq(historyRuns.id, historyEvents.runId))
+    .where(and(...clauses))
+    .orderBy(desc(historyEvents.createdAt), desc(historyEvents.id))
+    .limit(Math.min(Math.max(limit, 1), 101))
+    .offset(Math.max(filters.offset ?? 0, 0)).all();
+  return rows.map(row => ({
+    ...mapEventRow(row), trigger: row.trigger as HistoryRunTrigger,
+    action: row.action as HistoryRunAction, status: row.status as HistoryRunStatus,
+  }));
 }

@@ -1,282 +1,41 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react';
 import { AppCard } from '@/components/redesign/primitives';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { buttonVariants } from '@/components/ui/button-styles';
-import { config } from '@/lib/config';
-import { formatDateTime } from '@/lib/date-time';
-import {
-  formatHistoryActionLabel,
-  formatSchedulerStepNameLabel,
-  formatHistoryTriggerLabel,
-  getVisibleHistoryEvents,
-  normalizeHistoryEventMessage,
-} from '@/lib/history-events';
+import { formatHistoryActionLabel, formatHistoryTriggerLabel } from '@/lib/history-events';
 import { getHistoryFeatureState, getHistoryRunDetails } from '@/lib/history-store';
 import { HistoryDisabledState, HistoryStatusBadge, JsonBlock } from '@/components/history/HistoryShared';
-
-interface HistoryDetailPageProps {
-  params: Promise<{
-    runId: string;
-  }>;
-}
-
-interface SchedulerStepSummary {
-  name: 'product_sync' | 'mealie_to_grocy' | 'grocy_to_mealie' | 'conflict_check';
-  status: 'success' | 'partial' | 'failure' | 'skipped';
-  error?: string;
-}
-
-function formatDurationMs(durationMs: number): string {
-  if (durationMs < 1000) {
-    return `${durationMs} ms`;
-  }
-
-  const totalSeconds = Math.round(durationMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-
-  if (minutes === 0) {
-    return `${seconds}s`;
-  }
-
-  return `${minutes}m ${seconds}s`;
-}
+import { HistoryActivityCard } from '@/components/history/HistoryActivityCard';
+import { PageHeader } from '@/components/layout/PageHeader';
 
 export const dynamic = 'force-dynamic';
 
-export default async function HistoryDetailPage({ params }: HistoryDetailPageProps) {
-  const historyState = getHistoryFeatureState();
-
-  if (!historyState.enabled) {
-    return <HistoryDisabledState />;
-  }
-
+export default async function HistoryDetailPage({ params }: { params: Promise<{ runId: string }> }) {
+  if (!getHistoryFeatureState().enabled) return <HistoryDisabledState />;
   const { runId } = await params;
   const details = await getHistoryRunDetails(runId);
-
-  if (!details) {
-    notFound();
-  }
-
-  const durationMs = details.run.finishedAt.getTime() - details.run.startedAt.getTime();
-  const visibleEvents = getVisibleHistoryEvents(details.events);
-  const hiddenEventCount = details.events.length - visibleEvents.length;
-  const schedulerSteps = getSchedulerSteps(details.run.summary);
+  if (!details) notFound();
+  const activity = details.events.filter(event => event.kind !== 'diagnostic');
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-text-1">{formatHistoryActionLabel(details.run.action)}</h1>
-          <p className="mt-1 font-mono text-xs text-text-3">{details.run.id}</p>
-        </div>
-
-        <Link href="/history" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-          <ArrowLeft className="size-4" />
-          Back to history
-        </Link>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <PageHeader title="Related changes" subtitle={`${formatHistoryActionLabel(details.run.action)} · ${formatHistoryTriggerLabel(details.run.trigger)}`} />
+        <Link href="/history" className={buttonVariants({ variant: 'outline', size: 'sm' })}>Back to history</Link>
       </div>
-
-      <AppCard>
-        <h2 className="text-base font-bold tracking-tight">Run summary</h2>
-        <p className="mt-1 text-sm text-text-2">{details.run.message ?? 'No summary message recorded.'}</p>
-
-        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <SummaryItem label="Action" value={formatHistoryActionLabel(details.run.action)} />
-          <SummaryItem label="Trigger" value={formatHistoryTriggerLabel(details.run.trigger)} />
-          <SummaryItem label="Status" value={<HistoryStatusBadge status={details.run.status} />} />
-          <SummaryItem label="Duration" value={formatDurationMs(durationMs)} mono />
-          <SummaryItem
-            label="Started"
-            value={formatDateTime(details.run.startedAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}
-            mono
-          />
-          <SummaryItem
-            label="Finished"
-            value={formatDateTime(details.run.finishedAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}
-            mono
-          />
+      <AppCard className="p-0">
+        {activity.length ? activity.map(event => (
+          <HistoryActivityCard key={event.id} event={event} trigger={details.run.trigger} showRunLink={false} />
+        )) : <p className="px-5 py-6 text-sm text-text-3">This older entry contains only a run summary. Product-level changes were not recorded.</p>}
+      </AppCard>
+      <details className="rounded-lg border border-border bg-bg-1 p-4 text-sm">
+        <summary className="cursor-pointer font-semibold text-text-2">Run diagnostics</summary>
+        <div className="mt-4 space-y-3">
+          <HistoryStatusBadge status={details.run.status} />
+          <p className="text-text-2">{details.run.message}</p>
+          <JsonBlock value={{ run: details.run, events: details.events }} />
         </div>
-      </AppCard>
-
-      {schedulerSteps.length > 0 ? (
-        <AppCard>
-          <h2 className="text-base font-bold tracking-tight">Scheduler steps</h2>
-          <p className="mb-3 text-sm text-text-2">Per-step result for this scheduler cycle.</p>
-
-          <div className="flex flex-wrap items-stretch gap-2">
-            {schedulerSteps.map((step, index) => {
-              const success = step.status === 'success' || step.status === 'partial';
-
-              return (
-                <div key={step.name} className="contents">
-                  <div className="min-w-[220px] flex-1 rounded-lg border border-success/25 bg-success/8 p-3">
-                    <div className="mb-1 flex items-center gap-2">
-                      <span className="inline-flex size-5 items-center justify-center rounded-full bg-success/20 text-xs">
-                        {success ? '✓' : '!'}
-                      </span>
-                      <span className="text-sm font-semibold text-text-1">{formatSchedulerStepNameLabel(step.name)}</span>
-                    </div>
-                    <HistoryStatusBadge status={step.status} />
-                    <p className="mt-1 text-xs text-text-3">{step.error ?? 'No error'}</p>
-                  </div>
-                  {index < schedulerSteps.length - 1 ? (
-                    <span className="hidden self-center px-0.5 text-text-3 md:inline">→</span>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        </AppCard>
-      ) : null}
-
-      <AppCard>
-        <h2 className="text-base font-bold tracking-tight">Summary data</h2>
-        <p className="mt-1 text-sm text-text-2">Stored run payload for auditing and debugging.</p>
-
-        <details className="mt-3 rounded-md border border-border bg-bg-2 p-2">
-          <summary className="cursor-pointer text-xs font-semibold">View summary payload</summary>
-          <div className="mt-2">
-            <JsonBlock value={details.run.summary} />
-          </div>
-        </details>
-      </AppCard>
-
-      <AppCard className="overflow-hidden p-0">
-        <div className="border-b border-border px-4 py-3">
-          <h2 className="text-base font-bold tracking-tight">Events</h2>
-          <p className="text-sm text-text-2">
-            {visibleEvents.length} event{visibleEvents.length === 1 ? '' : 's'} shown
-            {hiddenEventCount > 0 ? ` (${hiddenEventCount} generic step entries hidden)` : ''}.
-          </p>
-        </div>
-
-        {visibleEvents.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-muted-foreground">No detail events were recorded for this run.</p>
-        ) : (
-          <>
-            <div className="space-y-3 p-3 md:hidden">
-              {visibleEvents.map(event => (
-                <div key={event.id} className="rounded-lg border border-border bg-bg-1 p-3">
-                  <div className="mb-2 flex items-start justify-between gap-2">
-                    <p className="text-sm font-semibold text-text-1">{event.category}</p>
-                    <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-semibold uppercase text-muted-foreground">
-                      {event.level}
-                    </span>
-                  </div>
-                  <p className="mb-2 font-mono text-xs text-text-3">
-                    {formatDateTime(event.createdAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}
-                  </p>
-                  <p className="mb-3 text-sm text-text-2">{normalizeHistoryEventMessage(event.message)}</p>
-                  <div className="text-sm">
-                    {event.details === null ? (
-                      <span className="text-xs text-muted-foreground">No details</span>
-                    ) : (
-                      <details className="rounded-md border border-border bg-bg-2 p-2">
-                        <summary className="cursor-pointer text-xs font-semibold">View payload</summary>
-                        <div className="mt-2">
-                          <JsonBlock value={event.details} />
-                        </div>
-                      </details>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="hidden md:block">
-              <Table className="min-w-[1040px]">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Time</TableHead>
-                    <TableHead>Level</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Message</TableHead>
-                    <TableHead>Details</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {visibleEvents.map(event => (
-                    <TableRow key={event.id}>
-                      <TableCell className="font-mono text-xs text-text-2">
-                        {formatDateTime(event.createdAt, { timeZone: config.timeZone, locale: config.timeZoneLocale })}
-                      </TableCell>
-                      <TableCell className="uppercase text-xs text-muted-foreground">{event.level}</TableCell>
-                      <TableCell>{event.category}</TableCell>
-                      <TableCell className="max-w-md whitespace-normal">{normalizeHistoryEventMessage(event.message)}</TableCell>
-                      <TableCell className="max-w-md whitespace-normal">
-                        {event.details === null ? (
-                          <span className="text-xs text-muted-foreground">No details</span>
-                        ) : (
-                          <details className="rounded-md border border-border bg-bg-2 p-2">
-                            <summary className="cursor-pointer text-xs font-semibold">View payload</summary>
-                            <div className="mt-2">
-                              <JsonBlock value={event.details} />
-                            </div>
-                          </details>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </>
-        )}
-      </AppCard>
+      </details>
     </div>
   );
-}
-
-function SummaryItem({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value: React.ReactNode;
-  mono?: boolean;
-}) {
-  return (
-    <div>
-      <p className="text-[11px] font-bold tracking-[0.06em] text-text-3 uppercase">{label}</p>
-      <div className={mono ? 'mt-1 font-mono text-sm text-text-1' : 'mt-1 text-sm font-semibold text-text-1'}>{value}</div>
-    </div>
-  );
-}
-
-function getSchedulerSteps(summary: unknown): SchedulerStepSummary[] {
-  if (!summary || typeof summary !== 'object' || !('steps' in summary)) {
-    return [];
-  }
-
-  const rawSteps = (summary as { steps?: unknown }).steps;
-  if (!Array.isArray(rawSteps)) {
-    return [];
-  }
-
-  return rawSteps.flatMap((step): SchedulerStepSummary[] => {
-    if (!step || typeof step !== 'object') {
-      return [];
-    }
-
-    const name = (step as { name?: unknown }).name;
-    const status = (step as { status?: unknown }).status;
-    const error = (step as { error?: unknown }).error;
-
-    if (
-      (name !== 'product_sync' && name !== 'mealie_to_grocy' && name !== 'grocy_to_mealie' && name !== 'conflict_check')
-      || (status !== 'success' && status !== 'partial' && status !== 'failure' && status !== 'skipped')
-    ) {
-      return [];
-    }
-
-    return [{
-      name,
-      status,
-      error: typeof error === 'string' ? error : undefined,
-    }];
-  });
 }

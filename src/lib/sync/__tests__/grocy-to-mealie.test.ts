@@ -1349,4 +1349,62 @@ describe('pollGrocyForMissingStock', () => {
     });
   });
 
+  it('records the actual shopping list quantity change and its stock-shortage cause', async () => {
+    mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 2 } }));
+    mockedGetVolatileStock.mockResolvedValue({ missing_products: [mockMissingProduct({ id: 101, amount_missing: 4 })] });
+    mockedFetchItems.mockResolvedValue([mockMealieShoppingItem({ id: 'milk-item', foodId: DEFAULT_MAPPING.mealieFoodId, checked: false, quantity: 3 })]);
+    const result = await pollGrocyForMissingStock();
+    expect(result.events).toEqual([expect.objectContaining({
+      kind: 'mutation', source: 'Grocy', target: 'Mealie', productName: DEFAULT_MAPPING.grocyProductName,
+      reason: "Grocy's stock shortage changed from 2 to 4.",
+      details: expect.objectContaining({ before: 3, after: 5, deficit: 4, mealieItemId: 'milk-item' }),
+    })]);
+  });
+
+  it('does not record a mutation for an unchanged item that is already on the list', async () => {
+    mockedResolveEnsureLowStockOnMealieList.mockResolvedValue(true);
+    mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 2 } }));
+    mockedGetVolatileStock.mockResolvedValue({ missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })] });
+    mockedFetchItems.mockResolvedValue([mockMealieShoppingItem({ foodId: DEFAULT_MAPPING.mealieFoodId, checked: false, quantity: 2 })]);
+    const result = await pollGrocyForMissingStock();
+    expect(result.events).toEqual([]);
+  });
+
+  it('keeps a successful shopping list write if saving sync state subsequently fails', async () => {
+    mockedGetVolatileStock.mockResolvedValue({ missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })] });
+    mockedSaveSyncState.mockRejectedValueOnce(new Error('State write failed'));
+    const result = await pollGrocyForMissingStock();
+    expect(result.status).toBe('error');
+    expect(result.events).toEqual([
+      expect.objectContaining({ kind: 'mutation', details: expect.objectContaining({ before: 0, after: 2 }) }),
+      expect.objectContaining({ kind: 'issue', message: expect.stringContaining('State write failed') }),
+    ]);
+  });
+
+  it('records a distinct state-save failure after an in-possession error', async () => {
+    mockedSyncMealieInPossessionFromGrocy.mockResolvedValueOnce({
+      status: 'error',
+      error: 'Product update failed',
+      summary: { processedProducts: 1, updatedProducts: 0, enabledProducts: 0, disabledProducts: 0, unchangedProducts: 0, failedProducts: 1 },
+      events: [{ kind: 'issue', category: 'inventory', level: 'error', message: 'Product update failed', productName: 'Milk' }],
+    });
+    mockedSaveSyncState.mockRejectedValueOnce(new Error('State write failed'));
+    const result = await pollGrocyForMissingStock();
+    expect(result.status).toBe('error');
+    expect(result.events).toEqual([
+      expect.objectContaining({ kind: 'issue', message: 'Product update failed' }),
+      expect.objectContaining({ kind: 'issue', message: expect.stringContaining('State write failed') }),
+    ]);
+  });
+
+  it('records a shopping-list exception only once when it reaches the outer catch', async () => {
+    mockedGetVolatileStock.mockResolvedValue({ missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })] });
+    mockedCreate.mockRejectedValueOnce(new Error('Mealie write failed'));
+    const result = await pollGrocyForMissingStock();
+    expect(result.status).toBe('error');
+    expect(result.events).toEqual([
+      expect.objectContaining({ kind: 'issue', productName: DEFAULT_MAPPING.grocyProductName, message: expect.stringContaining('Mealie write failed') }),
+    ]);
+  });
+
 });

@@ -48,10 +48,10 @@ export async function POST() {
     }).catch(error => log.error('[History] Failed to record product sync:', error));
 
     return NextResponse.json({
-      status: 'ok',
+      status: result.status,
       message: historyOutcome.message,
       summary: result.summary,
-    });
+    }, { status: result.status === 'error' ? 500 : 200 });
   } catch (error) {
     log.error('[API] Product sync failed:', error);
     await recordHistoryRun({

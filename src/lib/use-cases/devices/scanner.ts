@@ -31,6 +31,8 @@ import {
 } from '@/lib/use-cases/shared/sync-lock';
 import { addShoppingListItem, checkShoppingListProduct } from '@/lib/use-cases/shopping/list';
 import { log } from '@/lib/logger';
+import { recordHistoryRun, type HistoryEventInput, type HistoryRunAction } from '@/lib/history-store';
+import { activityEvent, describeSyncError } from '@/lib/sync/activity';
 
 export const DEVICE_BARCODE_PATTERN = /^[0-9A-Za-z_-]{4,64}$/;
 
@@ -127,6 +129,7 @@ export interface DeviceSearchResult {
 // ---------------------------------------------------------------------------
 
 export interface DeviceScannerDeps extends SyncLockDeps {
+  recordHistory: typeof recordHistoryRun;
   getStockByBarcode: (barcode: string) => Promise<ProductDetailsResponse>;
   getProductDetails: (productId: number) => Promise<ProductDetailsResponse>;
   listGrocyProducts: () => Promise<Product[]>;
@@ -216,6 +219,7 @@ async function resolveDefaultGrocyUnitId(): Promise<number | null> {
 const lockedInventoryDeps = { ...defaultInventoryDeps, ...noopSyncLockDeps };
 
 const defaultDeps: DeviceScannerDeps = {
+  recordHistory: recordHistoryRun,
   ...defaultSyncLockDeps,
   getStockByBarcode: barcode => StockByBarcodeService.getStockProductsByBarcode(barcode),
   getProductDetails,
@@ -440,6 +444,20 @@ export async function performDeviceAction(
   params: PerformDeviceActionParams,
   deps: DeviceScannerDeps = defaultDeps,
 ): Promise<DeviceActionResult> {
+  const actions: Record<DeviceAction, HistoryRunAction> = {
+    purchase: 'inventory_add_stock', consume: 'inventory_consume_stock',
+    open: 'inventory_mark_opened', add_to_shopping_list: 'shopping_add_item',
+  };
+  return withDeviceHistory(actions[params.action], `grocy:${params.productId}`, deps,
+    (events, context) => applyDeviceAction(params, deps, events, context));
+}
+
+async function applyDeviceAction(
+  params: PerformDeviceActionParams,
+  deps: DeviceScannerDeps,
+  events: HistoryEventInput[],
+  context: { productName?: string },
+): Promise<DeviceActionResult> {
   const amount = params.amount ?? 1;
   if (!(amount > 0)) {
     throw new Error('Amount must be greater than 0.');
@@ -451,6 +469,7 @@ export async function performDeviceAction(
   // lock (and away from Grocy's stock endpoints entirely).
   if (params.action === 'add_to_shopping_list') {
     const before = await getProductDetailsOr404(params.productId, deps);
+    context.productName = before.product?.name;
     const stockBefore = Number(before.stock_amount ?? 0);
     const openedBefore = Number(before.stock_amount_opened ?? 0);
     const mealieFoodId = await deps.findMealieFoodIdForGrocyProduct(params.productId);
@@ -461,6 +480,13 @@ export async function performDeviceAction(
         ? { foodId: mealieFoodId, quantity: amount }
         : { query: productRef, quantity: amount },
     );
+    events.push(activityEvent({
+      source: 'Scanner', target: 'Mealie', productName: before.product?.name,
+      category: 'shopping', entityRef: productRef,
+      message: `Added ${amount} of "${before.product?.name ?? productRef}" to the Mealie shopping list.`,
+      reason: 'Add to shopping list requested on the scanner.',
+      details: { grocyProductId: params.productId, mealieFoodId, mealieItemId: result.item.id, amount, quantity: result.item.quantity, action: result.action },
+    }));
 
     return {
       ok: true,
@@ -480,6 +506,7 @@ export async function performDeviceAction(
     async () => {
       const before = await getProductDetailsOr404(params.productId, deps);
       const productName = before.product?.name ?? 'Unknown';
+      context.productName = productName;
       const stockBefore = Number(before.stock_amount ?? 0);
       const openedBefore = Number(before.stock_amount_opened ?? 0);
 
@@ -505,7 +532,20 @@ export async function performDeviceAction(
           break;
       }
 
+      events.push(activityEvent({
+        source: 'Scanner', target: 'Grocy', productName, category: 'inventory', entityRef: productRef,
+        message: params.action === 'purchase' ? `Added ${amount} to Grocy stock for "${productName}".`
+          : params.action === 'consume' ? `Consumed ${amount} from Grocy stock for "${productName}".`
+            : `Marked ${amount} of "${productName}" as opened in Grocy.`,
+        reason: `${params.action === 'purchase' ? 'Purchase' : params.action === 'consume' ? 'Consume' : 'Open'} requested on the scanner.`,
+        details: { grocyProductId: params.productId, amount, stockBefore, openedBefore, unit: before.quantity_unit_stock?.name },
+      }));
+
       const after = await getProductDetailsOr404(params.productId, deps);
+      events[events.length - 1].details = {
+        ...(events[events.length - 1].details as Record<string, unknown>),
+        stockAfter: Number(after.stock_amount ?? 0), openedAfter: Number(after.stock_amount_opened ?? 0),
+      };
 
       return {
         ok: true,
@@ -568,6 +608,16 @@ export async function createDeviceProduct(
   params: CreateDeviceProductParams,
   deps: DeviceScannerDeps = defaultDeps,
 ): Promise<DeviceProduct> {
+  return withDeviceHistory('mapping_product_create_both', params.name, deps,
+    (events, context) => {
+      context.productName = params.name;
+      return applyDeviceProductCreation(params, deps, events);
+    });
+}
+
+async function applyDeviceProductCreation(
+  params: CreateDeviceProductParams, deps: DeviceScannerDeps, events: HistoryEventInput[],
+): Promise<DeviceProduct> {
   const name = params.name.trim();
   if (!name) {
     throw new Error('Name must not be empty.');
@@ -614,8 +664,15 @@ export async function createDeviceProduct(
   if (!created.grocyProductId) {
     throw new Error('Grocy did not return an id for the created product.');
   }
+  events.push(activityEvent({
+    source: 'Scanner', target: 'Grocy', productName: name, category: 'product', entityRef: `grocy:${created.grocyProductId}`,
+    message: `Created "${name}" in Grocy and Mealie and linked the products.`,
+    reason: 'Product creation requested on the scanner for an unknown barcode.',
+    details: { grocyProductId: created.grocyProductId, mealieFoodId: created.mealieFoodId, barcode: params.barcode },
+  }));
 
   await deps.createProductBarcode({ product_id: created.grocyProductId, barcode: params.barcode });
+  events.push(barcodeLinkedEvent(created.grocyProductId, name, params.barcode));
 
   const details = await getProductDetailsOr404(created.grocyProductId, deps);
   return toDeviceProduct(details, deps);
@@ -630,8 +687,16 @@ export async function linkDeviceBarcode(
   params: LinkDeviceBarcodeParams,
   deps: DeviceScannerDeps = defaultDeps,
 ): Promise<DeviceProduct> {
+  return withDeviceHistory('product_link_barcode', `grocy:${params.productId}`, deps,
+    (events, context) => applyDeviceBarcodeLink(params, deps, events, context));
+}
+
+async function applyDeviceBarcodeLink(
+  params: LinkDeviceBarcodeParams, deps: DeviceScannerDeps, events: HistoryEventInput[], context: { productName?: string },
+): Promise<DeviceProduct> {
   // 404 before any side effects when the target product does not exist.
   const details = await getProductDetailsOr404(params.productId, deps);
+  context.productName = details.product?.name;
 
   const existing = (await deps.listProductBarcodes())
     .find(entry => entry.barcode === params.barcode);
@@ -651,9 +716,46 @@ export async function linkDeviceBarcode(
 
   if (!existing) {
     await deps.createProductBarcode({ product_id: params.productId, barcode: params.barcode });
+    events.push(barcodeLinkedEvent(params.productId, details.product?.name ?? `#${params.productId}`, params.barcode));
   }
 
   return toDeviceProduct(details, deps);
+}
+
+function barcodeLinkedEvent(productId: number, productName: string, barcode: string): HistoryEventInput {
+  return activityEvent({
+    source: 'Scanner', target: 'Grocy', productName, category: 'product', entityRef: `grocy:${productId}`,
+    message: `Linked barcode ${barcode} to "${productName}" in Grocy.`,
+    reason: 'Barcode linking requested on the scanner.', details: { grocyProductId: productId, barcode },
+  });
+}
+
+async function withDeviceHistory<T>(
+  action: HistoryRunAction, entityRef: string, deps: DeviceScannerDeps,
+  work: (events: HistoryEventInput[], context: { productName?: string }) => Promise<T>,
+): Promise<T> {
+  const startedAt = new Date();
+  const events: HistoryEventInput[] = [];
+  const context: { productName?: string } = {};
+  let failed = false;
+  try {
+    return await work(events, context);
+  } catch (error) {
+    failed = true;
+    events.push(activityEvent({
+      level: 'error', source: 'Scanner', target: action === 'shopping_add_item' ? 'Mealie' : 'Grocy',
+      productName: context.productName ?? events[0]?.productName ?? undefined, entityRef,
+      message: `Scanner action failed: ${describeSyncError(error)}`,
+      reason: 'The scanner requested this action. Any completed changes are listed separately.',
+      details: { action, error: describeSyncError(error) },
+    }));
+    throw error;
+  } finally {
+    if (events.length) await deps.recordHistory({
+      trigger: 'scanner', action, status: failed ? events.some(event => event.kind === 'mutation') ? 'partial' : 'failure' : 'success',
+      startedAt, finishedAt: new Date(), message: events.map(event => event.message).join(' '), events,
+    }).catch(error => log.error('[History] Failed to record scanner action:', error));
+  }
 }
 
 /**

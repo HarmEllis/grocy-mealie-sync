@@ -38,6 +38,7 @@ describe('MCP history access', () => {
       {
         id: 'event-1',
         runId: 'run-1',
+        kind: 'mutation', productName: null, source: null, target: null, reason: null,
         level: 'info',
         category: 'mapping',
         entityKind: 'product',
@@ -149,6 +150,7 @@ describe('MCP history access', () => {
             {
               id: 'event-1',
               runId: 'run-1',
+              kind: 'mutation', productName: null, source: null, target: null, reason: null,
               level: 'info',
               category: 'mapping',
               entityKind: 'product',
@@ -198,6 +200,7 @@ describe('MCP history access', () => {
           {
             id: 'event-1',
             runId: 'run-1',
+            kind: 'mutation', productName: null, source: null, target: null, reason: null,
             level: 'info',
             category: 'mapping',
             entityKind: 'product',

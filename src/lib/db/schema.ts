@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const productMappings = sqliteTable('product_mappings', {
   id: text('id').primaryKey(),
@@ -77,12 +77,18 @@ export const historyEvents = sqliteTable('history_events', {
   id: text('id').primaryKey(),
   runId: text('run_id').notNull(),
   level: text('level').notNull(),
+  kind: text('kind').notNull().default('diagnostic'),
+  productName: text('product_name'),
+  source: text('source'),
+  target: text('target'),
+  reason: text('reason'),
   category: text('category').notNull(),
   entityKind: text('entity_kind'),
   entityRef: text('entity_ref'),
   message: text('message').notNull(),
   detailsJson: text('details_json'),
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 }, (table) => [
   uniqueIndex('idx_history_events_run_id_created_at').on(table.runId, table.createdAt, table.id),
+  index('idx_history_events_kind_created_at').on(table.kind, table.createdAt, table.id),
 ]);

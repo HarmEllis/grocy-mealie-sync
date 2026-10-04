@@ -5,6 +5,8 @@ import { resolveCleanupCheckedItemsAfterHours, resolveCleanupCheckedItemsMode, r
 import { fetchAllMealieShoppingItems } from './helpers';
 import { getSyncState, saveSyncState, type SyncStateData } from './state';
 import { HouseholdsShoppingListItemsService } from '../mealie/client';
+import type { HistoryEventInput } from '../history-store';
+import { activityEvent, describeSyncError } from './activity';
 
 export interface ShoppingCleanupSummary {
   eligibleItems: number;
@@ -17,6 +19,7 @@ export interface ShoppingCleanupResult {
   status: 'ok' | 'partial' | 'skipped' | 'error';
   reason?: 'disabled' | 'no-shopping-list' | 'already-ran-today';
   summary: ShoppingCleanupSummary;
+  events?: HistoryEventInput[];
 }
 
 export interface ShoppingCleanupDeps {
@@ -60,6 +63,7 @@ export async function runShoppingCleanup(
   options: ShoppingCleanupOptions = {},
 ): Promise<ShoppingCleanupResult> {
   const summary = createEmptySummary();
+  const events: HistoryEventInput[] = [];
 
   const afterHours = await deps.resolveAfterHours();
   if (afterHours < 1) {
@@ -119,6 +123,13 @@ export async function runShoppingCleanup(
 
       try {
         await deps.deleteShoppingItem(item.id);
+        events.push(activityEvent({
+          source: 'App', target: 'Mealie', productName: item.food?.name ?? item.display ?? item.note ?? undefined,
+          category: 'shopping', entityKind: 'shopping_item', entityRef: item.id,
+          message: `Removed checked item "${item.food?.name ?? item.display ?? item.note ?? item.id}" from the Mealie shopping list.`,
+          reason: `Checked for at least ${afterHours} hours${mode === 'synced_only' ? ' and already synced to Grocy' : ''}.`,
+          details: { mealieItemId: item.id, mealieFoodId: item.foodId, quantity: item.quantity, checkedAt: checkedAtIso, afterHours, mode },
+        }));
         summary.removedItems++;
         log.info(`[Cleanup] Removed checked item "${item.note || item.display || item.id}" (checked ${afterHours}+ hours ago)`);
 
@@ -127,6 +138,11 @@ export async function runShoppingCleanup(
         delete state.mealieCheckedAt[item.id];
         delete state.mealieItemsSyncedToGrocy[item.id];
       } catch (err) {
+        events.push(activityEvent({
+          level: 'error', source: 'App', target: 'Mealie', productName: item.food?.name ?? item.display ?? item.note ?? undefined,
+          category: 'shopping', entityRef: item.id, message: `Could not remove checked Mealie item: ${describeSyncError(err)}`,
+          reason: `Scheduled cleanup after ${afterHours} hours.`, details: { mealieItemId: item.id, error: describeSyncError(err) },
+        }));
         summary.failedItems++;
         log.error(`[Cleanup] Failed to remove item "${item.id}":`, err);
       }
@@ -139,9 +155,13 @@ export async function runShoppingCleanup(
       ? (summary.removedItems > 0 ? 'partial' : 'error')
       : 'ok';
 
-    return { status, summary };
+    return { status, summary, events };
   } catch (error) {
     log.error('[Cleanup] Error running shopping cleanup:', error);
-    return { status: 'error', summary };
+    events.push(activityEvent({
+      level: 'error', source: 'App', target: 'Mealie', message: `Shopping list cleanup failed: ${describeSyncError(error)}`,
+      reason: 'Could not complete scheduled cleanup.', details: { error: describeSyncError(error) },
+    }));
+    return { status: 'error', summary, events };
   }
 }

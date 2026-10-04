@@ -12,6 +12,7 @@ import {
 export type HistoryPageSearchParams = Record<string, string | string[] | undefined>;
 
 export interface ResolvedHistoryFilters {
+  kind: 'mutation' | 'issue' | null;
   search: string;
   action: HistoryRunAction | null;
   trigger: HistoryRunTrigger | null;
@@ -22,6 +23,7 @@ export interface ResolvedHistoryFilters {
 }
 
 export interface HistoryFilterFormValues {
+  kind?: 'mutation' | 'issue' | null;
   search: string;
   action: string | null;
   trigger: string | null;
@@ -58,6 +60,8 @@ export function resolveHistoryFilters(searchParams: HistoryPageSearchParams | un
   const actionParam = getSingleSearchParam(searchParams?.action);
   const triggerParam = getSingleSearchParam(searchParams?.trigger);
   const statusParam = getSingleSearchParam(searchParams?.status);
+  const kindParam = getSingleSearchParam(searchParams?.kind);
+  const kind = kindParam === 'mutation' || kindParam === 'issue' ? kindParam : null;
   const action = actionParam && isHistoryRunAction(actionParam) ? actionParam : null;
   const trigger = triggerParam && isHistoryRunTrigger(triggerParam) ? triggerParam : null;
   const status = statusParam && isHistoryRunStatus(statusParam) ? statusParam : null;
@@ -65,13 +69,14 @@ export function resolveHistoryFilters(searchParams: HistoryPageSearchParams | un
   const dateTo = parseValidDate(getSingleSearchParam(searchParams?.dateTo));
 
   return {
+    kind,
     search,
     action,
     trigger,
     status,
     dateFrom,
     dateTo,
-    hasFilters: search.length > 0 || action !== null || trigger !== null || status !== null || dateFrom !== null || dateTo !== null,
+    hasFilters: kind !== null || search.length > 0 || action !== null || trigger !== null || status !== null || dateFrom !== null || dateTo !== null,
   };
 }
 
@@ -80,6 +85,9 @@ export function buildHistoryFilterSearchParams(
   values: HistoryFilterFormValues,
 ): string {
   const nextSearchParams = new URLSearchParams(searchParams);
+  nextSearchParams.delete('page');
+  if (values.kind) nextSearchParams.set('kind', values.kind);
+  else nextSearchParams.delete('kind');
   const trimmedSearch = values.search.trim();
 
   if (trimmedSearch) {
