@@ -156,6 +156,7 @@ async function runSchedulerCycle(
         summary: result?.summary,
       });
       historyEvents.push({
+        kind: 'diagnostic',
         level: getSchedulerStepEventLevel(status),
         category: getSchedulerStepCategory(step.name),
         entityKind: status === 'failure' ? 'system' : null,
@@ -175,6 +176,7 @@ async function runSchedulerCycle(
         error: formattedError,
       });
       historyEvents.push({
+        kind: 'issue',
         level: 'error',
         category: getSchedulerStepCategory(step.name),
         entityKind: 'system',
@@ -196,7 +198,7 @@ async function runSchedulerCycle(
   await sendSchedulerNotifications(cycleSummary);
 
   try {
-    await recordHistoryRun({
+    if (historyEvents.some(event => event.kind === 'mutation' || event.kind === 'issue')) await recordHistoryRun({
       trigger: 'scheduler',
       action: 'scheduler_cycle',
       status: cycleSummary.status,

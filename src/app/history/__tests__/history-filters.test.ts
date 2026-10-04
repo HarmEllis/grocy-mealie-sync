@@ -45,6 +45,7 @@ describe('resolveHistoryFilters', () => {
   it('returns all null filters for empty params', () => {
     const result = resolveHistoryFilters(undefined);
     expect(result).toEqual({
+      kind: null,
       search: '',
       action: null,
       trigger: null,
@@ -59,6 +60,7 @@ describe('resolveHistoryFilters', () => {
 describe('buildHistoryFilterSearchParams', () => {
   it('builds search params with status, dateFrom, dateTo', () => {
     const result = buildHistoryFilterSearchParams(new URLSearchParams(), {
+      kind: null,
       search: '',
       action: null,
       trigger: null,
@@ -75,6 +77,7 @@ describe('buildHistoryFilterSearchParams', () => {
   it('clears status, dateFrom, dateTo when null', () => {
     const existing = new URLSearchParams('status=success&dateFrom=2026-03-20&dateTo=2026-03-25');
     const result = buildHistoryFilterSearchParams(existing, {
+      kind: null,
       search: '',
       action: null,
       trigger: null,
@@ -90,6 +93,7 @@ describe('buildHistoryFilterSearchParams', () => {
 
   it('rejects invalid status in build', () => {
     const result = buildHistoryFilterSearchParams(new URLSearchParams(), {
+      kind: null,
       search: '',
       action: null,
       trigger: null,
@@ -103,6 +107,7 @@ describe('buildHistoryFilterSearchParams', () => {
 
   it('rejects invalid date format in build', () => {
     const result = buildHistoryFilterSearchParams(new URLSearchParams(), {
+      kind: null,
       search: '',
       action: null,
       trigger: null,

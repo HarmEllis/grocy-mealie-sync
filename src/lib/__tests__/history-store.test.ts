@@ -27,6 +27,47 @@ async function loadHistoryStore(sqlite: Database.Database, config: HistoryConfig
 }
 
 describe('history store', () => {
+  it('searches and paginates individual mutations, preserving scanner origin and excluding quiet cycles', async () => {
+    const sqlite = new Database(':memory:');
+    try {
+      const store = await loadHistoryStore(sqlite, { historyEnabled: true, historyRetentionDays: null });
+      const startedAt = new Date('2026-10-04T10:00:00Z');
+      const finishedAt = new Date('2026-10-04T10:01:00Z');
+      await store.recordHistoryRun({
+        trigger: 'scheduler', action: 'scheduler_cycle', status: 'partial', startedAt, finishedAt,
+        events: [
+          { kind: 'mutation', level: 'info', category: 'inventory', productName: 'Milk', message: 'Added stock.', details: { mealieFoodName: 'Whole Milk' } },
+          { kind: 'mutation', level: 'info', category: 'inventory', productName: 'Rice', message: 'Added rice stock.' },
+          { kind: 'issue', level: 'error', category: 'shopping', productName: 'Milk', message: 'Shopping list unavailable.' },
+          { kind: 'diagnostic', level: 'warning', category: 'sync', message: 'Sync partially completed.' },
+        ],
+      });
+      await store.recordHistoryRun({
+        trigger: 'scanner', action: 'inventory_add_stock', status: 'success', startedAt, finishedAt,
+        events: [{ kind: 'mutation', level: 'info', category: 'inventory', productName: 'Milk_100%', entityRef: 'grocy:42', message: 'Scanner purchase.', createdAt: new Date('2026-10-04T10:02:00Z') }],
+      });
+      await store.recordHistoryRun({
+        trigger: 'scheduler', action: 'scheduler_cycle', status: 'success', startedAt, finishedAt: new Date('2026-10-04T11:00:00Z'),
+        events: Array.from({ length: 120 }, () => ({ kind: 'diagnostic' as const, level: 'info' as const, category: 'sync' as const, message: 'Nothing changed.' })),
+      });
+      expect(await store.listHistoryActivity()).toHaveLength(4);
+      const milk = await store.listHistoryActivity(50, { search: 'mIlK' });
+      expect(milk).toHaveLength(3);
+      expect(milk.some(event => event.productName === 'Rice')).toBe(false);
+      expect(milk[0]).toMatchObject({ trigger: 'scanner', source: 'Scanner', target: 'Grocy', createdAt: new Date('2026-10-04T10:02:00Z') });
+      expect(await store.listHistoryActivity(50, { search: 'Whole Milk' })).toHaveLength(1);
+      expect(await store.listHistoryActivity(50, { search: '_100%' })).toHaveLength(1);
+      expect(await store.listHistoryActivity(50, { search: 'Milk', kind: 'issue' })).toHaveLength(1);
+      expect(await store.listHistoryActivity(50, { trigger: 'scanner', search: 'grocy:42' })).toHaveLength(1);
+      const firstPage = await store.listHistoryActivity(2);
+      const secondPage = await store.listHistoryActivity(2, { offset: 2 });
+      expect(new Set([...firstPage, ...secondPage].map(event => event.id)).size).toBe(4);
+      expect(await store.listHistoryActivity(50, { dateFrom: new Date('2026-10-04T10:02:00Z') })).toHaveLength(1);
+      expect(await store.listHistoryActivity(50, { dateTo: new Date('2026-10-04T10:01:00Z') })).toHaveLength(3);
+    } finally {
+      sqlite.close();
+    }
+  });
   afterEach(() => {
     vi.resetModules();
     vi.clearAllMocks();

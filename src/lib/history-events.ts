@@ -115,6 +115,8 @@ export function formatHistoryActionLabel(action: HistoryRunAction): string {
       return 'Update Grocy stock settings';
     case 'product_delete':
       return 'Delete product';
+    case 'product_link_barcode':
+      return 'Link barcode';
     case 'product_update_units':
       return 'Update product units';
     case 'mapping_unit_create':
@@ -184,8 +186,8 @@ export function formatHistoryActionLabel(action: HistoryRunAction): string {
   }
 }
 
-export function formatHistoryTriggerLabel(trigger: 'scheduler' | 'manual'): string {
-  return trigger === 'scheduler' ? 'Scheduler' : 'Manual';
+export function formatHistoryTriggerLabel(trigger: 'scheduler' | 'manual' | 'scanner'): string {
+  return trigger === 'scanner' ? 'Scanner' : trigger === 'scheduler' ? 'Automatic' : 'Manual';
 }
 
 export function formatSchedulerStepNameLabel(stepName: SchedulerStepName): string {
@@ -221,11 +223,12 @@ export function buildProductSyncHistoryOutcome(result: FullProductSyncResult): H
   const products = result.summary.products;
 
   return {
-    status: 'success',
+    status: toHistoryStatus(result.status),
     message: `Units: ${units.created} created, ${units.linked} linked, ${units.skipped} skipped. Products: ${products.created} created, ${products.linked} linked, ${products.skipped} skipped.`,
     summary: result.summary,
     events: [
       {
+        kind: 'diagnostic',
         level: 'info',
         category: 'sync',
         entityKind: 'unit',
@@ -234,6 +237,7 @@ export function buildProductSyncHistoryOutcome(result: FullProductSyncResult): H
         details: units,
       },
       {
+        kind: 'diagnostic',
         level: 'info',
         category: 'sync',
         entityKind: 'product',
@@ -244,6 +248,7 @@ export function buildProductSyncHistoryOutcome(result: FullProductSyncResult): H
       ...(products.backfilled > 0
         ? [{
           level: 'info' as const,
+          kind: 'diagnostic' as const,
           category: 'mapping' as const,
           entityKind: 'product' as const,
           entityRef: 'products',
@@ -251,6 +256,7 @@ export function buildProductSyncHistoryOutcome(result: FullProductSyncResult): H
           details: { backfilled: products.backfilled },
         }]
         : []),
+      ...(result.events ?? []),
     ],
   };
 }
@@ -270,6 +276,7 @@ export function buildGrocyToMealieHistoryOutcome(
 
   const events: HistoryEventInput[] = [
     {
+      kind: result.status === 'error' && !result.events?.length ? 'issue' : 'diagnostic',
       level: result.status === 'error'
         ? 'error'
         : result.status === 'partial' || result.status === 'skipped' || result.summary.unmappedProducts > 0
@@ -294,6 +301,7 @@ export function buildGrocyToMealieHistoryOutcome(
 
   if (result.inPossessionStatus) {
     events.push({
+      kind: result.inPossessionStatus === 'error' && !result.events?.some(event => event.level === 'error') ? 'issue' : 'diagnostic',
       level: result.inPossessionStatus === 'error'
         ? 'error'
         : result.inPossessionStatus === 'skipped'
@@ -322,7 +330,7 @@ export function buildGrocyToMealieHistoryOutcome(
       inPossessionError: result.inPossessionError ?? null,
       inPossessionSummary: result.inPossessionSummary ?? null,
     },
-    events,
+    events: [...events, ...(result.events ?? [])],
   };
 }
 
@@ -336,6 +344,7 @@ export function buildMealieToGrocyHistoryOutcome(result: MealieToGrocyPollResult
     },
     events: [
       {
+        kind: (result.status === 'error' || result.status === 'partial') && !result.events?.length ? 'issue' : 'diagnostic',
         level: result.status === 'error'
           ? 'error'
           : result.status === 'partial' || result.status === 'skipped' || result.summary.failedItems > 0
@@ -356,6 +365,7 @@ export function buildMealieToGrocyHistoryOutcome(result: MealieToGrocyPollResult
           summary: result.summary,
         },
       },
+      ...(result.events ?? []),
     ],
   };
 }
@@ -370,6 +380,7 @@ export function buildInPossessionHistoryOutcome(result: MealieInPossessionSyncRe
     },
     events: [
       {
+        kind: result.status === 'error' && !result.events?.length ? 'issue' : 'diagnostic',
         level: result.status === 'error'
           ? 'error'
           : result.status === 'skipped' || result.summary.failedProducts > 0
@@ -388,6 +399,7 @@ export function buildInPossessionHistoryOutcome(result: MealieInPossessionSyncRe
           summary: result.summary,
         },
       },
+      ...(result.events ?? []),
     ],
   };
 }
@@ -397,6 +409,8 @@ function buildConflictDetailEvent(
   kind: 'opened' | 'resolved',
 ): HistoryEventInput {
   return {
+    kind: kind === 'opened' ? 'issue' : 'mutation',
+    productName: conflict.mappingKind === 'product' ? conflict.grocyName ?? conflict.mealieName : null,
     level: kind === 'opened' ? toConflictEventLevel(conflict) : 'info',
     category: 'conflict',
     entityKind: 'conflict',
@@ -429,6 +443,7 @@ export function buildConflictCheckHistoryOutcome(result: MappingConflictCheckRes
     summary: result.summary,
     events: [
       {
+        kind: 'diagnostic',
         level: hasOpenConflicts ? 'warning' : 'info',
         category: 'conflict',
         entityKind: 'conflict',
@@ -461,6 +476,7 @@ export function buildShoppingCleanupHistoryOutcome(result: ShoppingCleanupResult
     },
     events: [
       {
+        kind: (result.status === 'error' || result.status === 'partial') && !result.events?.length ? 'issue' : 'diagnostic',
         level: result.status === 'error' ? 'error'
           : result.status === 'partial' || result.status === 'skipped' ? 'warning'
             : 'info',
@@ -476,6 +492,7 @@ export function buildShoppingCleanupHistoryOutcome(result: ShoppingCleanupResult
           summary: result.summary,
         },
       },
+      ...(result.events ?? []),
     ],
   };
 }
@@ -517,7 +534,7 @@ export function buildClearSyncLocksHistoryOutcome(
 export function prefixHistoryEvents(prefix: string, events: HistoryEventInput[]): HistoryEventInput[] {
   return events.map(event => ({
     ...event,
-    message: `${prefix}: ${event.message}`,
+    message: event.kind === 'mutation' || event.kind === 'issue' ? event.message : `${prefix}: ${event.message}`,
   }));
 }
 

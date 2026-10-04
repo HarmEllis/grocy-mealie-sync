@@ -355,6 +355,10 @@ describe('mealie in-possession sync', () => {
     const result = await syncMealieInPossessionFromGrocy(state);
 
     expect(result.status).toBe('ok');
+    expect(result.events).toEqual([expect.objectContaining({
+      kind: 'mutation', productName: 'Milk', source: 'Grocy', target: 'Mealie',
+      details: expect.objectContaining({ before: false, after: true, effectiveStock: 2 }),
+    })]);
     expect(result.summary).toEqual({
       processedProducts: 1,
       updatedProducts: 1,

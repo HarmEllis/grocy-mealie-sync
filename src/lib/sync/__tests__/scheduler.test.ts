@@ -252,9 +252,24 @@ describe('scheduler startup lock', () => {
         }),
       ]),
     }));
+    expect(mockState.recordHistoryRun).not.toHaveBeenCalled();
+  });
+
+  it('does not store quiet cycles and stores concrete sync mutations', async () => {
+    mockState.acquireSchedulerLock.mockReturnValue(true);
+    startScheduler();
+    await flushAsyncWork();
+    expect(mockState.recordHistoryRun).not.toHaveBeenCalled();
+    mockState.pollMealieForCheckedItems.mockResolvedValue({
+      status: 'ok', summary: { checkedItems: 1, restockedProducts: 1, failedItems: 0 },
+      events: [{ kind: 'mutation', level: 'info', category: 'inventory', productName: 'Milk', source: 'Mealie', target: 'Grocy', message: 'Added 2 to Grocy stock for Milk.' }],
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await flushAsyncWork();
     expect(mockState.recordHistoryRun).toHaveBeenCalledWith(expect.objectContaining({
-      action: 'scheduler_cycle',
-      status: 'partial',
+      trigger: 'scheduler', events: expect.arrayContaining([expect.objectContaining({
+        kind: 'mutation', productName: 'Milk', message: 'Added 2 to Grocy stock for Milk.',
+      })]),
     }));
   });
 });

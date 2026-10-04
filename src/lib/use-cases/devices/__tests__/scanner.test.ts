@@ -44,6 +44,7 @@ function productDetails(overrides: Partial<{
 
 function createDeps(overrides: Partial<DeviceScannerDeps> = {}): DeviceScannerDeps {
   return {
+    recordHistory: vi.fn().mockResolvedValue('history-run'),
     acquireSyncLock: vi.fn().mockReturnValue(true),
     releaseSyncLock: vi.fn(),
     getStockByBarcode: vi.fn().mockResolvedValue(productDetails()),
@@ -237,6 +238,76 @@ describe('scanDeviceBarcode', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('scanner activity history', () => {
+  it('records a confirmed purchase with its product, amount and stock change', async () => {
+    const deps = createDeps({
+      getProductDetails: vi.fn().mockResolvedValueOnce(productDetails({ stock: 3 })).mockResolvedValueOnce(productDetails({ stock: 5 })),
+    });
+    await performDeviceAction({ productId: 42, action: 'purchase', amount: 2 }, deps);
+    expect(deps.recordHistory).toHaveBeenCalledWith(expect.objectContaining({
+      trigger: 'scanner', action: 'inventory_add_stock', status: 'success',
+      events: [expect.objectContaining({
+        kind: 'mutation', productName: 'Heinz Tomato Ketchup', source: 'Scanner', target: 'Grocy',
+        details: expect.objectContaining({ amount: 2, stockBefore: 3, stockAfter: 5 }),
+      })],
+    }));
+  });
+
+  it('keeps the successful write when refreshing stock fails afterwards', async () => {
+    const deps = createDeps({
+      getProductDetails: vi.fn().mockResolvedValueOnce(productDetails()).mockRejectedValueOnce(new Error('Stock refresh failed')),
+    });
+    await expect(performDeviceAction({ productId: 42, action: 'consume' }, deps)).rejects.toThrow('Stock refresh failed');
+    expect(deps.recordHistory).toHaveBeenCalledWith(expect.objectContaining({
+      trigger: 'scanner', status: 'partial', events: [
+        expect.objectContaining({ kind: 'mutation', productName: 'Heinz Tomato Ketchup' }),
+        expect.objectContaining({ kind: 'issue', message: 'Scanner action failed: Stock refresh failed' }),
+      ],
+    }));
+  });
+
+  it('records insufficient stock as a searchable issue without a mutation', async () => {
+    const deps = createDeps();
+    await expect(performDeviceAction({ productId: 42, action: 'consume', amount: 10 }, deps)).rejects.toThrow('Not enough in stock');
+    expect(deps.recordHistory).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failure', events: [expect.objectContaining({ kind: 'issue', productName: 'Heinz Tomato Ketchup' })],
+    }));
+    expect(deps.consumeStock).not.toHaveBeenCalled();
+  });
+
+  it('records a shopping list request separately from stock actions', async () => {
+    const deps = createDeps();
+    await performDeviceAction({ productId: 42, action: 'add_to_shopping_list' }, deps);
+    expect(deps.recordHistory).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'shopping_add_item', events: [expect.objectContaining({ source: 'Scanner', target: 'Mealie', kind: 'mutation' })],
+    }));
+  });
+
+  it('records barcode linking once and omits an already-linked barcode', async () => {
+    const deps = createDeps();
+    await linkDeviceBarcode({ productId: 42, barcode: '123456' }, deps);
+    expect(deps.recordHistory).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'product_link_barcode', events: [expect.objectContaining({ kind: 'mutation', productName: 'Heinz Tomato Ketchup' })],
+    }));
+    const unchanged = createDeps({ listProductBarcodes: vi.fn().mockResolvedValue([{ barcode: '123456', product_id: 42 }]) });
+    await linkDeviceBarcode({ productId: 42, barcode: '123456' }, unchanged);
+    expect(unchanged.recordHistory).not.toHaveBeenCalled();
+  });
+
+  it('keeps product creation if linking its barcode fails', async () => {
+    const deps = createDeps({ createProductBarcode: vi.fn().mockRejectedValue(new Error('Barcode write failed')) });
+    await expect(createDeviceProduct({ name: 'New Product', barcode: '123456' }, deps)).rejects.toThrow('Barcode write failed');
+    expect(deps.recordHistory).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'partial', events: [expect.objectContaining({ kind: 'mutation', productName: 'New Product' }), expect.objectContaining({ kind: 'issue' })],
+    }));
+  });
+
+  it('does not fail a completed action when storing history fails', async () => {
+    const deps = createDeps({ recordHistory: vi.fn().mockRejectedValue(new Error('History unavailable')) });
+    await expect(performDeviceAction({ productId: 42, action: 'purchase' }, deps)).resolves.toMatchObject({ ok: true });
   });
 });
 

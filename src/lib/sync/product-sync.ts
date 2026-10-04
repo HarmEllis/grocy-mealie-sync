@@ -14,6 +14,8 @@ import {
 } from '../mapping-conflicts';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
+import type { HistoryEventInput } from '../history-store';
+import { activityEvent, describeSyncError } from './activity';
 
 // Module-level cache for the first available Grocy location ID
 let cachedLocationId: number | null | undefined = undefined;
@@ -48,7 +50,8 @@ export interface ProductSyncSummary {
 }
 
 export interface FullProductSyncResult {
-  status: 'ok';
+  status: 'ok' | 'partial' | 'error';
+  events?: HistoryEventInput[];
   summary: {
     units: UnitSyncSummary;
     products: ProductSyncSummary;
@@ -63,7 +66,7 @@ function findUnitMappingByGrocyId(
   return match ? match.id : null;
 }
 
-export async function syncUnits(): Promise<UnitSyncSummary> {
+export async function syncUnits(events: HistoryEventInput[] = []): Promise<UnitSyncSummary> {
   log.info('[ProductSync] Starting unit sync');
 
   const autoCreateUnits = await resolveAutoCreateUnits();
@@ -101,6 +104,11 @@ export async function syncUnits(): Promise<UnitSyncSummary> {
       });
 
       gUnit = { id: result.created_object_id, name: mUnit.name || 'Unknown' };
+      events.push(activityEvent({
+        source: 'Mealie', target: 'Grocy', category: 'mapping', entityKind: 'unit', entityRef: `grocy-unit:${gUnit.id}`,
+        message: `Created Grocy unit "${gUnit.name}".`, reason: 'A Mealie unit had no matching Grocy unit and automatic unit creation is enabled.',
+        details: { grocyUnitId: gUnit.id, mealieUnitId: mUnit.id },
+      }));
       grocyUnits.push(gUnit);
       created++;
     } else {
@@ -127,6 +135,11 @@ export async function syncUnits(): Promise<UnitSyncSummary> {
       updatedAt: new Date(),
     };
     await db.insert(unitMappings).values(newMapping);
+    events.push(activityEvent({
+      source: 'Mealie', target: 'Grocy', category: 'mapping', entityKind: 'unit', entityRef: newMapping.id,
+      message: `Linked Mealie unit "${newMapping.mealieUnitName}" to Grocy unit "${newMapping.grocyUnitName}".`,
+      reason: 'Units matched during product sync.', details: { ...newMapping },
+    }));
     existingUnitMappings.push(newMapping);
     mappedMealieUnitIds.add(mUnit.id);
   }
@@ -143,7 +156,7 @@ export async function syncUnits(): Promise<UnitSyncSummary> {
   };
 }
 
-export async function syncProducts(): Promise<ProductSyncSummary> {
+export async function syncProducts(events: HistoryEventInput[] = []): Promise<ProductSyncSummary> {
   log.info('[ProductSync] Starting product sync');
 
   const mealieFoodsRes = await RecipesFoodsService.getAllApiFoodsGet(
@@ -201,9 +214,19 @@ export async function syncProducts(): Promise<ProductSyncSummary> {
         });
 
         gProd = { id: result.created_object_id, name: mFood.name || 'Unknown' };
+        events.push(activityEvent({
+          source: 'Mealie', target: 'Grocy', category: 'product', productName: gProd.name, entityRef: `grocy:${gProd.id}`,
+          message: `Created Grocy product "${gProd.name}".`, reason: 'A Mealie food had no matching Grocy product and automatic product creation is enabled.',
+          details: { grocyProductId: gProd.id, mealieFoodId: mFood.id, mealieFoodName: mFood.name },
+        }));
         grocyProducts.push(gProd);
         created++;
       } catch (e) {
+        events.push(activityEvent({
+          level: 'error', source: 'Mealie', target: 'Grocy', category: 'product', productName: mFood.name,
+          entityRef: mFood.id, message: `Could not create Grocy product "${mFood.name}": ${describeSyncError(e)}`,
+          reason: 'Automatic product creation during product sync.', details: { mealieFoodId: mFood.id, error: describeSyncError(e) },
+        }));
         log.error(`[ProductSync] Failed to create Grocy product for "${mFood.name}":`, e);
         continue;
       }
@@ -235,6 +258,11 @@ export async function syncProducts(): Promise<ProductSyncSummary> {
       updatedAt: new Date(),
     };
     await db.insert(productMappings).values(newMapping);
+    events.push(activityEvent({
+      source: 'Mealie', target: 'Grocy', category: 'mapping', productName: newMapping.grocyProductName,
+      entityRef: `grocy:${newMapping.grocyProductId}`, message: `Linked Mealie food "${newMapping.mealieFoodName}" to Grocy product "${newMapping.grocyProductName}".`,
+      reason: 'Products matched during product sync.', details: { ...newMapping },
+    }));
     existingProductMappings.push(newMapping);
     mappedMealieFoodIds.add(mFood.id);
   }
@@ -259,6 +287,11 @@ export async function syncProducts(): Promise<ProductSyncSummary> {
               .set({ unitMappingId: umId, updatedAt: new Date() })
               .where(eq(productMappings.id, mapping.id));
             backfilled++;
+            events.push(activityEvent({
+              source: 'Grocy', target: 'App', category: 'mapping', productName: mapping.grocyProductName,
+              entityRef: `grocy:${mapping.grocyProductId}`, message: `Linked the missing unit mapping for "${mapping.grocyProductName}".`,
+              reason: 'The product mapping had no unit; a matching Grocy purchase or stock unit is now available.', details: { mappingId: mapping.id, unitMappingId: umId },
+            }));
           }
         }
       }
@@ -279,15 +312,22 @@ export async function syncProducts(): Promise<ProductSyncSummary> {
 }
 
 export async function runFullProductSync(): Promise<FullProductSyncResult> {
-  const units = await syncUnits();
-  const products = await syncProducts();
-  log.info('[ProductSync] Full sync complete');
-
-  return {
-    status: 'ok',
-    summary: {
-      units,
-      products,
-    },
+  const events: HistoryEventInput[] = [];
+  const summary = {
+    units: { created: 0, linked: 0, skipped: 0 },
+    products: { created: 0, linked: 0, skipped: 0, backfilled: 0 },
   };
+  try {
+    summary.units = await syncUnits(events);
+    summary.products = await syncProducts(events);
+    log.info('[ProductSync] Full sync complete');
+    return { status: events.some(event => event.level === 'error') ? 'partial' : 'ok', summary, events };
+  } catch (error) {
+    log.error('[ProductSync] Product sync failed:', error);
+    events.push(activityEvent({
+      level: 'error', source: 'Mealie', target: 'Grocy', message: `Product sync failed: ${describeSyncError(error)}`,
+      reason: 'Could not finish product and unit synchronization. Completed changes are listed separately.', details: { error: describeSyncError(error) },
+    }));
+    return { status: events.some(event => event.kind === 'mutation') ? 'partial' : 'error', summary, events };
+  }
 }

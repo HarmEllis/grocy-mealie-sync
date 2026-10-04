@@ -131,8 +131,13 @@ describe('pollMealieForCheckedItems', () => {
     mockLimit.mockResolvedValue([mapping]);
     mockedGetGrocyEntities.mockResolvedValue([grocySi] as any);
 
-    await pollMealieForCheckedItems();
+    const result = await pollMealieForCheckedItems();
 
+    expect(result.events).toEqual([
+      expect.objectContaining({ kind: 'mutation', productName: 'Milk', source: 'Mealie', target: 'Grocy', details: expect.objectContaining({ amount: 1, mealieItemId: 'item-1' }) }),
+      expect.objectContaining({ kind: 'mutation', category: 'shopping', productName: 'Milk' }),
+    ]);
+    expect(result.events?.[0].reason).toContain('checked off');
     expect(mockedAddProductStock).toHaveBeenCalledWith(101, 1);
     expect(mockedDeleteGrocyEntity).toHaveBeenCalledWith('shopping_list', 5);
 
@@ -352,7 +357,11 @@ describe('pollMealieForCheckedItems', () => {
     mockedGetGrocyEntities.mockResolvedValue([grocySi] as any);
     mockedDeleteGrocyEntity.mockRejectedValue(new Error('Delete failed'));
 
-    await pollMealieForCheckedItems();
+    const result = await pollMealieForCheckedItems();
+    expect(result.events).toEqual([
+      expect.objectContaining({ kind: 'mutation', details: expect.objectContaining({ amount: 1 }) }),
+      expect.objectContaining({ kind: 'issue', level: 'warning', message: expect.stringContaining('Delete failed') }),
+    ]);
 
     // Stock was added
     expect(mockedAddProductStock).toHaveBeenCalledWith(101, 1);
@@ -792,7 +801,11 @@ describe('pollMealieForCheckedItems', () => {
       .mockResolvedValueOnce([]) // 201 succeeds
       .mockRejectedValueOnce(new Error('Grocy 500')); // 202 fails
 
-    await pollMealieForCheckedItems();
+    const result = await pollMealieForCheckedItems();
+    expect(result.events?.filter(event => event.kind === 'mutation')).toEqual([
+      expect.objectContaining({ productName: 'Volle Melk', details: expect.objectContaining({ amount: 2, grocyProductId: 201 }) }),
+    ]);
+    expect(result.events).toContainEqual(expect.objectContaining({ kind: 'issue', productName: 'Halfvolle Melk' }));
 
     // Item removed from newCheckedState for retry
     const finalSave = mockedSaveSyncState.mock.calls.at(-1)![0];

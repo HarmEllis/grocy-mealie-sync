@@ -1349,4 +1349,36 @@ describe('pollGrocyForMissingStock', () => {
     });
   });
 
+  it('records the actual shopping list quantity change and its stock-shortage cause', async () => {
+    mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 2 } }));
+    mockedGetVolatileStock.mockResolvedValue({ missing_products: [mockMissingProduct({ id: 101, amount_missing: 4 })] });
+    mockedFetchItems.mockResolvedValue([mockMealieShoppingItem({ id: 'milk-item', foodId: DEFAULT_MAPPING.mealieFoodId, checked: false, quantity: 3 })]);
+    const result = await pollGrocyForMissingStock();
+    expect(result.events).toEqual([expect.objectContaining({
+      kind: 'mutation', source: 'Grocy', target: 'Mealie', productName: DEFAULT_MAPPING.grocyProductName,
+      reason: "Grocy's stock shortage changed from 2 to 4.",
+      details: expect.objectContaining({ before: 3, after: 5, deficit: 4, mealieItemId: 'milk-item' }),
+    })]);
+  });
+
+  it('does not record a mutation for an unchanged item that is already on the list', async () => {
+    mockedResolveEnsureLowStockOnMealieList.mockResolvedValue(true);
+    mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 2 } }));
+    mockedGetVolatileStock.mockResolvedValue({ missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })] });
+    mockedFetchItems.mockResolvedValue([mockMealieShoppingItem({ foodId: DEFAULT_MAPPING.mealieFoodId, checked: false, quantity: 2 })]);
+    const result = await pollGrocyForMissingStock();
+    expect(result.events).toEqual([]);
+  });
+
+  it('keeps a successful shopping list write if saving sync state subsequently fails', async () => {
+    mockedGetVolatileStock.mockResolvedValue({ missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })] });
+    mockedSaveSyncState.mockRejectedValueOnce(new Error('State write failed'));
+    const result = await pollGrocyForMissingStock();
+    expect(result.status).toBe('error');
+    expect(result.events).toEqual([
+      expect.objectContaining({ kind: 'mutation', details: expect.objectContaining({ before: 0, after: 2 }) }),
+      expect.objectContaining({ kind: 'issue', message: expect.stringContaining('State write failed') }),
+    ]);
+  });
+
 });

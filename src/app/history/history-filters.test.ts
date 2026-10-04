@@ -13,6 +13,7 @@ describe('history filters', () => {
       action: 'settings_update',
       trigger: 'manual',
     })).toEqual({
+      kind: null,
       search: 'settings',
       action: 'settings_update',
       trigger: 'manual',
@@ -29,6 +30,7 @@ describe('history filters', () => {
       action: 'invalid_action',
       trigger: 'invalid_trigger',
     })).toEqual({
+      kind: null,
       search: '',
       action: null,
       trigger: null,
@@ -49,10 +51,10 @@ describe('history filters', () => {
       status: null,
       dateFrom: null,
       dateTo: null,
-    })).toBe('page=2&q=stock&trigger=scheduler');
+    })).toBe('q=stock&trigger=scheduler');
   });
 
-  it('keeps unrelated params when all history filters are cleared', () => {
+  it('resets pagination when all history filters are cleared', () => {
     const searchParams = new URLSearchParams('page=2&q=old&action=settings_update&trigger=manual');
 
     expect(buildHistoryFilterSearchParams(searchParams, {
@@ -62,7 +64,7 @@ describe('history filters', () => {
       status: null,
       dateFrom: null,
       dateTo: null,
-    })).toBe('page=2');
+    })).toBe('');
   });
 
   it('returns action filter options sorted alphabetically by label', () => {

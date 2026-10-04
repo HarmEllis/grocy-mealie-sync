@@ -13,6 +13,24 @@ Bi-directional sync service between [Grocy](https://grocy.info/) (inventory mana
 
 The service polls both APIs on a configurable interval (default: 60 seconds).
 
+## History
+
+History shows individual changes with their product, quantity, source and reason:
+checked Mealie items adding Grocy stock, stock shortages updating the Mealie
+shopping list, possession flag changes, product mappings and checked-item cleanup.
+Scanner purchases, consumption, opening stock, shopping list requests, product
+creation and barcode linking are marked as **Scanner** actions.
+
+Search by product name (including either mapped name or sub-product names), or
+filter by source, date, and **Changes** / **Errors & warnings**. Each entry links
+to the related changes from the same action. Completed writes remain visible
+when a later step fails; routine checks without changes are hidden. Older
+activity is available through pagination. Existing history is preserved, but
+older sync summaries cannot supply product details that were never recorded.
+
+`HISTORY_RETENTION_DAYS` controls retention (default: 7 days); `-1` disables
+history and clears it on startup.
+
 ## Prerequisites
 
 - A running **Grocy** instance (tested with Grocy 4.x)

@@ -1,6 +1,11 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import net from 'node:net';
+import fs from 'node:fs';
+import path from 'node:path';
+import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 
 import { chromium, devices } from 'playwright';
 
@@ -52,11 +57,43 @@ function spawnNpmProcess(args, envOverrides = {}) {
   return child;
 }
 
-function startDevServer(port) {
+function startDevServer(port, databasePath) {
   return spawnNpmProcess(['run', 'dev', '--', '--hostname', HOST, '--port', String(port)], {
     AUTH_ENABLED: 'false',
     HISTORY_RETENTION_DAYS: '30',
+    DATABASE_PATH: databasePath,
+    GROCY_URL: 'http://127.0.0.1:1', MEALIE_URL: 'http://127.0.0.1:1',
+    GROCY_API_KEY: 'history-test', MEALIE_API_TOKEN: 'history-test',
   });
+}
+
+function createTestDatabase() {
+  fs.mkdirSync('data', { recursive: true });
+  const directory = fs.mkdtempSync(path.resolve('data/history-playwright-'));
+  const databasePath = path.join(directory, 'sync.db');
+  const sqlite = new Database(databasePath);
+  try {
+    migrate(drizzle(sqlite), { migrationsFolder: path.resolve('drizzle') });
+    // Keep the real scheduler passive; this test exercises only the history UI.
+    sqlite.prepare('INSERT INTO runtime_locks (name, owner_id, expires_at) VALUES (?, ?, ?)')
+      .run('scheduler-startup', 'playwright-history', Date.now() + 3_600_000);
+    const now = Math.floor(Date.now() / 1000);
+    const insertRun = sqlite.prepare('INSERT INTO history_runs (id, trigger, action, status, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?)');
+    const insertEvent = sqlite.prepare('INSERT INTO history_events (id, run_id, level, kind, category, entity_kind, product_name, source, target, reason, message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const add = (id, trigger, kind, product, source, target, message, reason, time = now) => {
+      insertRun.run(id, trigger, trigger === 'scanner' ? 'inventory_consume_stock' : 'scheduler_cycle', kind === 'issue' ? 'failure' : 'success', time, time);
+      insertEvent.run(`event-${id}`, id, kind === 'issue' ? 'error' : 'info', kind, 'inventory', 'product', product, source, target, reason, message, time * 1000);
+    };
+    add('milk-purchase', 'scheduler', 'mutation', 'Milk', 'Mealie', 'Grocy', 'Added 2 to Grocy stock for "Milk".', 'Milk was checked off on the Mealie shopping list.');
+    add('milk-scanner', 'scanner', 'mutation', 'Milk', 'Scanner', 'Grocy', 'Consumed 1 from Grocy stock for "Milk".', 'Consume requested on the scanner.');
+    add('milk-error', 'scheduler', 'issue', 'Milk', 'Grocy', 'Mealie', 'Could not update the Mealie shopping list for "Milk".', 'Mealie could not be reached.');
+    add('rice-purchase', 'scheduler', 'mutation', 'Rice', 'Mealie', 'Grocy', 'Added 1 to Grocy stock for "Rice".', 'Rice was checked off in Mealie.');
+    for (let index = 0; index < 51; index++) add(`bread-${index}`, 'scheduler', 'mutation', 'Bread', 'Grocy', 'Mealie', `Added Bread to the Mealie shopping list (${index}).`, 'Grocy stock fell below the minimum.', now - 100 - index);
+    add('quiet', 'scheduler', 'diagnostic', null, null, null, 'Sync completed with no changes.', '', now + 1);
+    return { directory, databasePath };
+  } finally {
+    sqlite.close();
+  }
 }
 
 function buildTargetUrl(port) {
@@ -144,7 +181,8 @@ async function stopServer(child) {
 async function main() {
   const port = await getAvailablePort();
   const targetUrl = buildTargetUrl(port);
-  const server = startDevServer(port);
+  const testDatabase = createTestDatabase();
+  const server = startDevServer(port, testDatabase.databasePath);
 
   try {
     await waitForPage(`${targetUrl}/history`, server, STARTUP_TIMEOUT_MS);
@@ -164,6 +202,33 @@ async function main() {
 
       await page.goto(`${targetUrl}/history`, { waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(2_000);
+      if (await page.locator('article').count() !== 50) throw new Error('Expected a full page of 50 individual changes.');
+      if (await page.getByText('Sync completed with no changes.').count()) throw new Error('Routine sync diagnostics should be hidden.');
+      await page.getByRole('link', { name: 'Older activity' }).click();
+      await page.waitForURL('**/history?page=2');
+      if (await page.locator('article').count() !== 5) throw new Error('Expected older activity to remain accessible on page 2.');
+      await page.getByLabel('Search history').fill('Milk');
+      await page.waitForURL('**/history?q=Milk');
+      if (await page.locator('article').count() !== 3) throw new Error('Product search should show only the three Milk changes and issues.');
+      if (await page.locator('article').filter({ hasText: 'Rice' }).count()) throw new Error('Product search must not include other products from sync runs.');
+      await page.getByLabel('Filter by trigger').click();
+      await page.getByRole('option', { name: 'Scanner', exact: true }).click();
+      await page.waitForURL('**trigger=scanner**');
+      if (await page.locator('article').count() !== 1) throw new Error('Expected only the scanner consumption.');
+      await page.getByRole('link', { name: 'Related changes' }).click();
+      await page.waitForURL('**/history/milk-scanner#event-milk-scanner');
+      if (!await page.getByText('Consume requested on the scanner.', { exact: true }).isVisible()) throw new Error('Related changes must preserve the scanner cause.');
+      await page.goto(`${targetUrl}/history?kind=issue&q=Milk`, { waitUntil: 'domcontentloaded' });
+      if (await page.locator('article').count() !== 1) throw new Error('Expected only the Milk sync issue.');
+      await page.goto(`${targetUrl}/history?q=Milk`, { waitUntil: 'domcontentloaded' });
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+      if (overflow) throw new Error('History should fit the mobile viewport without horizontal scrolling.');
+      if (process.env.PLAYWRIGHT_ARTIFACT_DIR) {
+        fs.mkdirSync(process.env.PLAYWRIGHT_ARTIFACT_DIR, { recursive: true });
+        await page.screenshot({ path: path.join(process.env.PLAYWRIGHT_ARTIFACT_DIR, 'history-mobile.png'), fullPage: true, caret: 'initial' });
+        await page.setViewportSize({ width: 1440, height: 1000 });
+        await page.screenshot({ path: path.join(process.env.PLAYWRIGHT_ARTIFACT_DIR, 'history-desktop.png'), fullPage: true, caret: 'initial' });
+      }
 
       const input = page.getByLabel('Search history');
       await input.click();
@@ -191,6 +256,7 @@ async function main() {
     }
   } finally {
     await stopServer(server);
+    fs.rmSync(testDatabase.directory, { recursive: true, force: true });
   }
 }
 

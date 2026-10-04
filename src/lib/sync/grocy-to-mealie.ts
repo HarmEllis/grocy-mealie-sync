@@ -15,6 +15,8 @@ import { syncMealieInPossessionFromGrocy, type MealieInPossessionSyncResult } fr
 import { getSyncState, saveSyncState } from './state';
 import { fetchAllMealieShoppingItems } from './helpers';
 import { eq } from 'drizzle-orm';
+import type { HistoryEventInput } from '../history-store';
+import { activityEvent, describeSyncError } from './activity';
 import {
   GMS_NAMES_KEY,
   GMS_NOTE_KEY,
@@ -33,6 +35,7 @@ interface PollGrocyForMissingStockOptions {
 }
 
 interface AdjustMealieShoppingItemOptions {
+  history?: { events: HistoryEventInput[]; reason: string; deficit?: number };
   createQuantityWhenMissing?: number;
   grocyProductName?: string;
   logWhenMappingMissing?: boolean;
@@ -60,6 +63,7 @@ export interface GrocyMissingStockPollResult {
   inPossessionError?: string;
   inPossessionSummary?: MealieInPossessionSyncResult['summary'];
   summary: GrocyMissingStockSyncSummary;
+  events?: HistoryEventInput[];
 }
 
 type AdjustMealieShoppingItemResult = 'ensured' | 'unmapped';
@@ -92,6 +96,7 @@ export async function pollGrocyForMissingStock(
 
   const shoppingListId = await resolveShoppingListId();
   const summary = createEmptySummary();
+  const events: HistoryEventInput[] = [];
   const lowStockSyncSkipped = !shoppingListId;
 
   try {
@@ -270,6 +275,7 @@ export async function pollGrocyForMissingStock(
           grocyProductsById,
           {
             grocyProductName: entry.effectiveName,
+            history: { events, reason: `Grocy stock is below the minimum; ${entry.amount_missing} missing.`, deficit: entry.amount_missing },
             ...(syncSubProducts ? { subProducts: entry.subProducts } : {}),
           },
         );
@@ -292,6 +298,7 @@ export async function pollGrocyForMissingStock(
           grocyProductsById,
           {
             grocyProductName: entry.effectiveName,
+            history: { events, reason: `Grocy's stock shortage changed from ${effectivePreviousMap.get(entry.effectiveId)} to ${entry.amount_missing}.`, deficit: entry.amount_missing },
             createQuantityWhenMissing: ensureAllPresent ? entry.amount_missing : undefined,
             ...(syncSubProducts ? { subProducts: entry.subProducts } : {}),
           },
@@ -316,6 +323,7 @@ export async function pollGrocyForMissingStock(
           grocyProductsById,
           {
             grocyProductName: entry.effectiveName,
+            history: { events, reason: `Grocy stock is still below the minimum; ensuring ${entry.amount_missing} missing are on the Mealie list.`, deficit: entry.amount_missing },
             createQuantityWhenMissing: entry.amount_missing,
             logWhenMappingMissing: logUnmappedPresenceCheckProducts,
             ...(syncSubProducts ? { subProducts: entry.subProducts } : {}),
@@ -354,7 +362,10 @@ export async function pollGrocyForMissingStock(
           mealieShoppingItems,
           grocyProductsById,
           // Clear managed sub-product note/extras if item stays on list with remaining user qty
-          syncSubProducts ? { subProducts: [] } : {},
+          {
+            ...(syncSubProducts ? { subProducts: [] } : {}),
+            history: { events, reason: 'Grocy stock reached its minimum again; removing its previous shopping list contribution.', deficit: 0 },
+          },
         );
         if (result === 'ensured') restocked++;
       }
@@ -395,6 +406,7 @@ export async function pollGrocyForMissingStock(
     }
 
     const inPossessionResult = await syncMealieInPossessionFromGrocy(state);
+    events.push(...(inPossessionResult.events ?? []));
     if (inPossessionResult.status === 'error') {
       log.error(
         `[Grocy→Mealie] "In possession" sync failed after low-stock processing completed${inPossessionResult.error ? `: ${inPossessionResult.error}` : ''}`,
@@ -421,6 +433,7 @@ export async function pollGrocyForMissingStock(
         inPossessionError: inPossessionResult.error,
         inPossessionSummary: inPossessionResult.summary,
         summary,
+        events,
       };
     }
 
@@ -432,6 +445,7 @@ export async function pollGrocyForMissingStock(
         inPossessionError: inPossessionResult.error,
         inPossessionSummary: inPossessionResult.summary,
         summary,
+        events,
       };
     }
 
@@ -441,12 +455,21 @@ export async function pollGrocyForMissingStock(
       inPossessionError: inPossessionResult.error,
       inPossessionSummary: inPossessionResult.summary,
       summary,
+      events,
     };
   } catch (error) {
     log.error('[Grocy→Mealie] Error polling Grocy:', error);
+    if (!events.some(event => event.level === 'error')) {
+      events.push(activityEvent({
+        level: 'error', source: 'Grocy', target: 'Mealie',
+        message: `Grocy to Mealie sync failed: ${describeSyncError(error)}`,
+        reason: 'Could not complete the low-stock sync.', details: { error: describeSyncError(error) },
+      }));
+    }
     return {
       status: 'error',
       summary,
+      events,
     };
   }
 }
@@ -482,6 +505,26 @@ async function adjustMealieShoppingItem(
   grocyProductsById: Map<number, GrocyProductWithParent>,
   options: AdjustMealieShoppingItemOptions = {},
 ): Promise<AdjustMealieShoppingItemResult> {
+  try {
+    return await applyMealieShoppingAdjustment(grocyProductId, delta, shoppingListId, mealieShoppingItems, grocyProductsById, options);
+  } catch (error) {
+    options.history?.events.push(activityEvent({
+      level: 'error', source: 'Grocy', target: 'Mealie', productName: options.grocyProductName ?? grocyProductsById.get(grocyProductId)?.name,
+      entityRef: `grocy:${grocyProductId}`, message: `Could not update the Mealie shopping list: ${describeSyncError(error)}`,
+      reason: options.history.reason, details: { grocyProductId, delta, error: describeSyncError(error) },
+    }));
+    throw error;
+  }
+}
+
+async function applyMealieShoppingAdjustment(
+  grocyProductId: number,
+  delta: number,
+  shoppingListId: string,
+  mealieShoppingItems: MealieShoppingItem[],
+  grocyProductsById: Map<number, GrocyProductWithParent>,
+  options: AdjustMealieShoppingItemOptions,
+): Promise<AdjustMealieShoppingItemResult> {
   const mappings = await db.select()
     .from(productMappings)
     .where(eq(productMappings.grocyProductId, grocyProductId))
@@ -496,6 +539,16 @@ async function adjustMealieShoppingItem(
   }
 
   const mapping = mappings[0];
+  const recordChange = (message: string, before: number | null, after: number | null, itemId?: string) => {
+    options.history?.events.push(activityEvent({
+      source: 'Grocy', target: 'Mealie', productName: mapping.grocyProductName,
+      category: 'shopping', entityKind: 'shopping_item', entityRef: `grocy:${grocyProductId}`,
+      message, reason: options.history.reason,
+      details: { grocyProductId, grocyProductName: mapping.grocyProductName, mealieFoodId: mapping.mealieFoodId,
+        mealieFoodName: mapping.mealieFoodName, shoppingListId, mealieItemId: itemId,
+        before, after, deficit: options.history.deficit, subProducts: options.subProducts },
+    }));
+  };
 
   const unitId = await resolveMappedMealieUnitId(mapping.grocyProductId, mapping.unitMappingId, grocyProductsById);
 
@@ -549,6 +602,7 @@ async function adjustMealieShoppingItem(
               extras: subProductExtras,
             }
           );
+          recordChange(`Updated sub-product details for "${mapping.mealieFoodName}" on the Mealie shopping list.`, existingItem.quantity ?? 0, existingItem.quantity ?? 0, existingItem.id);
         }
       }
       return 'ensured';
@@ -560,6 +614,7 @@ async function adjustMealieShoppingItem(
     if (newQty <= 0) {
       // Remove item entirely
       await HouseholdsShoppingListItemsService.deleteOneApiHouseholdsShoppingItemsItemIdDelete(existingItem.id);
+      recordChange(`Removed "${mapping.mealieFoodName}" from the Mealie shopping list (${currentQty} → 0).`, currentQty, 0, existingItem.id);
       log.info(`[Grocy→Mealie] Removed "${mapping.mealieFoodName}" from list (qty ${currentQty} → 0)`);
     } else {
       // Update quantity (and note/extras if sub-products are tracked)
@@ -576,6 +631,7 @@ async function adjustMealieShoppingItem(
           ...(subProductExtras !== undefined ? { extras: subProductExtras } : {}),
         }
       );
+      recordChange(`Changed "${mapping.mealieFoodName}" on the Mealie shopping list: ${currentQty} → ${newQty}.`, currentQty, newQty, existingItem.id);
     }
   } else {
     const createQuantity = options.createQuantityWhenMissing ?? delta;
@@ -586,7 +642,7 @@ async function adjustMealieShoppingItem(
     // No existing item, create new one
     logCombinedSubProducts(options.grocyProductName ?? grocyProductsById.get(grocyProductId)?.name ?? `#${grocyProductId}`, options.subProducts);
     log.info(`[Grocy→Mealie] Adding "${mapping.mealieFoodName}" to Mealie shopping list (qty: ${createQuantity})`);
-    await HouseholdsShoppingListItemsService.createOneApiHouseholdsShoppingItemsPost({
+    const created = await HouseholdsShoppingListItemsService.createOneApiHouseholdsShoppingItemsPost({
       shoppingListId: shoppingListId,
       foodId: mapping.mealieFoodId,
       unitId: unitId || undefined,
@@ -595,6 +651,7 @@ async function adjustMealieShoppingItem(
       ...(subProductNote !== undefined ? { note: subProductNote } : {}),
       ...(subProductExtras !== undefined ? { extras: subProductExtras } : {}),
     });
+    recordChange(`Added "${mapping.mealieFoodName}" to the Mealie shopping list (quantity ${createQuantity}).`, 0, createQuantity, created?.createdItems?.[0]?.id);
   }
   return 'ensured';
 }

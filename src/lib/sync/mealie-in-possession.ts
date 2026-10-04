@@ -10,6 +10,8 @@ import {
   resolveSyncMealieInPossession,
 } from '../settings';
 import { getSyncState, saveSyncState, type SyncStateData } from './state';
+import type { HistoryEventInput } from '../history-store';
+import { activityEvent, describeSyncError } from './activity';
 
 export interface MealieInPossessionSyncSummary {
   processedProducts: number;
@@ -26,6 +28,7 @@ export interface MealieInPossessionSyncResult {
   /** Human-readable failure cause, so history/dashboard can show why the sync failed. */
   error?: string;
   summary: MealieInPossessionSyncSummary;
+  events?: HistoryEventInput[];
 }
 
 function createEmptySummary(): MealieInPossessionSyncSummary {
@@ -112,6 +115,7 @@ async function runMealieInPossessionSync(
   options: { forceFull: boolean; respectEnabledSetting: boolean },
 ): Promise<MealieInPossessionSyncResult> {
   const summary = createEmptySummary();
+  const events: HistoryEventInput[] = [];
 
   if (options.respectEnabledSetting) {
     const syncEnabled = await resolveSyncMealieInPossession();
@@ -166,6 +170,11 @@ async function runMealieInPossessionSync(
       const grocyProduct = grocyProductById.get(mapping.grocyProductId);
 
       if (!grocyProduct) {
+        events.push(activityEvent({
+          level: 'error', source: 'Grocy', target: 'Mealie', productName: mapping.grocyProductName,
+          entityRef: `grocy:${mapping.grocyProductId}`, message: `Could not sync "In possession" for "${mapping.mealieFoodName}".`,
+          reason: 'The mapped Grocy product no longer exists.', details: { ...mapping },
+        }));
         summary.failedProducts++;
         if (previousKnown !== undefined) {
           nextTracked[trackingKey] = previousKnown;
@@ -229,6 +238,12 @@ async function runMealieInPossessionSync(
 
         nextTracked[trackingKey] = desired;
         summary.updatedProducts++;
+        events.push(activityEvent({
+          source: 'Grocy', target: 'Mealie', productName: mapping.grocyProductName,
+          entityRef: `grocy:${mapping.grocyProductId}`, message: `${desired ? 'Enabled' : 'Disabled'} "In possession" for "${mapping.mealieFoodName}" in Mealie.`,
+          reason: `Grocy effective stock is ${effectiveStock}; ${onlyAboveMinStock ? `must be above minimum ${grocyProduct.min_stock_amount ?? 0}` : 'any stock above 0 counts as in possession'}.`,
+          details: { ...mapping, before: !desired, after: desired, rawStock, openedStock, effectiveStock, onlyAboveMinStock, minStockAmount: Number(grocyProduct.min_stock_amount ?? 0) },
+        }));
         if (desired) {
           summary.enabledProducts++;
         } else {
@@ -239,6 +254,11 @@ async function runMealieInPossessionSync(
           `[Grocy→Mealie] ${desired ? 'Enabled' : 'Disabled'} "In possession" for "${mapping.mealieFoodName}"`,
         );
       } catch (error) {
+        events.push(activityEvent({
+          level: 'error', source: 'Grocy', target: 'Mealie', productName: mapping.grocyProductName,
+          entityRef: `grocy:${mapping.grocyProductId}`, message: `Could not sync "In possession" for "${mapping.mealieFoodName}": ${describeSyncError(error)}`,
+          reason: 'The Mealie possession flag should follow Grocy stock.', details: { ...mapping, error: describeSyncError(error) },
+        }));
         summary.failedProducts++;
         if (previousKnown !== undefined) {
           nextTracked[trackingKey] = previousKnown;
@@ -266,13 +286,19 @@ async function runMealieInPossessionSync(
     return {
       status: 'ok',
       summary,
+      events,
     };
   } catch (error) {
     log.error('[Grocy→Mealie] Failed to run "In possession" sync:', error);
+    events.push(activityEvent({
+      level: 'error', source: 'Grocy', target: 'Mealie', message: `In possession sync failed: ${describeSyncError(error)}`,
+      reason: 'Could not reconcile the Mealie possession flags with Grocy stock.', details: { error: describeSyncError(error) },
+    }));
     return {
       status: 'error',
       error: error instanceof Error ? error.message : String(error),
       summary,
+      events,
     };
   }
 }

@@ -4,11 +4,11 @@ import { useEffect, useRef, useState, useTransition } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { Input } from '@/components/ui/input';
-import { formatHistoryStatusLabel } from '@/lib/history-events';
-import { historyRunStatuses, type HistoryRunAction, type HistoryRunStatus, type HistoryRunTrigger } from '@/lib/history-types';
-import { buildHistoryFilterSearchParams, dateRangePresets, getHistoryActionFilterOptions, resolveDateRangePreset, type DateRangePreset } from './history-filters';
+import { type HistoryRunAction, type HistoryRunStatus, type HistoryRunTrigger } from '@/lib/history-types';
+import { buildHistoryFilterSearchParams, dateRangePresets, resolveDateRangePreset, type DateRangePreset } from './history-filters';
 
 interface HistoryFiltersBarProps {
+  kind: 'mutation' | 'issue' | null;
   search: string;
   action: HistoryRunAction | null;
   trigger: HistoryRunTrigger | null;
@@ -17,27 +17,28 @@ interface HistoryFiltersBarProps {
   dateTo: string | null;
 }
 
-const historyActionOptions = getHistoryActionFilterOptions();
 const historyTriggerOptions: Array<{ value: HistoryRunTrigger; label: string }> = [
   { value: 'manual', label: 'Manual' },
-  { value: 'scheduler', label: 'Scheduler' },
+  { value: 'scheduler', label: 'Automatic' },
+  { value: 'scanner', label: 'Scanner' },
 ];
-const historyStatusOptions: Array<{ value: HistoryRunStatus; label: string }> =
-  historyRunStatuses.map(s => ({ value: s, label: formatHistoryStatusLabel(s) }));
+const historyKindOptions: Array<{ value: 'mutation' | 'issue'; label: string }> = [
+  { value: 'mutation', label: 'Changes' }, { value: 'issue', label: 'Errors & warnings' },
+];
 const HISTORY_SEARCH_DEBOUNCE_MS = 500;
 
-export function HistoryFiltersBar({ search, action, trigger, status, dateFrom, dateTo }: HistoryFiltersBarProps) {
+export function HistoryFiltersBar({ search, action, trigger, status, dateFrom, dateTo, kind }: HistoryFiltersBarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
   const [searchValue, setSearchValue] = useState(search);
-  const [actionValue, setActionValue] = useState<HistoryRunAction | null>(action);
   const [triggerValue, setTriggerValue] = useState<HistoryRunTrigger | null>(trigger);
-  const [statusValue, setStatusValue] = useState<HistoryRunStatus | null>(status);
+  const [kindValue, setKindValue] = useState<'mutation' | 'issue' | null>(kind);
   const [dateFromValue, setDateFromValue] = useState<string | null>(dateFrom);
   const [dateToValue, setDateToValue] = useState<string | null>(dateTo);
   const [datePreset, setDatePreset] = useState<DateRangePreset | null>(null);
+  const [showDates, setShowDates] = useState(Boolean(dateFrom || dateTo));
   const lastSubmittedSearchRef = useRef(search);
 
   useEffect(() => {
@@ -49,9 +50,8 @@ export function HistoryFiltersBar({ search, action, trigger, status, dateFrom, d
     setSearchValue(search);
   }, [search]);
 
-  useEffect(() => { setActionValue(action); }, [action]);
   useEffect(() => { setTriggerValue(trigger); }, [trigger]);
-  useEffect(() => { setStatusValue(status); }, [status]);
+  useEffect(() => { setKindValue(kind); }, [kind]);
   useEffect(() => { setDateFromValue(dateFrom); }, [dateFrom]);
   useEffect(() => { setDateToValue(dateTo); }, [dateTo]);
 
@@ -60,6 +60,7 @@ export function HistoryFiltersBar({ search, action, trigger, status, dateFrom, d
     action: HistoryRunAction | null;
     trigger: HistoryRunTrigger | null;
     status: HistoryRunStatus | null;
+    kind: 'mutation' | 'issue' | null;
     dateFrom: string | null;
     dateTo: string | null;
   }) {
@@ -71,6 +72,7 @@ export function HistoryFiltersBar({ search, action, trigger, status, dateFrom, d
       action: nextValues.action,
       trigger: nextValues.trigger,
       status: nextValues.status,
+      kind: nextValues.kind,
       dateFrom: nextValues.dateFrom,
       dateTo: nextValues.dateTo,
     });
@@ -83,9 +85,10 @@ export function HistoryFiltersBar({ search, action, trigger, status, dateFrom, d
   function currentFilterValues() {
     return {
       search: searchValue,
-      action: actionValue,
+      action,
       trigger: triggerValue,
-      status: statusValue,
+      status,
+      kind: kindValue,
       dateFrom: dateFromValue,
       dateTo: dateToValue,
     };
@@ -101,24 +104,10 @@ export function HistoryFiltersBar({ search, action, trigger, status, dateFrom, d
     }, HISTORY_SEARCH_DEBOUNCE_MS);
 
     return () => window.clearTimeout(timeout);
-  }, [actionValue, search, searchValue, triggerValue, statusValue, dateFromValue, dateToValue]);
+  }, [action, search, searchValue, triggerValue, status, kindValue, dateFromValue, dateToValue]);
 
   return (
-    <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center">
-      <SearchableSelect
-        options={historyActionOptions}
-        value={actionValue}
-        onChange={(nextAction) => {
-          setActionValue(nextAction);
-          replaceFilters({ ...currentFilterValues(), action: nextAction });
-        }}
-        ariaLabel="Filter by action"
-        placeholder="All actions"
-        searchPlaceholder="Search actions..."
-        className="w-full lg:w-[220px]"
-        controlClassName="h-10 lg:h-8"
-      />
-
+    <div className="mb-4 grid grid-cols-2 gap-2 lg:flex lg:flex-wrap lg:items-center">
       <SearchableSelect
         options={historyTriggerOptions}
         value={triggerValue}
@@ -127,81 +116,87 @@ export function HistoryFiltersBar({ search, action, trigger, status, dateFrom, d
           replaceFilters({ ...currentFilterValues(), trigger: nextTrigger });
         }}
         ariaLabel="Filter by trigger"
-        placeholder="All triggers"
-        searchPlaceholder="Search triggers..."
-        className="w-full lg:w-[120px]"
-        controlClassName="h-10 lg:h-8"
-      />
-
-      <SearchableSelect
-        options={historyStatusOptions}
-        value={statusValue}
-        onChange={(nextStatus) => {
-          setStatusValue(nextStatus);
-          replaceFilters({ ...currentFilterValues(), status: nextStatus });
-        }}
-        ariaLabel="Filter by status"
-        placeholder="All statuses"
-        searchPlaceholder="Search statuses..."
-        className="w-full lg:w-[140px]"
-        controlClassName="h-10 lg:h-8"
-      />
-
-      <SearchableSelect
-        options={dateRangePresets}
-        value={datePreset}
-        onChange={(preset) => {
-          setDatePreset(preset);
-          if (preset) {
-            const { from, to } = resolveDateRangePreset(preset);
-            setDateFromValue(from);
-            setDateToValue(to);
-            replaceFilters({ ...currentFilterValues(), dateFrom: from, dateTo: to });
-          } else {
-            setDateFromValue(null);
-            setDateToValue(null);
-            replaceFilters({ ...currentFilterValues(), dateFrom: null, dateTo: null });
-          }
-        }}
-        ariaLabel="Date range"
-        placeholder="All dates"
-        searchPlaceholder="Search presets..."
+        placeholder="All sources"
+        searchPlaceholder="Search sources..."
         className="w-full lg:w-[150px]"
         controlClassName="h-10 lg:h-8"
       />
 
-      <Input
-        type="date"
-        value={dateFromValue ?? ''}
-        onChange={(event) => {
-          const val = event.target.value || null;
-          setDateFromValue(val);
-          setDatePreset(null);
-          replaceFilters({ ...currentFilterValues(), dateFrom: val });
+      <SearchableSelect
+        options={historyKindOptions}
+        value={kindValue}
+        onChange={(nextKind) => {
+          setKindValue(nextKind);
+          replaceFilters({ ...currentFilterValues(), kind: nextKind });
         }}
-        aria-label="Date from"
-        className="h-10 w-full lg:h-8 lg:w-[140px]"
+        ariaLabel="Filter by activity"
+        placeholder="Changes & issues"
+        searchPlaceholder="Search activity types..."
+        className="w-full lg:w-[180px]"
+        controlClassName="h-10 lg:h-8"
       />
 
-      <Input
-        type="date"
-        value={dateToValue ?? ''}
-        onChange={(event) => {
-          const val = event.target.value || null;
-          setDateToValue(val);
-          setDatePreset(null);
-          replaceFilters({ ...currentFilterValues(), dateTo: val });
-        }}
-        aria-label="Date to"
-        className="h-10 w-full lg:h-8 lg:w-[140px]"
-      />
+      <button type="button" aria-expanded={showDates} onClick={() => setShowDates(!showDates)} className="col-span-2 min-h-9 text-left text-xs text-text-2 lg:hidden">
+        Date filters {dateFromValue || dateToValue ? '(active)' : ''} {showDates ? '▴' : '▾'}
+      </button>
+
+      <div className={showDates ? 'contents' : 'hidden lg:contents'}>
+        <SearchableSelect
+          options={dateRangePresets}
+          value={datePreset}
+          onChange={(preset) => {
+            setDatePreset(preset);
+            if (preset) {
+              const { from, to } = resolveDateRangePreset(preset);
+              setDateFromValue(from);
+              setDateToValue(to);
+              replaceFilters({ ...currentFilterValues(), dateFrom: from, dateTo: to });
+            } else {
+              setDateFromValue(null);
+              setDateToValue(null);
+              replaceFilters({ ...currentFilterValues(), dateFrom: null, dateTo: null });
+            }
+          }}
+          ariaLabel="Date range"
+          placeholder="All dates"
+          searchPlaceholder="Search presets..."
+          className="col-span-2 w-full lg:w-[150px]"
+          controlClassName="h-10 lg:h-8"
+        />
+
+        <Input
+          type="date"
+          value={dateFromValue ?? ''}
+          onChange={(event) => {
+            const val = event.target.value || null;
+            setDateFromValue(val);
+            setDatePreset(null);
+            replaceFilters({ ...currentFilterValues(), dateFrom: val });
+          }}
+          aria-label="Date from"
+          className="h-10 w-full lg:h-8 lg:w-[140px]"
+        />
+        <Input
+          type="date"
+          value={dateToValue ?? ''}
+          onChange={(event) => {
+            const val = event.target.value || null;
+            setDateToValue(val);
+            setDatePreset(null);
+            replaceFilters({ ...currentFilterValues(), dateTo: val });
+          }}
+          aria-label="Date to"
+          className="h-10 w-full lg:h-8 lg:w-[140px]"
+        />
+
+      </div>
 
       <Input
-        placeholder="Filter history..."
+        placeholder="Search products or changes..."
         value={searchValue}
         onChange={(event) => setSearchValue(event.target.value)}
         aria-label="Search history"
-        className="h-10 w-full sm:col-span-2 lg:h-8 lg:max-w-[280px]"
+        className="order-first col-span-2 h-10 w-full lg:order-none lg:h-8 lg:max-w-[280px]"
       />
     </div>
   );

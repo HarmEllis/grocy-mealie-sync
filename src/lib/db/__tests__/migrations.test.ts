@@ -43,6 +43,42 @@ describe('SQLite migrations', () => {
     }
   });
 
+  it('upgrades existing history without losing manual changes or exposing routine sync summaries', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gms-history-upgrade-'));
+    tempDirs.push(tempDir);
+    const journal = readDrizzleJournal();
+    const oldEntries = journal.entries.filter(entry => entry.idx < 10);
+    fs.mkdirSync(path.join(tempDir, 'meta'));
+    fs.writeFileSync(path.join(tempDir, 'meta/_journal.json'), JSON.stringify({ version: '7', dialect: 'sqlite', entries: oldEntries }));
+    for (const entry of oldEntries) fs.copyFileSync(path.resolve(`drizzle/${entry.tag}.sql`), path.join(tempDir, `${entry.tag}.sql`));
+    const sqlite = new Database(':memory:');
+    try {
+      const db = drizzle(sqlite);
+      migrate(db, { migrationsFolder: tempDir });
+      sqlite.exec(`
+        INSERT INTO history_runs (id, trigger, action, status, started_at, finished_at) VALUES
+          ('manual', 'manual', 'inventory_add_stock', 'success', 1, 2),
+          ('sync', 'scheduler', 'scheduler_cycle', 'success', 1, 2);
+        INSERT INTO history_events (id, run_id, level, category, entity_kind, message, details_json, created_at) VALUES
+          ('purchase', 'manual', 'info', 'inventory', 'product', 'Added stock.', '{"name":"Milk"}', 2),
+          ('quiet', 'sync', 'info', 'sync', NULL, 'Sync completed.', NULL, 2),
+          ('backlog', 'sync', 'warning', 'sync', NULL, 'Grocy to Mealie: Sync completed.', NULL, 2),
+          ('failure', 'sync', 'error', 'sync', NULL, 'API failed.', 'invalid legacy JSON', 2);
+      `);
+      migrate(db, { migrationsFolder: path.resolve('drizzle') });
+      expect(sqlite.prepare('SELECT id, kind, product_name FROM history_events ORDER BY id').all()).toEqual([
+        { id: 'backlog', kind: 'diagnostic', product_name: null },
+        { id: 'failure', kind: 'issue', product_name: null },
+        { id: 'purchase', kind: 'mutation', product_name: 'Milk' },
+        { id: 'quiet', kind: 'diagnostic', product_name: null },
+      ]);
+      expect(sqlite.prepare('SELECT count(*) AS count FROM history_runs').get()).toEqual({ count: 2 });
+      expect(sqlite.prepare('SELECT created_at FROM history_events WHERE id = ?').get('purchase')).toEqual({ created_at: 2000 });
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it('repairs databases that skipped later schema migrations because of out-of-order journal timestamps', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gms-migrate-'));
     tempDirs.push(tempDir);

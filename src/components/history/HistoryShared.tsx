@@ -35,7 +35,7 @@ export function HistoryDisabledState() {
     <div className="space-y-4">
       <PageHeader
         title="History"
-        subtitle="Operational audit trail for sync runs and manual actions across the web UI and MCP server."
+        subtitle="Product changes and issues from sync, manual and scanner actions."
       />
 
       <AppCard>
