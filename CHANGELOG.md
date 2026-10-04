@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.17.0] - 2026-10-04
+
+This minor release makes History show the changes that happened to each product, including scanner actions, with their quantity, source and reason. Routine checks stay out of the activity feed, while errors and completed writes remain visible even when a later sync step fails.
+
+### Added
+
+- Product activity for stock purchases, low-stock shopping list updates, possession changes, product mappings and checked-item cleanup, with links to related changes from the same action.
+- Scanner activity for purchases, consumption, opening stock, shopping list requests, product creation and barcode linking.
+- History filters for product name, source, date, and changes or errors and warnings, plus pagination for older activity. Search also matches mapped names and sub-product names.
+
+### Changed
+
+- History focuses on individual changes instead of routine sync summaries. Existing history is preserved and classified during the database upgrade; older summaries retain only the product details that were originally recorded.
+- Repeated scheduler errors are suppressed until a change or recovery, with daily reminders for ongoing failures and reminders every 12 hours when history retention is one day.
+- Refreshed dependencies to resolve security advisories.
+
+### Fixed
+
+- Completed writes and their product details remain in History when a later operation fails.
+- Partial sync results preserve their counters, failure status and terminal error details instead of reporting success or losing earlier changes.
+- History upgrades hide routine checks and backlog summaries, preserve manual changes, and keep event timestamps consistent for sorting and date filters.
+
 ## [1.16.0] - 2026-08-30
 
 This minor release makes the Mapping Wizard usable on a large catalogue. Bulk actions now handle a selection of any size instead of failing above 500 items, the page no longer runs out of memory with thousands of products, editing a row is roughly twice as fast, and the unit column only offers units a mapping can actually store.
@@ -370,6 +392,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.17.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.16.0...v1.17.0
 [1.16.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.15.0...v1.16.0
 [1.15.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.14.2...v1.15.0
 [1.14.2]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.14.1...v1.14.2
