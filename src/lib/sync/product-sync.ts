@@ -66,7 +66,10 @@ function findUnitMappingByGrocyId(
   return match ? match.id : null;
 }
 
-export async function syncUnits(events: HistoryEventInput[] = []): Promise<UnitSyncSummary> {
+export async function syncUnits(
+  events: HistoryEventInput[] = [],
+  summary: UnitSyncSummary = { created: 0, linked: 0, skipped: 0 },
+): Promise<UnitSyncSummary> {
   log.info('[ProductSync] Starting unit sync');
 
   const autoCreateUnits = await resolveAutoCreateUnits();
@@ -79,10 +82,6 @@ export async function syncUnits(events: HistoryEventInput[] = []): Promise<UnitS
   const existingUnitMappings = await db.select().from(unitMappings);
   const mappedMealieUnitIds = new Set(existingUnitMappings.map(mapping => mapping.mealieUnitId));
 
-  let created = 0;
-  let linked = 0;
-  let skipped = 0;
-
   for (const mUnit of mealieUnits) {
     if (!mUnit.id) continue;
     if (mappedMealieUnitIds.has(mUnit.id)) continue;
@@ -92,10 +91,11 @@ export async function syncUnits(events: HistoryEventInput[] = []): Promise<UnitS
       gu.name?.toLowerCase() === mUnit.name?.toLowerCase() ||
       (mUnit.abbreviation && gu.name?.toLowerCase() === mUnit.abbreviation?.toLowerCase())
     );
+    const matchedExistingUnit = Boolean(gUnit);
 
     if (!gUnit) {
       if (!autoCreateUnits) {
-        skipped++;
+        summary.skipped++;
         continue;
       }
       const result = await createGrocyEntity('quantity_units', {
@@ -104,23 +104,22 @@ export async function syncUnits(events: HistoryEventInput[] = []): Promise<UnitS
       });
 
       gUnit = { id: result.created_object_id, name: mUnit.name || 'Unknown' };
+      summary.created++;
       events.push(activityEvent({
         source: 'Mealie', target: 'Grocy', category: 'mapping', entityKind: 'unit', entityRef: `grocy-unit:${gUnit.id}`,
         message: `Created Grocy unit "${gUnit.name}".`, reason: 'A Mealie unit had no matching Grocy unit and automatic unit creation is enabled.',
         details: { grocyUnitId: gUnit.id, mealieUnitId: mUnit.id },
       }));
       grocyUnits.push(gUnit);
-      created++;
     } else {
       const conflict = findUnitMappingConflict(existingUnitMappings, mUnit.id, Number(gUnit.id));
       if (conflict) {
         log.warn(
           `[ProductSync] Skipping Mealie unit "${mUnit.name || mUnit.id}" — ${formatUnitMappingConflictMessage(conflict)}`,
         );
-        skipped++;
+        summary.skipped++;
         continue;
       }
-      linked++;
     }
 
     const newMapping = {
@@ -135,6 +134,7 @@ export async function syncUnits(events: HistoryEventInput[] = []): Promise<UnitS
       updatedAt: new Date(),
     };
     await db.insert(unitMappings).values(newMapping);
+    if (matchedExistingUnit) summary.linked++;
     events.push(activityEvent({
       source: 'Mealie', target: 'Grocy', category: 'mapping', entityKind: 'unit', entityRef: newMapping.id,
       message: `Linked Mealie unit "${newMapping.mealieUnitName}" to Grocy unit "${newMapping.grocyUnitName}".`,
@@ -144,19 +144,18 @@ export async function syncUnits(events: HistoryEventInput[] = []): Promise<UnitS
     mappedMealieUnitIds.add(mUnit.id);
   }
 
-  if (skipped > 0) {
-    log.info(`[ProductSync] ${skipped} unit(s) skipped — enable "Auto-create units" in settings or use the Mapping Wizard`);
+  if (summary.skipped > 0) {
+    log.info(`[ProductSync] ${summary.skipped} unit(s) skipped — enable "Auto-create units" in settings or use the Mapping Wizard`);
   }
-  log.info(`[ProductSync] Units done: ${created} created, ${linked} linked, ${skipped} skipped`);
+  log.info(`[ProductSync] Units done: ${summary.created} created, ${summary.linked} linked, ${summary.skipped} skipped`);
 
-  return {
-    created,
-    linked,
-    skipped,
-  };
+  return summary;
 }
 
-export async function syncProducts(events: HistoryEventInput[] = []): Promise<ProductSyncSummary> {
+export async function syncProducts(
+  events: HistoryEventInput[] = [],
+  summary: ProductSyncSummary = { created: 0, linked: 0, skipped: 0, backfilled: 0 },
+): Promise<ProductSyncSummary> {
   log.info('[ProductSync] Starting product sync');
 
   const mealieFoodsRes = await RecipesFoodsService.getAllApiFoodsGet(
@@ -171,27 +170,24 @@ export async function syncProducts(events: HistoryEventInput[] = []): Promise<Pr
 
   const autoCreateProducts = await resolveAutoCreateProducts();
 
-  let created = 0;
-  let linked = 0;
-  let skipped = 0;
-
   for (const mFood of mealieFoods) {
     if (!mFood.id) continue;
     if (mappedMealieFoodIds.has(mFood.id)) continue;
 
     // B1.4: Match by name (case-insensitive)
     let gProd = grocyProducts.find(gp => gp.name?.toLowerCase() === mFood.name?.toLowerCase());
+    const matchedExistingProduct = Boolean(gProd);
     let unitMappingId: string | null = null;
 
     if (!gProd) {
       if (!autoCreateProducts) {
-        skipped++;
+        summary.skipped++;
         continue;
       }
       // New product: requires an explicitly configured default unit
       const defaultUnit = await resolveDefaultUnit(allUnitMappings);
       if (!defaultUnit) {
-        skipped++;
+        summary.skipped++;
         continue;
       }
       unitMappingId = defaultUnit.unitMappingId;
@@ -200,7 +196,7 @@ export async function syncProducts(events: HistoryEventInput[] = []): Promise<Pr
       const locationId = await getDefaultLocationId();
       if (locationId === null) {
         log.error(`[ProductSync] Skipping product "${mFood.name}" — no Grocy location available`);
-        skipped++;
+        summary.skipped++;
         continue;
       }
 
@@ -214,13 +210,13 @@ export async function syncProducts(events: HistoryEventInput[] = []): Promise<Pr
         });
 
         gProd = { id: result.created_object_id, name: mFood.name || 'Unknown' };
+        summary.created++;
         events.push(activityEvent({
           source: 'Mealie', target: 'Grocy', category: 'product', productName: gProd.name, entityRef: `grocy:${gProd.id}`,
           message: `Created Grocy product "${gProd.name}".`, reason: 'A Mealie food had no matching Grocy product and automatic product creation is enabled.',
           details: { grocyProductId: gProd.id, mealieFoodId: mFood.id, mealieFoodName: mFood.name },
         }));
         grocyProducts.push(gProd);
-        created++;
       } catch (e) {
         events.push(activityEvent({
           level: 'error', source: 'Mealie', target: 'Grocy', category: 'product', productName: mFood.name,
@@ -236,7 +232,7 @@ export async function syncProducts(events: HistoryEventInput[] = []): Promise<Pr
         log.warn(
           `[ProductSync] Skipping Mealie food "${mFood.name || mFood.id}" — ${formatProductMappingConflictMessage(conflict)}`,
         );
-        skipped++;
+        summary.skipped++;
         continue;
       }
       // Linked product: read actual unit from Grocy (use in-memory lookup — task 9)
@@ -244,7 +240,6 @@ export async function syncProducts(events: HistoryEventInput[] = []): Promise<Pr
       if (grocyUnitId) {
         unitMappingId = findUnitMappingByGrocyId(allUnitMappings, grocyUnitId);
       }
-      linked++;
     }
 
     const newMapping = {
@@ -258,6 +253,7 @@ export async function syncProducts(events: HistoryEventInput[] = []): Promise<Pr
       updatedAt: new Date(),
     };
     await db.insert(productMappings).values(newMapping);
+    if (matchedExistingProduct) summary.linked++;
     events.push(activityEvent({
       source: 'Mealie', target: 'Grocy', category: 'mapping', productName: newMapping.grocyProductName,
       entityRef: `grocy:${newMapping.grocyProductId}`, message: `Linked Mealie food "${newMapping.mealieFoodName}" to Grocy product "${newMapping.grocyProductName}".`,
@@ -272,7 +268,6 @@ export async function syncProducts(events: HistoryEventInput[] = []): Promise<Pr
   const emptyMappings = await db.select().from(productMappings).where(
     or(isNull(productMappings.unitMappingId), eq(productMappings.unitMappingId, ''))
   );
-  let backfilled = 0;
   if (emptyMappings.length > 0) {
     log.info(`[ProductSync] Backfilling ${emptyMappings.length} product mapping(s) with missing unit`);
     for (const mapping of emptyMappings) {
@@ -286,7 +281,7 @@ export async function syncProducts(events: HistoryEventInput[] = []): Promise<Pr
             await db.update(productMappings)
               .set({ unitMappingId: umId, updatedAt: new Date() })
               .where(eq(productMappings.id, mapping.id));
-            backfilled++;
+            summary.backfilled++;
             events.push(activityEvent({
               source: 'Grocy', target: 'App', category: 'mapping', productName: mapping.grocyProductName,
               entityRef: `grocy:${mapping.grocyProductId}`, message: `Linked the missing unit mapping for "${mapping.grocyProductName}".`,
@@ -298,17 +293,12 @@ export async function syncProducts(events: HistoryEventInput[] = []): Promise<Pr
     }
   }
 
-  if (skipped > 0) {
-    log.info(`[ProductSync] ${skipped} product(s) skipped — enable "Auto-create products" in settings or use the Mapping Wizard`);
+  if (summary.skipped > 0) {
+    log.info(`[ProductSync] ${summary.skipped} product(s) skipped — enable "Auto-create products" in settings or use the Mapping Wizard`);
   }
-  log.info(`[ProductSync] Products done: ${created} created, ${linked} linked, ${skipped} skipped`);
+  log.info(`[ProductSync] Products done: ${summary.created} created, ${summary.linked} linked, ${summary.skipped} skipped`);
 
-  return {
-    created,
-    linked,
-    skipped,
-    backfilled,
-  };
+  return summary;
 }
 
 export async function runFullProductSync(): Promise<FullProductSyncResult> {
@@ -318,8 +308,8 @@ export async function runFullProductSync(): Promise<FullProductSyncResult> {
     products: { created: 0, linked: 0, skipped: 0, backfilled: 0 },
   };
   try {
-    summary.units = await syncUnits(events);
-    summary.products = await syncProducts(events);
+    await syncUnits(events, summary.units);
+    await syncProducts(events, summary.products);
     log.info('[ProductSync] Full sync complete');
     return { status: events.some(event => event.level === 'error') ? 'partial' : 'ok', summary, events };
   } catch (error) {

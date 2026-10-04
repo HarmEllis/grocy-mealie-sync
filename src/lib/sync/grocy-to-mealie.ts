@@ -35,7 +35,7 @@ interface PollGrocyForMissingStockOptions {
 }
 
 interface AdjustMealieShoppingItemOptions {
-  history?: { events: HistoryEventInput[]; reason: string; deficit?: number };
+  history?: { events: HistoryEventInput[]; recordedErrors: Set<unknown>; reason: string; deficit?: number };
   createQuantityWhenMissing?: number;
   grocyProductName?: string;
   logWhenMappingMissing?: boolean;
@@ -97,6 +97,7 @@ export async function pollGrocyForMissingStock(
   const shoppingListId = await resolveShoppingListId();
   const summary = createEmptySummary();
   const events: HistoryEventInput[] = [];
+  const recordedErrors = new Set<unknown>();
   const lowStockSyncSkipped = !shoppingListId;
 
   try {
@@ -275,7 +276,7 @@ export async function pollGrocyForMissingStock(
           grocyProductsById,
           {
             grocyProductName: entry.effectiveName,
-            history: { events, reason: `Grocy stock is below the minimum; ${entry.amount_missing} missing.`, deficit: entry.amount_missing },
+            history: { events, recordedErrors, reason: `Grocy stock is below the minimum; ${entry.amount_missing} missing.`, deficit: entry.amount_missing },
             ...(syncSubProducts ? { subProducts: entry.subProducts } : {}),
           },
         );
@@ -298,7 +299,7 @@ export async function pollGrocyForMissingStock(
           grocyProductsById,
           {
             grocyProductName: entry.effectiveName,
-            history: { events, reason: `Grocy's stock shortage changed from ${effectivePreviousMap.get(entry.effectiveId)} to ${entry.amount_missing}.`, deficit: entry.amount_missing },
+            history: { events, recordedErrors, reason: `Grocy's stock shortage changed from ${effectivePreviousMap.get(entry.effectiveId)} to ${entry.amount_missing}.`, deficit: entry.amount_missing },
             createQuantityWhenMissing: ensureAllPresent ? entry.amount_missing : undefined,
             ...(syncSubProducts ? { subProducts: entry.subProducts } : {}),
           },
@@ -323,7 +324,7 @@ export async function pollGrocyForMissingStock(
           grocyProductsById,
           {
             grocyProductName: entry.effectiveName,
-            history: { events, reason: `Grocy stock is still below the minimum; ensuring ${entry.amount_missing} missing are on the Mealie list.`, deficit: entry.amount_missing },
+            history: { events, recordedErrors, reason: `Grocy stock is still below the minimum; ensuring ${entry.amount_missing} missing are on the Mealie list.`, deficit: entry.amount_missing },
             createQuantityWhenMissing: entry.amount_missing,
             logWhenMappingMissing: logUnmappedPresenceCheckProducts,
             ...(syncSubProducts ? { subProducts: entry.subProducts } : {}),
@@ -364,7 +365,7 @@ export async function pollGrocyForMissingStock(
           // Clear managed sub-product note/extras if item stays on list with remaining user qty
           {
             ...(syncSubProducts ? { subProducts: [] } : {}),
-            history: { events, reason: 'Grocy stock reached its minimum again; removing its previous shopping list contribution.', deficit: 0 },
+            history: { events, recordedErrors, reason: 'Grocy stock reached its minimum again; removing its previous shopping list contribution.', deficit: 0 },
           },
         );
         if (result === 'ensured') restocked++;
@@ -459,7 +460,7 @@ export async function pollGrocyForMissingStock(
     };
   } catch (error) {
     log.error('[Grocy→Mealie] Error polling Grocy:', error);
-    if (!events.some(event => event.level === 'error')) {
+    if (!recordedErrors.has(error)) {
       events.push(activityEvent({
         level: 'error', source: 'Grocy', target: 'Mealie',
         message: `Grocy to Mealie sync failed: ${describeSyncError(error)}`,
@@ -513,6 +514,7 @@ async function adjustMealieShoppingItem(
       entityRef: `grocy:${grocyProductId}`, message: `Could not update the Mealie shopping list: ${describeSyncError(error)}`,
       reason: options.history.reason, details: { grocyProductId, delta, error: describeSyncError(error) },
     }));
+    options.history?.recordedErrors.add(error);
     throw error;
   }
 }
