@@ -6,6 +6,22 @@ import {
 } from '../manage';
 
 describe('unit conversion use-cases', () => {
+  it.each([0, -1, NaN, Infinity])('rejects an invalid factor %s before acquiring the lock', async factor => {
+    const deps = { acquireSyncLock: vi.fn(() => true), releaseSyncLock: vi.fn(), listGrocyConversions: vi.fn(async () => []), createGrocyConversion: vi.fn() };
+    await expect(createUnitConversion({ fromGrocyUnitId: 1, toGrocyUnitId: 2, factor }, deps)).rejects.toThrow('positive finite factor');
+    expect(deps.acquireSyncLock).not.toHaveBeenCalled();
+    expect(deps.createGrocyConversion).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('rejects conflicting existing factors (reverse=%s) and releases the lock', async reverse => {
+    const deps = { acquireSyncLock: vi.fn(() => true), releaseSyncLock: vi.fn(),
+      listGrocyConversions: vi.fn(async () => [{ id: 1, from_qu_id: reverse ? 2 : 1, to_qu_id: reverse ? 1 : 2, factor: reverse ? 0.002 : 500, product_id: null }]),
+      createGrocyConversion: vi.fn() };
+    await expect(createUnitConversion({ fromGrocyUnitId: 1, toGrocyUnitId: 2, factor: 1000 }, deps)).rejects.toMatchObject({ code: 'CONVERSION_CONFLICT' });
+    expect(deps.createGrocyConversion).not.toHaveBeenCalled();
+    expect(deps.releaseSyncLock).toHaveBeenCalledOnce();
+  });
+
   it('lists all conversions with unit names resolved', async () => {
     const result = await listConversions({
       listGrocyConversions: vi.fn(async () => [

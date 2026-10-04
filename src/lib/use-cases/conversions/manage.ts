@@ -7,6 +7,11 @@ import {
   type QuantityUnitConversion,
 } from '@/lib/grocy/types';
 import { defaultSyncLockDeps, runWithSyncLock, type SyncLockDeps } from '@/lib/use-cases/shared/sync-lock';
+import { factorsEqual } from '@/lib/conversions/catalog';
+
+export class ConversionConflictError extends Error {
+  readonly code = 'CONVERSION_CONFLICT';
+}
 
 export interface ConversionEntry {
   id: number;
@@ -122,17 +127,21 @@ export async function createUnitConversion(
     'acquireSyncLock' | 'releaseSyncLock' | 'listGrocyConversions' | 'createGrocyConversion'
   > = defaultDeps,
 ): Promise<CreateUnitConversionResult> {
+  if (!Number.isInteger(params.fromGrocyUnitId) || params.fromGrocyUnitId <= 0 || !Number.isInteger(params.toGrocyUnitId) || params.toGrocyUnitId <= 0 || params.fromGrocyUnitId === params.toGrocyUnitId || !Number.isFinite(params.factor) || params.factor <= 0) {
+    throw new Error('A conversion requires two different positive unit IDs and a positive finite factor.');
+  }
   return runWithSyncLock(deps, async () => {
     const existingConversions = await deps.listGrocyConversions();
     const productId = params.grocyProductId ?? null;
 
     const duplicate = existingConversions.find(
-      c => c.from_qu_id === params.fromGrocyUnitId
-        && c.to_qu_id === params.toGrocyUnitId
-        && (c.product_id ?? null) === productId,
+      c => Number(c.from_qu_id) === params.fromGrocyUnitId
+        && Number(c.to_qu_id) === params.toGrocyUnitId
+        && (c.product_id != null ? Number(c.product_id) : null) === productId,
     );
 
     if (duplicate) {
+      if (!factorsEqual(Number(duplicate.factor), params.factor)) throw new ConversionConflictError(`An existing conversion has factor ${duplicate.factor}; the requested factor is ${params.factor}.`);
       return {
         created: false,
         conversionId: Number(duplicate.id ?? 0) || null,
@@ -148,12 +157,13 @@ export async function createUnitConversion(
     }
 
     const reverse = existingConversions.find(
-      c => c.from_qu_id === params.toGrocyUnitId
-        && c.to_qu_id === params.fromGrocyUnitId
-        && (c.product_id ?? null) === productId,
+      c => Number(c.from_qu_id) === params.toGrocyUnitId
+        && Number(c.to_qu_id) === params.fromGrocyUnitId
+        && (c.product_id != null ? Number(c.product_id) : null) === productId,
     );
 
     if (reverse) {
+      if (!factorsEqual(1 / Number(reverse.factor), params.factor)) throw new ConversionConflictError(`The reverse conversion implies factor ${1 / Number(reverse.factor)}; the requested factor is ${params.factor}.`);
       return {
         created: false,
         conversionId: Number(reverse.id ?? 0) || null,

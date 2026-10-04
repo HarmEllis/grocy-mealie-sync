@@ -6,6 +6,7 @@ import path from 'node:path';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const tests = [
+  'test-conversions.mjs',
   'test-history-search.mjs',
   'test-mapping-wizard-refresh.mjs',
   'test-mapped-products-mobile.mjs',

@@ -108,6 +108,8 @@ import { registerShoppingResources } from './resources/shopping';
 import { registerUnitResources } from './resources/units';
 import { registerConflictTools } from './tools/conflicts';
 import { registerConversionTools } from './tools/conversions';
+import { registerConversionLibrary } from './tools/conversion-library';
+import { previewConversionImport, importConversionLibrary } from '@/lib/use-cases/conversions/library';
 import { registerDiagnosticTools } from './tools/diagnostics';
 import { registerHistoryTools } from './tools/history';
 import { registerInventoryTools } from './tools/inventory';
@@ -226,6 +228,11 @@ export function createGrocyMealieSyncMcpServer(
       }),
       ...overrides.conversions,
     },
+    conversionLibrary: {
+      previewConversionImport,
+      importConversionLibrary: input => importConversionLibrary(input, undefined, 'mcp'),
+      ...overrides.conversionLibrary,
+    },
     history: {
       listRecentHistoryResource,
       getHistoryRunResource,
@@ -265,6 +272,7 @@ export function createGrocyMealieSyncMcpServer(
   registerMappingTools(server, services.mappings);
   registerUnitTools(server, services.units);
   registerConversionTools(server, services.conversions);
+  registerConversionLibrary(server, services.conversionLibrary, services.conversions);
   registerHistoryTools(server, services.history);
   registerConflictTools(server, services.conflicts);
   registerDiagnosticTools(server, services.diagnostics);

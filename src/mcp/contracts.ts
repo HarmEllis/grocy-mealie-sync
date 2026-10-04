@@ -229,6 +229,11 @@ export interface ConversionMcpServices {
   deleteUnitConversion(params: DeleteUnitConversionParams): Promise<DeleteUnitConversionResult>;
 }
 
+export interface ConversionLibraryMcpServices {
+  previewConversionImport: typeof import('@/lib/use-cases/conversions/library').previewConversionImport;
+  importConversionLibrary(input: unknown): Promise<import('@/lib/conversions/contracts').ImportResult>;
+}
+
 export interface HistoryMcpServices {
   listRecentHistoryResource(params?: ListRecentHistoryParams): Promise<RecentHistoryResource>;
   getHistoryRunResource(params: GetHistoryRunParams): Promise<HistoryRunResource>;
@@ -261,6 +266,7 @@ export interface GrocyMealieSyncMcpServices {
   mappings: MappingMcpServices;
   units: UnitMcpServices;
   conversions: ConversionMcpServices;
+  conversionLibrary: ConversionLibraryMcpServices;
   history: HistoryMcpServices;
   conflicts: ConflictMcpServices;
   diagnostics: DiagnosticsMcpServices;
@@ -275,6 +281,7 @@ export interface GrocyMealieSyncMcpServiceOverrides {
   mappings?: Partial<MappingMcpServices>;
   units?: Partial<UnitMcpServices>;
   conversions?: Partial<ConversionMcpServices>;
+  conversionLibrary?: Partial<ConversionLibraryMcpServices>;
   history?: Partial<HistoryMcpServices>;
   conflicts?: Partial<ConflictMcpServices>;
   diagnostics?: Partial<DiagnosticsMcpServices>;

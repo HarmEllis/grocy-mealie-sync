@@ -41,6 +41,8 @@ export interface UnitCatalogMealieUnit {
   pluralAbbreviation: string | null;
   aliases: string[];
   mappingId: string | null;
+  standardQuantity?: number | null;
+  standardUnit?: string | null;
 }
 
 export interface UnitCatalogResource {
@@ -79,6 +81,8 @@ export interface CreateMealieUnitParams {
   description?: string | null;
   fraction?: boolean;
   useAbbreviation?: boolean;
+  standardQuantity?: number | null;
+  standardUnit?: string | null;
 }
 
 export interface CreateMealieUnitResult {
@@ -116,6 +120,8 @@ export interface UpdateMealieUnitMetadataParams {
   abbreviation?: string;
   pluralAbbreviation?: string | null;
   aliases?: string[];
+  standardQuantity?: number | null;
+  standardUnit?: string | null;
 }
 
 export interface UpdateMealieUnitMetadataResult {
@@ -126,12 +132,22 @@ export interface UpdateMealieUnitMetadataResult {
     abbreviation?: string;
     pluralAbbreviation?: string | null;
     aliases?: string[];
+    standardQuantity?: number | null;
+    standardUnit?: string | null;
   };
 }
 
 function requireUnitMetadataUpdate(targetLabel: string, updated: Record<string, unknown>) {
   if (Object.keys(updated).length === 0) {
     throw new Error(`Provide at least one field to update the ${targetLabel}.`);
+  }
+}
+
+function validateStandardization(params: { standardQuantity?: number | null; standardUnit?: string | null }) {
+  if (params.standardQuantity === undefined && params.standardUnit === undefined) return;
+  if (params.standardQuantity === null && params.standardUnit === null) return;
+  if (!(typeof params.standardQuantity === 'number' && Number.isFinite(params.standardQuantity) && params.standardQuantity > 0 && params.standardUnit?.trim())) {
+    throw new Error('Provide a positive standardQuantity and a standardUnit together, or null for both to clear them.');
   }
 }
 
@@ -493,10 +509,11 @@ const defaultDeps: UnitManageDeps = {
 
 export async function getUnitCatalog(
   deps: Pick<UnitManageDeps, 'listGrocyUnits' | 'listMealieUnits' | 'listUnitMappings'> = defaultDeps,
+  target: 'both' | 'grocy' = 'both',
 ): Promise<UnitCatalogResource> {
   const [grocyUnits, mealieUnits, mappings] = await Promise.all([
     deps.listGrocyUnits(),
-    deps.listMealieUnits(),
+    target === 'both' ? deps.listMealieUnits() : Promise.resolve([]),
     deps.listUnitMappings(),
   ]);
 
@@ -527,6 +544,8 @@ export async function getUnitCatalog(
         pluralAbbreviation: unit.pluralAbbreviation || null,
         aliases: parseAliasNames(unit.aliases),
         mappingId: mappingByMealieUnitId.get(unit.id) ?? null,
+        ...(unit.standardQuantity !== undefined ? { standardQuantity: unit.standardQuantity } : {}),
+        ...(unit.standardUnit !== undefined ? { standardUnit: unit.standardUnit } : {}),
       }))
       .sort((left, right) => left.name.localeCompare(right.name)),
   };
@@ -587,6 +606,7 @@ export async function createMealieUnit(
   > = defaultDeps,
 ): Promise<CreateMealieUnitResult> {
   return runWithSyncLock(deps, async () => {
+    validateStandardization(params);
     const normalizedName = normalizeUnitName(params.name);
     const exactMatches = (await deps.listMealieUnits())
       .filter(unit => normalizeUnitName(unit.name) === normalizedName);
@@ -614,6 +634,8 @@ export async function createMealieUnit(
       fraction: params.fraction,
       useAbbreviation: params.useAbbreviation ?? Boolean(params.abbreviation),
       aliases: aliases.map(name => ({ name })),
+      ...(params.standardQuantity !== undefined ? { standardQuantity: params.standardQuantity } : {}),
+      ...(params.standardUnit !== undefined ? { standardUnit: params.standardUnit } : {}),
     });
 
     return {
@@ -674,6 +696,7 @@ export async function updateMealieUnitMetadata(
   > = defaultDeps,
 ): Promise<UpdateMealieUnitMetadataResult> {
   return runWithSyncLock(deps, async () => {
+    validateStandardization(params);
     const updated: UpdateMealieUnitMetadataResult['updated'] = {};
 
     if (params.name !== undefined) {
@@ -695,6 +718,8 @@ export async function updateMealieUnitMetadata(
     if (params.aliases !== undefined) {
       updated.aliases = params.aliases;
     }
+    if (params.standardQuantity !== undefined) updated.standardQuantity = params.standardQuantity;
+    if (params.standardUnit !== undefined) updated.standardUnit = params.standardUnit;
 
     requireUnitMetadataUpdate('Mealie unit', updated);
 
@@ -713,6 +738,10 @@ export async function updateMealieUnitMetadata(
       aliases: params.aliases
         ? params.aliases.map(name => ({ name }))
         : (currentUnit.aliases ?? []),
+      ...(currentUnit.standardQuantity !== undefined ? { standardQuantity: currentUnit.standardQuantity } : {}),
+      ...(currentUnit.standardUnit !== undefined ? { standardUnit: currentUnit.standardUnit } : {}),
+      ...(params.standardQuantity !== undefined ? { standardQuantity: params.standardQuantity } : {}),
+      ...(params.standardUnit !== undefined ? { standardUnit: params.standardUnit } : {}),
     };
 
     await deps.updateMealieUnit(params.mealieUnitId, payload);
