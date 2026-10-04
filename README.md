@@ -24,8 +24,10 @@ creation and barcode linking are marked as **Scanner** actions.
 Search by product name (including either mapped name or sub-product names), or
 filter by source, date, and **Changes** / **Errors & warnings**. Each entry links
 to the related changes from the same action. Completed writes remain visible
-when a later step fails; routine checks without changes are hidden. Older
-activity is available through pagination. Existing history is preserved, but
+when a later step fails; routine checks without changes are hidden.
+Repeated scheduler errors are suppressed between changes or recovery, with a
+daily reminder for ongoing failures (every 12 hours with one-day retention).
+Older activity is available through pagination. Existing history is preserved, but
 older sync summaries cannot supply product details that were never recorded.
 
 `HISTORY_RETENTION_DAYS` controls retention (default: 7 days); `-1` disables

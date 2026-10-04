@@ -58,21 +58,34 @@ describe('SQLite migrations', () => {
       sqlite.exec(`
         INSERT INTO history_runs (id, trigger, action, status, started_at, finished_at) VALUES
           ('manual', 'manual', 'inventory_add_stock', 'success', 1, 2),
-          ('sync', 'scheduler', 'scheduler_cycle', 'success', 1, 2);
+          ('sync', 'scheduler', 'scheduler_cycle', 'partial', 1, 2),
+          ('conflict-check', 'manual', 'conflict_check', 'success', 1, 2),
+          ('cleanup', 'manual', 'shopping_cleanup', 'success', 1, 2),
+          ('shopping', 'manual', 'shopping_remove_item', 'success', 1, 2);
         INSERT INTO history_events (id, run_id, level, category, entity_kind, message, details_json, created_at) VALUES
           ('purchase', 'manual', 'info', 'inventory', 'product', 'Added stock.', '{"name":"Milk"}', 2),
           ('quiet', 'sync', 'info', 'sync', NULL, 'Sync completed.', NULL, 2),
           ('backlog', 'sync', 'warning', 'sync', NULL, 'Grocy to Mealie: Sync completed.', NULL, 2),
+          ('conflict-step', 'sync', 'warning', 'conflict', NULL, 'Conflict check step partial.', NULL, 2),
+          ('conflict-summary', 'conflict-check', 'info', 'conflict', NULL, 'Completed. Open conflicts: none.', NULL, 2),
+          ('cleanup-summary', 'cleanup', 'info', 'shopping', NULL, 'Cleanup completed.', '{"removedItems":0}', 2),
+          ('shopping-write', 'shopping', 'info', 'shopping', 'shopping_item', 'Removed Milk.', '{"foodName":"Milk"}', 2),
+          ('step-failure', 'sync', 'error', 'sync', NULL, 'Grocy to Mealie step failed.', '{"error":"API failed"}', 2),
           ('failure', 'sync', 'error', 'sync', NULL, 'API failed.', 'invalid legacy JSON', 2);
       `);
       migrate(db, { migrationsFolder: path.resolve('drizzle') });
       expect(sqlite.prepare('SELECT id, kind, product_name FROM history_events ORDER BY id').all()).toEqual([
         { id: 'backlog', kind: 'diagnostic', product_name: null },
+        { id: 'cleanup-summary', kind: 'diagnostic', product_name: null },
+        { id: 'conflict-step', kind: 'diagnostic', product_name: null },
+        { id: 'conflict-summary', kind: 'diagnostic', product_name: null },
         { id: 'failure', kind: 'issue', product_name: null },
         { id: 'purchase', kind: 'mutation', product_name: 'Milk' },
         { id: 'quiet', kind: 'diagnostic', product_name: null },
+        { id: 'shopping-write', kind: 'mutation', product_name: 'Milk' },
+        { id: 'step-failure', kind: 'issue', product_name: null },
       ]);
-      expect(sqlite.prepare('SELECT count(*) AS count FROM history_runs').get()).toEqual({ count: 2 });
+      expect(sqlite.prepare('SELECT count(*) AS count FROM history_runs').get()).toEqual({ count: 5 });
       expect(sqlite.prepare('SELECT created_at FROM history_events WHERE id = ?').get('purchase')).toEqual({ created_at: 2000 });
     } finally {
       sqlite.close();

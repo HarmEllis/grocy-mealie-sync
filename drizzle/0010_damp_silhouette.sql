@@ -6,13 +6,14 @@ ALTER TABLE `history_events` ADD `reason` text;--> statement-breakpoint
 CREATE INDEX `idx_history_events_kind_created_at` ON `history_events` (`kind`,`created_at`,`id`);--> statement-breakpoint
 UPDATE `history_events` SET `kind` = 'mutation'
 WHERE `level` = 'info' AND `category` <> 'sync'
-AND `run_id` IN (SELECT `id` FROM `history_runs` WHERE `trigger` = 'manual' AND `status` IN ('success', 'partial') AND `action` <> 'product_sync');--> statement-breakpoint
+AND `run_id` IN (SELECT `id` FROM `history_runs` WHERE `trigger` = 'manual' AND `status` IN ('success', 'partial') AND `action` NOT IN ('product_sync', 'conflict_check', 'shopping_cleanup'));--> statement-breakpoint
 UPDATE `history_events` SET `kind` = 'issue'
 WHERE `level` IN ('warning', 'error')
 AND `run_id` IN (SELECT `id` FROM `history_runs` WHERE `status` <> 'skipped')
 AND `message` NOT LIKE '%Sync completed.'
 AND `message` NOT LIKE '%sync skipped.'
 AND `message` NOT LIKE '%step skipped.'
+AND NOT (`level` = 'warning' AND `message` LIKE '% step partial.' AND `run_id` IN (SELECT `id` FROM `history_runs` WHERE `action` = 'scheduler_cycle'))
 AND `message` NOT LIKE '%Completed. Open conflicts:%';--> statement-breakpoint
 UPDATE `history_events` SET `product_name` = coalesce(
   json_extract(`details_json`, '$.grocyProductName'), json_extract(`details_json`, '$.mealieFoodName'),

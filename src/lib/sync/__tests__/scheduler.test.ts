@@ -4,8 +4,10 @@ const mockState = vi.hoisted(() => ({
   config: {
     pollIntervalSeconds: 10,
     productSyncIntervalHours: 6,
+    historyRetentionDays: 7,
   },
   runFullProductSync: vi.fn(),
+  runShoppingCleanup: vi.fn(),
   runMappingConflictCheck: vi.fn(),
   recordHistoryRun: vi.fn(),
   sendSchedulerNotifications: vi.fn(),
@@ -26,6 +28,10 @@ vi.mock('../../config', () => ({
 
 vi.mock('../product-sync', () => ({
   runFullProductSync: mockState.runFullProductSync,
+}));
+
+vi.mock('../shopping-cleanup', () => ({
+  runShoppingCleanup: mockState.runShoppingCleanup,
 }));
 
 vi.mock('../../mapping-conflicts-store', () => ({
@@ -87,6 +93,9 @@ async function flushAsyncWork() {
 describe('scheduler startup lock', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    mockState.config.pollIntervalSeconds = 10;
+    mockState.config.productSyncIntervalHours = 6;
+    mockState.config.historyRetentionDays = 7;
     mockState.runFullProductSync.mockReset();
     mockState.runFullProductSync.mockResolvedValue({
       status: 'ok',
@@ -94,6 +103,11 @@ describe('scheduler startup lock', () => {
         units: { created: 0, linked: 0, skipped: 0 },
         products: { created: 0, linked: 0, skipped: 0, backfilled: 0 },
       },
+    });
+    mockState.runShoppingCleanup.mockReset();
+    mockState.runShoppingCleanup.mockResolvedValue({
+      status: 'skipped', reason: 'disabled',
+      summary: { eligibleItems: 0, removedItems: 0, skippedItems: 0, failedItems: 0 },
     });
     mockState.runMappingConflictCheck.mockReset();
     mockState.runMappingConflictCheck.mockResolvedValue({
@@ -271,5 +285,128 @@ describe('scheduler startup lock', () => {
         kind: 'mutation', productName: 'Milk', message: 'Added 2 to Grocy stock for Milk.',
       })]),
     }));
+  });
+
+  it('stores a persistent product error once while retaining subsequent mutations', async () => {
+    mockState.acquireSchedulerLock.mockReturnValue(true);
+    const issue = {
+      kind: 'issue', level: 'error', category: 'sync', entityRef: 'grocy:101', productName: 'Milk',
+      message: 'Could not sync In possession for Milk.', reason: 'The mapped Grocy product no longer exists.',
+    };
+    const failure = {
+      status: 'partial', summary: { processedProducts: 0, ensuredProducts: 0, unmappedProducts: 0 }, events: [issue],
+    };
+    mockState.pollGrocyForMissingStock.mockResolvedValue(failure);
+    startScheduler();
+    await flushAsyncWork();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(mockState.recordHistoryRun).toHaveBeenCalledTimes(1);
+    expect(mockState.sendSchedulerNotifications).toHaveBeenCalledTimes(3);
+
+    mockState.pollGrocyForMissingStock.mockResolvedValue({
+      ...failure,
+      events: [{ ...issue, createdAt: new Date() }, {
+        kind: 'mutation', level: 'info', category: 'shopping', productName: 'Rice', message: 'Added Rice to Mealie.',
+      }],
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mockState.recordHistoryRun).toHaveBeenCalledTimes(2);
+    const lastRun = mockState.recordHistoryRun.mock.lastCall?.[0];
+    expect(lastRun.events.filter((event: { kind: string }) => event.kind !== 'diagnostic')).toEqual([
+      expect.objectContaining({ kind: 'mutation', productName: 'Rice' }),
+    ]);
+  });
+
+  it('reports a checked-item error again after recovery and when its cause changes', async () => {
+    mockState.acquireSchedulerLock.mockReturnValue(true);
+    const issue = {
+      kind: 'issue', level: 'error', category: 'inventory', entityRef: 'item-1', productName: 'Milk',
+      message: 'Could not process checked Mealie item: timeout', details: { error: 'timeout' },
+    };
+    const failure = {
+      status: 'partial', summary: { checkedItems: 1, restockedProducts: 0, failedItems: 1 }, events: [issue],
+    };
+    mockState.pollMealieForCheckedItems.mockResolvedValue(failure);
+    startScheduler();
+    await flushAsyncWork();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(mockState.recordHistoryRun).toHaveBeenCalledTimes(1);
+
+    mockState.pollMealieForCheckedItems.mockResolvedValue({
+      status: 'ok', summary: { checkedItems: 0, restockedProducts: 0, failedItems: 0 }, events: [],
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mockState.recordHistoryRun).toHaveBeenCalledTimes(1);
+    mockState.pollMealieForCheckedItems.mockResolvedValue(failure);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mockState.recordHistoryRun).toHaveBeenCalledTimes(2);
+    mockState.pollMealieForCheckedItems.mockResolvedValue({
+      ...failure, events: [{ ...issue, message: 'Could not process checked Mealie item: unauthorized', details: { error: 'unauthorized' } }],
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mockState.recordHistoryRun).toHaveBeenCalledTimes(3);
+  });
+
+  it('retries storing an issue when the previous history write failed', async () => {
+    mockState.acquireSchedulerLock.mockReturnValue(true);
+    mockState.pollMealieForCheckedItems.mockRejectedValue(new Error('Mealie unavailable'));
+    mockState.recordHistoryRun.mockRejectedValueOnce(new Error('History write failed'));
+    startScheduler();
+    await flushAsyncWork();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(mockState.recordHistoryRun).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mockState.recordHistoryRun).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports changed step failures even when a previous cause returns', async () => {
+    mockState.acquireSchedulerLock.mockReturnValue(true);
+    mockState.pollMealieForCheckedItems.mockRejectedValue(new Error('timeout'));
+    startScheduler();
+    await flushAsyncWork();
+    await vi.advanceTimersByTimeAsync(10_000);
+    mockState.pollMealieForCheckedItems.mockRejectedValue(new Error('unauthorized'));
+    await vi.advanceTimersByTimeAsync(10_000);
+    mockState.pollMealieForCheckedItems.mockRejectedValue(new Error('timeout'));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mockState.recordHistoryRun).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(['failure', 'partial'] as const)('retains known product errors through an aborted %s check', async status => {
+    mockState.acquireSchedulerLock.mockReturnValue(true);
+    mockState.pollGrocyForMissingStock.mockResolvedValue({
+      status: 'partial', summary: { processedProducts: 0, ensuredProducts: 0, unmappedProducts: 0 },
+      events: [{ kind: 'issue', level: 'error', category: 'sync', entityRef: 'grocy:101', productName: 'Milk', message: 'Mapped Grocy product is missing.' }],
+    });
+    startScheduler();
+    await flushAsyncWork();
+    await vi.advanceTimersByTimeAsync(10_000);
+    if (status === 'failure') {
+      mockState.pollGrocyForMissingStock.mockRejectedValueOnce(new Error('Grocy unavailable'));
+    } else {
+      mockState.pollGrocyForMissingStock.mockResolvedValueOnce({
+        status: 'partial', summary: { processedProducts: 1, ensuredProducts: 1, unmappedProducts: 0 },
+        events: [
+          { kind: 'mutation', level: 'info', category: 'shopping', productName: 'Rice', message: 'Added Rice to Mealie.' },
+          { kind: 'issue', level: 'error', category: 'sync', message: 'Grocy sync failed before products could be checked.' },
+        ],
+      });
+    }
+    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mockState.recordHistoryRun).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([[7, 24], [1, 12]])('keeps ongoing errors visible with %i-day retention by reporting every %i hours', async (retentionDays, intervalHours) => {
+    mockState.config.historyRetentionDays = retentionDays;
+    mockState.config.pollIntervalSeconds = 3600;
+    mockState.acquireSchedulerLock.mockReturnValue(true);
+    mockState.pollMealieForCheckedItems.mockRejectedValue(new Error('Mealie unavailable'));
+    startScheduler();
+    await flushAsyncWork();
+    await vi.advanceTimersByTimeAsync(intervalHours * 3_600_000);
+    expect(mockState.recordHistoryRun).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(3_600_000);
+    expect(mockState.recordHistoryRun).toHaveBeenCalledTimes(2);
   });
 });
