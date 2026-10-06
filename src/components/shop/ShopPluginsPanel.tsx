@@ -132,6 +132,7 @@ export function ShopPluginsPanel() {
       <p className="text-sm text-muted-foreground">
         Shop plugins run in their own containers without a web UI or published port. They connect to this app over a
         WebSocket on the same address and port. Each installation has its own token; retailer sign-in data stays inside the plugin.
+        {' '}Disabling receipt processing or revoking a token stops new receipt plans; existing plans finish, and uncertain writes wait for review.
       </p>
 
       <div className="flex flex-wrap items-center gap-2">

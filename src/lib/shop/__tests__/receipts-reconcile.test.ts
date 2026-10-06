@@ -12,6 +12,7 @@ import {
   createInstallation,
   getInstallation,
   recordHello,
+  revokeInstallation,
   resetInstallationBinding,
   updateInstallationSettings,
 } from '@/lib/plugins/installations';
@@ -24,7 +25,8 @@ import { CheckDeferredError, ensureLedgerActivated, listEffects } from '../ledge
 import { resetListOwnership } from '../list-sync';
 import { persistExports } from '../projection';
 import { getReceiptLines, listReceipts, pullReceipts, type ReceiptPullDeps } from '../receipts';
-import { runShopReconcile } from '../reconcile-executor';
+import { hasPendingReceiptEffects, runShopReconcile } from '../reconcile-executor';
+import { isShopFeatureActive } from '../worker';
 import { upsertRetailerMapping, upsertRetailerProducts } from '../retailer-catalog';
 import { emptyUnitContext } from '../units';
 
@@ -210,6 +212,68 @@ describe('receipt reconciliation', () => {
     expect(getReceiptLines(listReceipts()[0].id)[0]).toMatchObject({ status: 'review', reviewReason: 'mapping_unit_changed' });
   });
 
+  it('settles the original pending reduction after a retailer changes the receipt', async () => {
+    const installation = setupInstallation();
+    mapMilk();
+    observeDemand('list', [row()], new Date('2026-10-04T10:00:00Z'));
+    const original = receipt({ lines: [receipt().lines[0]] });
+    await pullReceipts(installation, pullDeps([original]));
+    const items = { current: [row()] };
+    const run = runner(items);
+    vi.mocked(run.updateMealieItem).mockRejectedValueOnce(Object.assign(new Error('Connection refused'), { code: 'ECONNREFUSED' }));
+    await runShopReconcile(reconcileDeps(items, run));
+    expect(listReceipts()[0].status).toBe('planned');
+    expect(run.addStock).toHaveBeenCalledTimes(1);
+
+    await pullReceipts(installation, pullDeps([{ ...original, lines: [{ ...original.lines[0], quantity: 3 }] }]));
+    expect(listReceipts()[0].status).toBe('changed');
+    await runShopReconcile(reconcileDeps(items, run));
+    expect(items.current[0].quantity).toBe(1);
+    expect(run.addStock).toHaveBeenCalledTimes(1);
+    expect(listEffects().every(effect => effect.status === 'applied')).toBe(true);
+    expect(listReceipts()[0].status).toBe('changed');
+    expect(getReceiptLines(listReceipts()[0].id)[0].quantity).toBe(2);
+  });
+
+  it('never plans amended contents when the original receipt had no ledger work', async () => {
+    const installation = setupInstallation();
+    mapMilk();
+    const original = receipt({ lines: [receipt().lines[0]] });
+    await pullReceipts(installation, pullDeps([original]));
+    await pullReceipts(installation, pullDeps([{ ...original, lines: [{ ...original.lines[0], quantity: 3 }] }]));
+    const run = runner({ current: [] });
+    await runShopReconcile(reconcileDeps({ current: [] }, run));
+    expect(run.addStock).not.toHaveBeenCalled();
+    expect(listReceipts()[0].status).toBe('changed');
+  });
+
+  it.each(['disabled', 'revoked'] as const)('settles accepted effects for a %s installation and unblocks later receipts', async state => {
+    const installation = setupInstallation();
+    mapMilk();
+    observeDemand('list', [row()], new Date('2026-10-04T10:00:00Z'));
+    const original = receipt({ lines: [receipt().lines[0]] });
+    const unplanned = receipt({ receiptId: 'disabled-unplanned', purchasedAt: '2026-10-05T10:02:00Z', lines: [receipt().lines[0]] });
+    await pullReceipts(installation, pullDeps([original, unplanned]));
+    const items = { current: [row()] };
+    const run = runner(items);
+    vi.mocked(run.updateMealieItem).mockRejectedValueOnce(Object.assign(new Error('Connection refused'), { code: 'ECONNREFUSED' }));
+    await runShopReconcile(reconcileDeps(items, run));
+    if (state === 'revoked') revokeInstallation(installation.id);
+    else updateInstallationSettings(installation.id, { receiptsEnabled: false });
+    expect(hasPendingReceiptEffects()).toBe(true);
+    expect(isShopFeatureActive()).toBe(true);
+
+    const other = setupInstallation('Other');
+    await pullReceipts(other, pullDeps([receipt({ receiptId: 'other-receipt', purchasedAt: '2026-10-05T10:01:00Z', lines: [{ ...original.lines[0], quantity: 1 }] })]));
+    await runShopReconcile(reconcileDeps(items, run));
+    expect(run.addStock).toHaveBeenCalledTimes(2);
+    expect(items.current).toEqual([]);
+    expect(listReceipts().find(entry => entry.externalReceiptId === 'r-1')?.status).toBe('processed');
+    expect(listReceipts().find(entry => entry.externalReceiptId === 'other-receipt')?.status).toBe('processed');
+    expect(listReceipts().find(entry => entry.externalReceiptId === 'disabled-unplanned')?.status).toBe('stored');
+    expect(hasPendingReceiptEffects()).toBe(false);
+  });
+
   it('credits a manual check of an exported row instead of booking again', async () => {
     const installation = setupInstallation();
     mapMilk();
@@ -265,6 +329,24 @@ describe('receipt reconciliation', () => {
     expect(run.updateMealieItem).not.toHaveBeenCalled();
     expect(listEffects({ kinds: ['mealie_reduce'] })[0].status).toBe('planned');
     expect(db.select().from(schema.lowStockAccountedRestocks).all()).toEqual([]);
+  });
+
+  it.each(['changed', 'revoked'] as const)('does not retry an uncertain booking for a %s receipt installation', async state => {
+    const installation = setupInstallation();
+    mapMilk();
+    observeDemand('list', [row()], new Date('2026-10-04T10:00:00Z'));
+    const original = receipt({ lines: [receipt().lines[0]] });
+    await pullReceipts(installation, pullDeps([original]));
+    const items = { current: [row()] };
+    const run = runner(items, { addStock: vi.fn().mockRejectedValue(Object.assign(new Error('Timeout'), { status: 504 })) });
+    await runShopReconcile(reconcileDeps(items, run));
+    if (state === 'revoked') revokeInstallation(installation.id);
+    else await pullReceipts(installation, pullDeps([{ ...original, lines: [{ ...original.lines[0], quantity: 3 }] }]));
+    await runShopReconcile(reconcileDeps(items, run));
+    expect(run.addStock).toHaveBeenCalledTimes(1);
+    expect(run.updateMealieItem).not.toHaveBeenCalled();
+    expect(listEffects({ kinds: ['grocy_add'] })[0].status).toBe('unknown');
+    expect(items.current[0].quantity).toBe(3);
   });
 
   it('blocks a manual check of a row whose receipt reduction is not settled', async () => {

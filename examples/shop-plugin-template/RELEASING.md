@@ -13,8 +13,10 @@ password or retailer credentials belong in GitHub secrets.
    **CI on that exact main commit**.
 4. After explicit owner approval, tag that commit `vX.Y.Z` and push the tag.
 5. The release workflow rechecks CI, package version and main ancestry, publishes
-   `X.Y.Z`, `latest`, `X` and `X.Y`, then creates a draft GitHub release. Review its
-   notes against the changelog before publishing.
+   `X.Y.Z`, `latest`, `X` and `X.Y`.
+6. After the image workflow succeeds, manually create a draft GitHub release
+   using the changelog notes (`gh release create vX.Y.Z --verify-tag --draft
+   --latest=false --notes-file release-notes.md`). Review it before publishing.
 
 ## Prerelease
 
@@ -22,8 +24,10 @@ Use `npm version X.Y.Z-rc.N --no-git-tag-version` (or `alpha.N`/`beta.N`). Run t
 commit and push a feature branch with a PR, or manually dispatch CI for that branch.
 Wait for successful CI on the exact commit, request owner approval, then push
 `vX.Y.Z-rc.N`. It may be outside main. Only the exact image version is published:
-**never latest, major or minor aliases**. The generated draft is marked prerelease
-and is never latest. Increment N rather than moving an existing tag.
+**never latest, major or minor aliases**. After the image workflow succeeds,
+manually create the draft with `gh release create vX.Y.Z-rc.N --verify-tag --draft
+--prerelease --latest=false --notes-file release-notes.md`. Increment N rather than
+moving an existing tag.
 
 No release is created just by merging code. Tag publication is an explicit final
 step. Re-dispatch publication with an existing tag to recover a failed build.

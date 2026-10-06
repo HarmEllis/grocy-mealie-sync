@@ -12,6 +12,21 @@ export interface TargetOption {
   baseUnitName: string | null;
 }
 
+/** Resolve an exact Grocy target; a suggestion must never guess its stock unit. */
+export async function resolveGrocyMappingTarget(id: string): Promise<TargetOption | null> {
+  const [products, units] = await Promise.all([
+    getGrocyEntities('products'),
+    getGrocyEntities('quantity_units'),
+  ]);
+  const product = products.find(candidate => String(candidate.id) === id);
+  if (!product || !product.qu_id_stock) return null;
+  const unit = units.find(candidate => String(candidate.id) === String(product.qu_id_stock));
+  return {
+    kind: 'grocy_product', id, name: product.name ?? `Product #${id}`,
+    baseUnitId: String(product.qu_id_stock), baseUnitName: unit?.name ?? null,
+  };
+}
+
 /** Search mapping targets: Grocy products (with stock unit) and Mealie foods. */
 export async function searchMappingTargets(query: string, limit = 20): Promise<{ targets: TargetOption[]; mealieUnits: Array<{ id: string; name: string }> }> {
   const [products, units, foods, mealieUnits] = await Promise.all([

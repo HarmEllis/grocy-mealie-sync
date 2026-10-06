@@ -68,6 +68,13 @@ Each installation has two toggles, both off by default:
   the activation boundary to "now"; receipts bought earlier are stored as
   headers only and never booked. The boundary only moves forward.
 
+Disabling receipt processing or revoking a plugin stops new receipt plans.
+Existing ledger plans still settle so an applied Grocy booking receives its
+dependent Mealie update. Unknown writes still require evidence or a decision;
+they are never retried blindly. A retailer amendment stays flagged for review
+while effects from the original receipt finish; amended contents are never
+planned automatically.
+
 Automatic processing also requires a **confirmed mapping** (with a confirmed
 package amount in the target's current unit) for every retailer product.
 Anything else goes to review on the *Shopping* page.

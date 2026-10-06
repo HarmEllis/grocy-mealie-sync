@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { getRetailerMapping, getSuggestion, rejectSuggestion, upsertRetailerMapping } from '@/lib/shop/retailer-catalog';
 import { readJson, ShopApiError, shopRoute } from '@/lib/shop/api-helpers';
+import { resolveGrocyMappingTarget } from '@/lib/shop/targets';
 
 const bodySchema = z.discriminatedUnion('action', [
   z.object({
@@ -25,15 +26,24 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       return { ok: true };
     }
     const existing = getRetailerMapping(suggestion.providerId, suggestion.retailerProductId);
+    const target = suggestion.targetKind === 'grocy_product'
+      ? await resolveGrocyMappingTarget(suggestion.targetId)
+      : null;
+    if (suggestion.targetKind === 'grocy_product' && !target) {
+      throw new ShopApiError(409, 'The suggested Grocy product or its stock unit is no longer available');
+    }
+    if (getSuggestion(id)?.status !== 'pending') {
+      throw new ShopApiError(409, 'Suggestion was already decided while its target was being resolved');
+    }
     const mapping = upsertRetailerMapping({
       providerId: suggestion.providerId,
       retailerProductId: suggestion.retailerProductId,
       targetKind: suggestion.targetKind as 'grocy_product' | 'mealie_food',
       targetId: suggestion.targetId,
-      targetName: suggestion.targetName,
+      targetName: target?.name ?? suggestion.targetName,
       role: existing?.role === 'alternative' ? 'alternative' : 'preferred',
-      baseUnitId: body.baseUnitId,
-      baseUnitName: body.baseUnitName,
+      baseUnitId: target?.baseUnitId ?? body.baseUnitId,
+      baseUnitName: target ? target.baseUnitName : body.baseUnitName,
       packageBaseAmount: body.packageBaseAmount,
       confirm: body.confirm,
     });

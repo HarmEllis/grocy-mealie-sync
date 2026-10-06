@@ -83,6 +83,12 @@ function hasOpenEffects(receiptId: string): boolean {
   return receiptEffects(receiptId).some(effect => !TERMINAL_STATUSES.includes(effect.status));
 }
 
+/** Persisted receipt work must keep running even after the last plugin is revoked. */
+export function hasPendingReceiptEffects(): boolean {
+  return listEffects({ statuses: ['planned', 'in_flight', 'not_applied', 'unknown'] })
+    .some(effect => effect.sourceKind === 'receipt' || effect.sourceKind === 'substitution');
+}
+
 // ---------------------------------------------------------------------------
 // Planner input
 // ---------------------------------------------------------------------------
@@ -463,6 +469,8 @@ function countStatus(summary: ReconcileSummary, status: EffectStatus): void {
 
 function settleReceiptStatus(receipt: ReceiptRow, now: Date): 'processed' | 'needs_review' | 'planned' {
   if (hasOpenEffects(receipt.id)) return 'planned';
+  // Finish the original plan without approving the retailer's amended contents.
+  if (receipt.status === 'changed') return 'needs_review';
   const reviewLines = getReceiptLines(receipt.id).filter(line => line.status === 'review');
   const status = reviewLines.length > 0 ? 'needs_review' : 'processed';
   setReceiptStatus(receipt.id, status, now);
@@ -481,9 +489,12 @@ export async function runShopReconcile(deps: ReconcileDeps): Promise<ReconcileRe
   recoverInterruptedEffects(now);
   await verifyUncertainShopEffects(deps.runner, summary);
 
-  const candidates = listReceipts({ statuses: ['stored', 'planned'] });
+  const candidates = listReceipts({ statuses: ['stored', 'planned', 'changed'] })
+    .filter(receipt => receipt.status !== 'changed' || hasOpenEffects(receipt.id));
   if (candidates.length === 0) return { status: 'ok', summary, events };
-  if (!deps.shoppingListId) return { status: 'skipped', summary, events, message: 'No Mealie shopping list configured' };
+  if (!deps.shoppingListId && candidates.every(receipt => receipt.status === 'stored')) {
+    return { status: 'skipped', summary, events, message: 'No Mealie shopping list configured' };
+  }
 
   let items: MealieShoppingItem[] | null = null;
   let ctx: UnitContext | null = null;
@@ -491,11 +502,12 @@ export async function runShopReconcile(deps: ReconcileDeps): Promise<ReconcileRe
 
   for (const receipt of candidates) {
     const installation = getInstallation(receipt.installationId);
-    if (!installation || installation.revokedAt || !installation.settings.receiptsEnabled) continue;
-
     if (receipt.status === 'stored') {
+      // Disabling receipt intake stops new plans. Durable plans already accepted
+      // by the core still settle, using their original payloads and dependencies.
+      if (!installation || installation.revokedAt || !installation.settings.receiptsEnabled || !deps.shoppingListId) continue;
       // Plan only after every earlier receipt settled; their reductions must be visible first.
-      const earlierOpen = listReceipts({ statuses: ['planned'] })
+      const earlierOpen = listReceipts({ statuses: ['planned', 'changed'] })
         .some(other => other.id !== receipt.id && other.purchasedAt.getTime() <= receipt.purchasedAt.getTime() && hasOpenEffects(other.id));
       if (earlierOpen) break;
       items ??= await deps.loadMealieItems(deps.shoppingListId);

@@ -13,7 +13,7 @@ import { defaultEffectRunnerDeps } from './effect-runners';
 import { syncInstallationList } from './list-sync';
 import { persistExports, projectDemand, targetKey, type ProjectionMapping } from './projection';
 import { isReceiptPullDue, pullReceipts } from './receipts';
-import { runShopReconcile } from './reconcile-executor';
+import { hasPendingReceiptEffects, runShopReconcile } from './reconcile-executor';
 import { generateSuggestions, listRetailerMappings } from './retailer-catalog';
 import type { TargetKind } from './units';
 
@@ -32,10 +32,10 @@ export interface ShopStepOutcome {
   events?: HistoryEventInput[];
 }
 
-/** Shop steps run only when at least one plugin installation exists; otherwise nothing changes. */
+/** Keep accepted ledger work active until it settles, even after plugin revocation. */
 export function isShopFeatureActive(): boolean {
   try {
-    return hasActiveInstallations();
+    return hasActiveInstallations() || hasPendingReceiptEffects();
   } catch (error) {
     log.warn('[Shop] Could not check plugin installations:', error);
     return false;

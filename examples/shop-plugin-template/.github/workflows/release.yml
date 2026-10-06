@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
-      contents: write
+      contents: read
       actions: read
       packages: write
     steps:
@@ -75,14 +75,3 @@ jobs:
           labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
           provenance: false
           sbom: false
-      - name: Create a draft GitHub release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.ref.outputs.tag }}
-          PRERELEASE: ${{ steps.plan.outputs.prerelease }}
-        run: |
-          args=(--draft --latest=false)
-          if [ "$PRERELEASE" = true ]; then args+=(--prerelease); fi
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --verify-tag --generate-notes "${args[@]}"
-          fi
