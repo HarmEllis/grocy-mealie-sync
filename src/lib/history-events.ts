@@ -183,6 +183,8 @@ export function formatHistoryActionLabel(action: HistoryRunAction): string {
       return 'Create unit conversion';
     case 'conversion_delete':
       return 'Delete unit conversion';
+    case 'conversion_import':
+      return 'Import conversion library';
   }
 }
 

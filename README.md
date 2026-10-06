@@ -13,6 +13,19 @@ Bi-directional sync service between [Grocy](https://grocy.info/) (inventory mana
 
 The service polls both APIs on a configurable interval (default: 60 seconds).
 
+## Units & Conversions
+
+Open **Units & Conversions** to install metric and US customary definitions from
+a shared library. Preview how existing Mealie and Grocy units will be reused,
+choose ambiguous units, and explicitly allow creation of missing units before
+applying changes. The shared setup adds Mealie's native standard quantities,
+matching app unit mappings, and Grocy conversions such as `1 kilogram = 1000 grams`.
+
+Shared standardization requires **Mealie 3.13 or newer**. Older installations can
+use the **Grocy only** target. Custom product conversions, import history, and
+the same preview/import workflow through MCP are included. See the
+[conversion guide](docs/conversions.md) for examples and API contracts.
+
 ## History
 
 History shows individual changes with their product, quantity, source and reason:

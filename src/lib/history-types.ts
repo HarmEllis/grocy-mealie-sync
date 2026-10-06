@@ -55,6 +55,7 @@ export const historyRunActions = [
   'conflict_remap',
   'conversion_create',
   'conversion_delete',
+  'conversion_import',
 ] as const;
 export type HistoryRunAction = (typeof historyRunActions)[number];
 

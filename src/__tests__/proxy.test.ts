@@ -1,7 +1,17 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { unstable_doesMiddlewareMatch } from 'next/experimental/testing/server';
 
 const ORIGINAL_ENV = { ...process.env };
+const PROTECTED_UI_PATHS = [
+  '/',
+  '/conversions',
+  '/mapping',
+  '/history',
+  '/history/run-123',
+  '/settings',
+  '/api-endpoints',
+];
 
 function createRequest(url: string, init: { headers?: Record<string, string> } = {}) {
   const headers = new Headers(init.headers);
@@ -44,18 +54,19 @@ describe('proxy auth', () => {
     expect(body).toEqual({ error: 'Unauthorized' });
   });
 
-  it('redirects the dashboard to /login when auth is enabled and no session exists', async () => {
+  it.each(PROTECTED_UI_PATHS)('matches and redirects %s to /login without a session', async (pathname) => {
     process.env.AUTH_ENABLED = 'true';
     process.env.AUTH_SECRET = 'top-secret';
 
-    const { proxy } = await import('../proxy');
-    const response = await proxy(createRequest('http://localhost/'));
+    const { config, proxy } = await import('../proxy');
+    expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url: pathname })).toBe(true);
+    const response = await proxy(createRequest(`http://localhost${pathname}`));
 
     expect(response.status).toBe(307);
     expect(response.headers.get('location')).toBe('http://localhost/login');
   });
 
-  it('allows requests with a valid session cookie', async () => {
+  it.each(PROTECTED_UI_PATHS)('allows %s with a valid session cookie', async (pathname) => {
     process.env.AUTH_ENABLED = 'true';
     process.env.AUTH_SECRET = 'top-secret';
 
@@ -63,7 +74,7 @@ describe('proxy auth', () => {
     const sessionCookie = await createSessionCookieValue('top-secret');
     const { proxy } = await import('../proxy');
 
-    const response = await proxy(createRequest('http://localhost/', {
+    const response = await proxy(createRequest(`http://localhost${pathname}`, {
       headers: {
         cookie: `__session=${sessionCookie}`,
       },
@@ -72,6 +83,63 @@ describe('proxy auth', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('x-middleware-next')).toBe('1');
   });
+
+  it('allows the conversions page when auth is explicitly disabled', async () => {
+    process.env.AUTH_ENABLED = 'false';
+    process.env.AUTH_SECRET = 'top-secret';
+
+    const { proxy } = await import('../proxy');
+    const response = await proxy(createRequest('http://localhost/conversions'));
+
+    expect(response.headers.get('x-middleware-next')).toBe('1');
+  });
+
+  it('redirects the conversions page when auth is enabled but misconfigured', async () => {
+    process.env.AUTH_ENABLED = 'true';
+
+    const { proxy } = await import('../proxy');
+    const response = await proxy(createRequest('http://localhost/conversions'));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toBe('http://localhost/login');
+  });
+
+  it.each(['expired', 'wrong-secret'])('rejects %s sessions on the conversions page', async (kind) => {
+    process.env.AUTH_ENABLED = 'true';
+    process.env.AUTH_SECRET = 'top-secret';
+
+    const { createSessionCookieValue } = await import('../lib/auth');
+    const sessionCookie = await createSessionCookieValue(
+      kind === 'wrong-secret' ? 'another-secret' : 'top-secret',
+      kind === 'expired' ? -1 : 60,
+    );
+    const { proxy } = await import('../proxy');
+    const response = await proxy(createRequest('http://localhost/conversions', {
+      headers: { cookie: `__session=${sessionCookie}` },
+    }));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toBe('http://localhost/login');
+  });
+
+  it('keeps login and health accessible without a session', async () => {
+    process.env.AUTH_ENABLED = 'true';
+    process.env.AUTH_SECRET = 'top-secret';
+
+    const { config, proxy } = await import('../proxy');
+    for (const pathname of ['/login', '/api/health']) {
+      expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url: pathname })).toBe(true);
+      const response = await proxy(createRequest(`http://localhost${pathname}`));
+      expect(response.headers.get('x-middleware-next')).toBe('1');
+    }
+  });
+
+  it.each(['/_next/static/chunk.js', '/_next/image?url=%2Flogo.png&w=64&q=75', '/favicon.ico'])(
+    'excludes static asset %s from the auth matcher', async (url) => {
+      const { config } = await import('../proxy');
+      expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url })).toBe(false);
+    },
+  );
 
   it('returns 503 for protected API requests when auth is enabled but misconfigured', async () => {
     process.env.AUTH_ENABLED = 'true';

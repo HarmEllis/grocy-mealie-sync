@@ -210,20 +210,17 @@ export async function proxy(request: NextRequest) {
     return response;
   }
 
-  if (pathname === '/') {
-    if (!authConfig.enabled) {
-      return NextResponse.next();
-    }
-
-    if (!authConfig.configured || !authConfig.secret) {
-      return NextResponse.redirect(new URL('/login', request.url));
-    }
-
-    if (!await checkAuth(request, authConfig.secret)) {
-      return NextResponse.redirect(new URL('/login', request.url));
-    }
-
+  // All remaining matched routes belong to the protected web UI.
+  if (!authConfig.enabled) {
     return NextResponse.next();
+  }
+
+  if (!authConfig.configured || !authConfig.secret) {
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
+
+  if (!await checkAuth(request, authConfig.secret)) {
+    return NextResponse.redirect(new URL('/login', request.url));
   }
 
   return NextResponse.next();
@@ -235,6 +232,11 @@ export const config = {
     '/api/:path*',
     // Match protected UI routes
     '/',
+    '/conversions/:path*',
+    '/mapping/:path*',
+    '/history/:path*',
+    '/settings/:path*',
+    '/api-endpoints/:path*',
     '/login',
   ],
 };

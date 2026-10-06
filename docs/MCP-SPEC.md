@@ -6,6 +6,27 @@
 
 ---
 
+## Shared conversion library extension
+
+The shipped library exposes `conversions.library.list`,
+`conversions.library.preview`, and `conversions.library.import`, plus
+`gms://conversions/library` and `gms://conversions/installed` resources.
+The list and preview operations are read-only. Import requires the complete
+reviewed selection and its preview fingerprint; stale or blocked plans return
+structured errors without starting writes. Partial imports return each completed
+and failed step so a client can request a fresh preview before retrying.
+
+The default target configures Mealie native `standardQuantity` / `standardUnit`,
+Grocy conversions, and identity mappings between equivalent units. Mealie 3.13
+or newer is required for the shared target; `target: "grocy"` leaves Mealie units
+and mappings untouched. `units.create_mealie` and `units.update_mealie` also
+accept the paired native standardization fields and preserve them during edits.
+Existing `conversions.list`, `conversions.create`, and `conversions.delete`
+remain available for custom global and product-specific definitions.
+
+See [the conversion guide](conversions.md) for request examples, conflict
+handling, and the distinction between native conversions and cross-system sync.
+
 ## Purpose
 
 This document defines an MCP server for the existing Grocy-Mealie Sync project.

@@ -73,6 +73,8 @@ export function registerUnitTools(server: McpServer, services: UnitMcpServices) 
         description: z.string().trim().min(1).nullable().optional(),
         fraction: z.boolean().optional(),
         useAbbreviation: z.boolean().optional(),
+        standardQuantity: z.number().positive().nullable().optional(),
+        standardUnit: z.string().trim().min(1).nullable().optional(),
       },
     },
     async ({
@@ -84,6 +86,8 @@ export function registerUnitTools(server: McpServer, services: UnitMcpServices) 
       description,
       fraction,
       useAbbreviation,
+      standardQuantity,
+      standardUnit,
     }) => {
       const data = await services.createMealieUnit({
         name,
@@ -94,6 +98,8 @@ export function registerUnitTools(server: McpServer, services: UnitMcpServices) 
         description,
         fraction,
         useAbbreviation,
+        ...(standardQuantity !== undefined ? { standardQuantity } : {}),
+        ...(standardUnit !== undefined ? { standardUnit } : {}),
       });
       const createResult = data.created ? createOkResult : createSkippedResult;
       const result = createResult(
@@ -216,9 +222,11 @@ export function registerUnitTools(server: McpServer, services: UnitMcpServices) 
         abbreviation: z.string().trim().min(1).optional(),
         pluralAbbreviation: z.string().trim().min(1).nullable().optional(),
         aliases: z.array(z.string().trim().min(1)).optional(),
+        standardQuantity: z.number().positive().nullable().optional(),
+        standardUnit: z.string().trim().min(1).nullable().optional(),
       },
     },
-    async ({ mealieUnitId, name, pluralName, abbreviation, pluralAbbreviation, aliases }) => {
+    async ({ mealieUnitId, name, pluralName, abbreviation, pluralAbbreviation, aliases, standardQuantity, standardUnit }) => {
       const data = await services.updateMealieUnitMetadata({
         mealieUnitId,
         name,
@@ -226,6 +234,8 @@ export function registerUnitTools(server: McpServer, services: UnitMcpServices) 
         abbreviation,
         pluralAbbreviation,
         aliases,
+        ...(standardQuantity !== undefined ? { standardQuantity } : {}),
+        ...(standardUnit !== undefined ? { standardUnit } : {}),
       });
       const result = createOkResult('Updated the Mealie unit metadata.', data);
 
