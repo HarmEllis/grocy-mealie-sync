@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.18.0] - 2026-10-06
+
+This minor release adds a **Units & Conversions** page for setting up quantity conversions without an external script (#57). Pick metric or US customary presets from a searchable library, preview what will change, and import them into Grocy, with matching units configured in Mealie through its native standardization. It also requires login on every web page when app authentication is enabled.
+
+### Added
+
+- A conversion library with metric and US customary presets, search, dimension filters and individual selection. An import preview lists the units, Mealie standardization, unit mappings and Grocy conversions that will be created before anything is written.
+- Existing units and equivalent conversions are reused, missing units are only created after approval, and ambiguous names or conflicting conversions (direct, reverse or indirect) are flagged before import. Importing the same presets again changes nothing.
+- An overview of installed conversions with their inverse relationships, plus management of custom global and product-specific conversions, such as `1 bottle = 32 US fluid ounces` for one product.
+- A **Grocy only** import option, which also works while Mealie is offline. Shared setup with Mealie requires Mealie 3.13 or later.
+- The library, preview and import workflow through REST and MCP: `conversions.library.list`, `conversions.library.preview` and `conversions.library.import`, plus the `gms://conversions/library` and `gms://conversions/installed` resources. The MCP unit tools accept paired `standardQuantity` and `standardUnit` fields.
+
+### Changed
+
+- Editing a unit keeps its Mealie standardization.
+- Conversion imports run under the sync lock and are recorded in History. An import that stops partway keeps its completed steps and can be retried from a fresh preview.
+- Updated `@modelcontextprotocol/sdk`, `sharp`, `proxy-addr` and `source-map-js` to resolve security advisories.
+
+### Fixed
+
+- With app authentication enabled, the Mapping, History, Settings and API endpoints pages now require login, like the dashboard already did.
+
 ## [1.17.0] - 2026-10-04
 
 This minor release makes History show the changes that happened to each product, including scanner actions, with their quantity, source and reason. Routine checks stay out of the activity feed, while errors and completed writes remain visible even when a later sync step fails.
@@ -392,6 +414,7 @@ This release promotes the current base to `1.0.0`. Compared with `v0.0.1`, the p
 
 - First tagged preview release.
 
+[1.18.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.16.0...v1.17.0
 [1.16.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.15.0...v1.16.0
 [1.15.0]: https://github.com/HarmEllis/grocy-mealie-sync/compare/v1.14.2...v1.15.0
