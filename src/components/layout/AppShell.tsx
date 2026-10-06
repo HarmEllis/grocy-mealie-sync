@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeftRight, History, LayoutDashboard, Link2, Moon, Ruler, Server, Settings2, Sun } from 'lucide-react';
+import { ArrowLeftRight, History, LayoutDashboard, Link2, Moon, Ruler, Server, Settings2, ShoppingCart, Sun } from 'lucide-react';
 import { LogoutButton } from '@/components/auth/LogoutButton';
 import { AppVersion } from '@/components/app/AppVersion';
 import { AppStatusDot } from '@/components/redesign/primitives';
@@ -26,6 +26,7 @@ const NAV_ITEMS = [
   { href: '/', label: 'Dashboard', mobileLabel: 'Dashboard', icon: LayoutDashboard },
   { href: '/mapping', label: 'Product Mapping', mobileLabel: 'Mapping', icon: Link2 },
   { href: '/conversions', label: 'Units & Conversions', mobileLabel: 'Units', icon: Ruler },
+  { href: '/shopping', label: 'Shopping', mobileLabel: 'Shop', icon: ShoppingCart },
   { href: '/history', label: 'History', mobileLabel: 'History', icon: History },
   { href: '/settings', label: 'Settings', mobileLabel: 'Settings', icon: Settings2 },
 ] as const;
@@ -56,6 +57,7 @@ function formatShortDate(value: string | null): string {
 
 function pageTitle(pathname: string): string {
   if (pathname.startsWith('/conversions')) return 'Units & Conversions';
+  if (pathname.startsWith('/shopping')) return 'Shopping';
   if (pathname === '/mapping') {
     return 'Product Mapping';
   }

@@ -26,6 +26,23 @@ use the **Grocy only** target. Custom product conversions, import history, and
 the same preview/import workflow through MCP are included. See the
 [conversion guide](docs/conversions.md) for examples and API contracts.
 
+## Shop plugins
+
+External shop plugins connect retailers: a shared retailer shopping list fed
+from open Mealie demand, and digital receipts reconciled with Grocy stock and
+the Mealie list. Plugins run in their own container without a web UI or
+published port and connect over a WebSocket on the same address and port as
+this app (`/api/plugins/connect`). Create a token under **Settings → Shop
+plugins** and review everything on the **Shopping** page. Without plugins
+nothing changes. See the [shop plugin guide](docs/shop-plugins.md), the
+[protocol reference](docs/plugin-protocol.md) and the public template in
+`examples/shop-plugin-template`.
+
+The app now starts through `server.mjs` (`npm run dev` and `npm run start`
+keep their arguments). Reverse proxies must allow WebSocket upgrades for
+`/api/plugins/connect`. `/api/health` answers `503` until startup (migrations,
+scheduler and plugin gateway) has completed.
+
 ## History
 
 History shows individual changes with their product, quantity, source and reason:
@@ -213,6 +230,8 @@ How the screenshot script works:
 - If `GROCY_URL` or `MEALIE_URL` uses `host.docker.internal` or `host-docker-internal`, the script also tries the same port on `localhost` and `127.0.0.1`, then reuses the working URL for the build and preview server.
 - Builds the app, then starts a production preview server on a free local port.
 - Captures the real app at `/` with a narrower fixed viewport.
+- If redirected to the app login screen, signs in using the configured `AUTH_SECRET` without disabling authentication.
+- Verifies that the dashboard is visible before saving and fails without overwriting the image if the app remains locked. Open the generated image and visually check that it shows the loaded dashboard before committing it.
 - Opens Chromium in headless mode with a fixed viewport.
 - Forces a dark color scheme and reduced motion.
 - Waits for the app to hydrate and the settings UI to settle, then disables animations and transitions before taking the screenshot.

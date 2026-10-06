@@ -1,6 +1,6 @@
 import { db } from '../db';
 import { productMappings } from '../db/schema';
-import { getGrocyEntities, deleteGrocyEntity, getProductDetails, addProductStock } from '../grocy/types';
+import { getGrocyEntities, deleteGrocyEntity, getProductDetails } from '../grocy/types';
 import type { GrocyProductWithParent } from '../grocy/types';
 import type { ShoppingListItemOut_Output } from '../mealie/client/models/ShoppingListItemOut_Output';
 import { log } from '../logger';
@@ -10,6 +10,15 @@ import { fetchAllMealieShoppingItems } from './helpers';
 import { eq } from 'drizzle-orm';
 import type { HistoryEventInput } from '../history-store';
 import { activityEvent, describeSyncError } from './activity';
+import {
+  bookCheckStock,
+  guardReceiptFulfillment,
+  handleUncheckedItem,
+  openCheckLifecycle,
+  reconcileCheckLifecycles,
+  setLifecycleStatus,
+} from '../shop/check-lifecycles';
+import { CheckDeferredError, UncertainWriteError } from '../shop/ledger';
 import {
   GMS_ITEMS_KEY,
   isValidSubProductItem,
@@ -21,6 +30,8 @@ export interface MealieToGrocySyncSummary {
   checkedItems: number;
   restockedProducts: number;
   failedItems: number;
+  /** Bookings whose outcome is unknown; they wait for verification or a user decision. */
+  uncertainItems?: number;
 }
 
 export interface MealieToGrocyPollResult {
@@ -75,6 +86,21 @@ export async function pollMealieForCheckedItems(): Promise<MealieToGrocyPollResu
       log.info('[Mealie→Grocy] Initial poll detected — snapshotting current checked state without restocking');
     }
 
+    // Verify uncertain bookings and pick up rows the user asked to retry.
+    let retryRequested = new Set<string>();
+    if (!isBootstrapPoll) {
+      try {
+        const lifecycleResult = await reconcileCheckLifecycles(new Set(items.map(item => item.id)));
+        retryRequested = new Set(lifecycleResult.retryRequested);
+        // Bookings verified late get the same bookkeeping as direct ones.
+        const nowIso = new Date().toISOString();
+        for (const productId of lifecycleResult.appliedProductIds) state.syncRestockedProducts[String(productId)] = nowIso;
+        for (const itemId of lifecycleResult.completedItemIds) state.mealieItemsSyncedToGrocy[itemId] = nowIso;
+      } catch (error) {
+        log.warn('[Mealie→Grocy] Could not reconcile check lifecycles:', error);
+      }
+    }
+
     for (const item of items) {
       const checked = item.checked ?? false;
       newCheckedState[item.id] = checked;
@@ -104,9 +130,16 @@ export async function pollMealieForCheckedItems(): Promise<MealieToGrocyPollResu
         delete state.mealieCheckedAt[item.id];
         delete state.mealieItemsSyncedToGrocy[item.id];
         delete state.mealieSubRestockProgress[item.id];
+        if (wasChecked === true) {
+          try {
+            handleUncheckedItem(item.id);
+          } catch (error) {
+            log.warn(`[Mealie→Grocy] Could not close the check lifecycle of "${item.id}":`, error);
+          }
+        }
       }
 
-      if (checked && wasChecked !== true) {
+      if (checked && (wasChecked !== true || retryRequested.has(item.id))) {
         try {
           const grocyProductId = await processCheckedItem(item, state, grocyProductsById, events);
           if (grocyProductId !== null) {
@@ -122,6 +155,34 @@ export async function pollMealieForCheckedItems(): Promise<MealieToGrocyPollResu
             summary.restockedProducts++;
           }
         } catch (err) {
+          if (err instanceof CheckDeferredError) {
+            summary.uncertainItems = (summary.uncertainItems ?? 0) + 1;
+            events.push(activityEvent({
+              level: 'warning', source: 'Mealie', target: 'Grocy',
+              productName: item.food?.name ?? item.display ?? item.note ?? undefined,
+              entityRef: item.id, message: 'The checked item was not booked: a receipt already covers this shopping row.',
+              reason: 'Decide on the Shopping page whether the check is an additional purchase.',
+              details: { mealieItemId: item.id, effectIds: err.effectIds },
+            }));
+            continue;
+          }
+          if (err instanceof UncertainWriteError) {
+            // Never retry a write that may already have happened. Keep the row
+            // marked as processed; verification or the user resolves it.
+            log.warn(`[Mealie→Grocy] Booking for item "${item.id}" has an unknown outcome; waiting for verification or review`);
+            summary.uncertainItems = (summary.uncertainItems ?? 0) + 1;
+            // Treat the booking as possibly applied for the low-stock guard: skipping one
+            // removal is harmless, removing a row for a booking that did land is not.
+            if (err.productId !== null) state.syncRestockedProducts[String(err.productId)] = new Date().toISOString();
+            events.push(activityEvent({
+              level: 'warning', source: 'Mealie', target: 'Grocy',
+              productName: item.food?.name ?? item.display ?? item.note ?? undefined,
+              entityRef: item.id, message: `Grocy stock booking has an unknown outcome: ${err.message}`,
+              reason: 'Uncertain writes are never retried automatically. Review it on the Shopping page.',
+              details: { mealieItemId: item.id, mealieFoodId: item.foodId, effectId: err.effectId },
+            }));
+            continue;
+          }
           log.error(`[Mealie→Grocy] Failed to process item "${item.id}":`, err);
           summary.failedItems++;
           if (!events.some(event => event.level === 'error' && (event.details as { mealieItemId?: string } | undefined)?.mealieItemId === item.id)) events.push(activityEvent({
@@ -167,6 +228,31 @@ export async function pollMealieForCheckedItems(): Promise<MealieToGrocyPollResu
 /** Process a checked item: add stock in Grocy and clean up Grocy shopping list.
  *  Returns the grocyProductId if stock was successfully added, or null if skipped. */
 async function processCheckedItem(item: ShoppingListItemOut_Output, state: SyncStateData, grocyProductsById: Map<number, GrocyProductWithParent>, events: HistoryEventInput[]): Promise<number | null> {
+  // One lifecycle per observed check; reused when this row is retried.
+  let lifecycle: { id: string } | null = null;
+  try {
+    const productId = await processCheckedItemWithLifecycle(item, state, grocyProductsById, events, (grocyProductId) => {
+      lifecycle = openCheckLifecycle(item, grocyProductId);
+      return lifecycle;
+    });
+    if (lifecycle) setLifecycleStatus((lifecycle as { id: string }).id, productId === null ? 'skipped' : 'completed');
+    return productId;
+  } catch (error) {
+    if (lifecycle) {
+      const blocked = error instanceof UncertainWriteError || error instanceof CheckDeferredError;
+      setLifecycleStatus((lifecycle as { id: string }).id, blocked ? 'blocked' : 'failed');
+    }
+    throw error;
+  }
+}
+
+async function processCheckedItemWithLifecycle(
+  item: ShoppingListItemOut_Output,
+  state: SyncStateData,
+  grocyProductsById: Map<number, GrocyProductWithParent>,
+  events: HistoryEventInput[],
+  startLifecycle: (grocyProductId: number | null) => { id: string },
+): Promise<number | null> {
   const foodId = item.foodId;
   if (!foodId) {
     // Ad-hoc item without mapped food — skip gracefully (Scenario 11)
@@ -191,6 +277,9 @@ async function processCheckedItem(item: ShoppingListItemOut_Output, state: SyncS
   }
 
   const mapping = mappings[0];
+  const lifecycle = startLifecycle(mapping.grocyProductId);
+  // A receipt may already be fulfilling this exact row; never book the same purchase twice.
+  guardReceiptFulfillment(lifecycle.id, item.id);
   const recordStockAdded = (productId: number, productName: string, amount: number, amountSource: string) => {
     events.push(activityEvent({
       source: 'Mealie', target: 'Grocy', productName, entityRef: `grocy:${productId}`,
@@ -236,7 +325,7 @@ async function processCheckedItem(item: ShoppingListItemOut_Output, state: SyncS
       const source = noteAmounts?.has(sub.name) ? 'note' : 'sync data';
       let stockAdded = false;
       try {
-        await addProductStock(sub.grocyProductId, amount);
+        await bookCheckStock(lifecycle, sub.grocyProductId, amount, sub.name);
         stockAdded = true;
         recordStockAdded(sub.grocyProductId, sub.name, amount, source);
         log.info(`[Mealie→Grocy] Restocked "${sub.name}" qty=${amount} (from ${source})`);
@@ -244,6 +333,7 @@ async function processCheckedItem(item: ShoppingListItemOut_Output, state: SyncS
         state.mealieSubRestockProgress[item.id] = [...progress];
         await saveSyncState(state);
       } catch (err) {
+        if (err instanceof UncertainWriteError) throw err;
         events.push(activityEvent({
           level: 'error', source: 'Mealie', target: 'Grocy', productName: sub.name,
           entityRef: `grocy:${sub.grocyProductId}`, message: stockAdded
@@ -320,9 +410,10 @@ async function processCheckedItem(item: ShoppingListItemOut_Output, state: SyncS
   log.info(`[Mealie→Grocy] Adding stock: "${mapping.grocyProductName}" qty=${quantity} to Grocy`);
 
   try {
-    await addProductStock(mapping.grocyProductId, quantity);
+    await bookCheckStock(lifecycle, mapping.grocyProductId, quantity, mapping.grocyProductName);
     recordStockAdded(mapping.grocyProductId, mapping.grocyProductName, quantity, item.quantity ? 'shopping list quantity' : 'default quantity');
   } catch (error) {
+    if (error instanceof UncertainWriteError) throw error;
     log.error(`[Mealie→Grocy] Failed to add stock for "${mapping.grocyProductName}":`, error);
     events.push(activityEvent({
       level: 'error', source: 'Mealie', target: 'Grocy', productName: mapping.grocyProductName,

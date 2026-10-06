@@ -204,6 +204,10 @@ export function formatSchedulerStepNameLabel(stepName: SchedulerStepName): strin
       return 'Conflict check';
     case 'shopping_cleanup':
       return 'Shopping cleanup';
+    case 'shop_demand':
+      return 'Shop demand';
+    case 'shop_reconcile':
+      return 'Shop receipts';
   }
 }
 

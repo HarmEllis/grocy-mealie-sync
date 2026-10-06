@@ -544,9 +544,19 @@ export async function addProductStock(
     bestBeforeDate?: string | null;
     locationId?: number;
     note?: string | null;
+    /** Price per stock quantity unit. */
+    price?: number;
+    shoppingLocationId?: number;
   },
 ): Promise<StockLogEntry[]> {
-  const input = typeof amountOrInput === 'number'
+  const input: {
+    amount: number;
+    bestBeforeDate?: string | null;
+    locationId?: number;
+    note?: string | null;
+    price?: number;
+    shoppingLocationId?: number;
+  } = typeof amountOrInput === 'number'
     ? { amount: amountOrInput }
     : amountOrInput;
 
@@ -555,7 +565,39 @@ export async function addProductStock(
     best_before_date: serializeGrocyBestBeforeDate(input.bestBeforeDate),
     location_id: input.locationId,
     note: input.note ?? undefined,
+    price: input.price,
+    shopping_location_id: input.shoppingLocationId,
     transaction_type: StockTransactionType.PURCHASE,
+  });
+}
+
+/** Stock log row as returned by `/objects/stock_log`; `undone` is 0/1 in Grocy responses. */
+export type GrocyStockLogRow = StockLogEntry & { undone?: number | boolean | string; note?: string | null };
+
+/**
+ * Find stock log rows of a product whose note contains `needle`. Used to
+ * verify whether an uncertain stock write actually reached Grocy.
+ */
+export async function findStockLogRowsByNote(productId: number, needle: string): Promise<GrocyStockLogRow[]> {
+  const raw = await GenericEntityInteractionsService.getObjects(
+    'stock_log' as any,
+    [`product_id=${productId}`, `note~${needle}`],
+  );
+  return assertGrocyArray<GrocyStockLogRow>(raw, '/objects/stock_log');
+}
+
+/** Undo a complete Grocy stock transaction. */
+export async function undoStockTransaction(transactionId: string): Promise<void> {
+  await StockService.postStockTransactionsUndo(transactionId);
+}
+
+/** Consume an exact amount and return the resulting stock log rows. */
+export async function consumeProductStockExact(productId: number, amount: number): Promise<StockLogEntry[]> {
+  return StockService.postStockProductsConsume(productId, {
+    amount,
+    spoiled: false,
+    exact_amount: true,
+    transaction_type: StockTransactionType.CONSUME,
   });
 }
 

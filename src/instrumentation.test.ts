@@ -55,6 +55,10 @@ vi.mock('./lib/settings', () => ({
   getSettings: mockState.getSettings,
 }));
 
+vi.mock('./lib/plugins/bootstrap', () => ({
+  startPluginGateway: vi.fn(),
+}));
+
 vi.mock('./lib/sync/scheduler', () => ({
   startScheduler: mockState.startScheduler,
   stopScheduler: mockState.stopScheduler,
@@ -63,6 +67,9 @@ vi.mock('./lib/sync/scheduler', () => ({
 describe('instrumentation register', () => {
   beforeEach(() => {
     vi.resetModules();
+    delete globalThis.__gmsInstrumentationPromise;
+    delete globalThis.__gmsInstrumentationStarted;
+    delete globalThis.__gmsInstrumentationReady;
     mockState.migrate.mockReset();
     mockState.initializeHistoryStorage.mockReset();
     mockState.initializeHistoryStorage.mockResolvedValue(undefined);

@@ -499,7 +499,26 @@ async function main() {
           }
         });
 
-        await withTimeout(page.goto(targetUrl, { waitUntil: 'commit' }), STEP_TIMEOUT_MS, 'Page navigation');
+        await withTimeout(page.goto(targetUrl, { waitUntil: 'domcontentloaded' }), STEP_TIMEOUT_MS, 'Page navigation');
+        if (new URL(page.url()).pathname === '/login') {
+          const secret = process.env.AUTH_SECRET?.trim();
+          if (!secret) {
+            throw new Error('[DocsScreenshot] App is locked. Configure AUTH_SECRET before generating the dashboard screenshot.');
+          }
+
+          const response = await page.request.post(`${targetUrl}/api/auth/login`, {
+            data: { secret },
+            timeout: STEP_TIMEOUT_MS,
+          });
+          if (!response.ok()) {
+            throw new Error(`[DocsScreenshot] App login failed (${response.status()}). Dashboard screenshot was not saved.`);
+          }
+          await withTimeout(page.goto(targetUrl, { waitUntil: 'domcontentloaded' }), STEP_TIMEOUT_MS, 'Dashboard navigation');
+        }
+        await page.getByRole('heading', { name: 'Manual Sync', exact: true }).waitFor({
+          state: 'visible',
+          timeout: STEP_TIMEOUT_MS,
+        });
         console.log('Page loaded.');
         await withTimeout(
           page.waitForFunction(() => {
@@ -542,6 +561,11 @@ async function main() {
         });
 
         await page.waitForTimeout(250);
+        if (new URL(page.url()).pathname !== '/'
+          || await page.locator('#auth-secret').count() > 0
+          || !await page.getByRole('heading', { name: 'Manual Sync', exact: true }).isVisible()) {
+          throw new Error('[DocsScreenshot] Dashboard is not visible or app is locked. Screenshot was not saved.');
+        }
         await withTimeout(
           page.screenshot({
             path: OUTPUT_PATH,

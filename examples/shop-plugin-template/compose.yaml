@@ -1,0 +1,11 @@
+services:
+  shop-plugin:
+    build: .
+    restart: unless-stopped
+    environment:
+      GM_SYNC_URL: ${GM_SYNC_URL:?Set the existing gm-sync URL}
+      GM_SYNC_PLUGIN_TOKEN: ${GM_SYNC_PLUGIN_TOKEN:?Create a token in gm-sync}
+    volumes:
+      - plugin-data:/data
+volumes:
+  plugin-data:

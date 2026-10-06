@@ -21,6 +21,13 @@ import {
   releaseSyncLock,
 } from './mutex';
 import { runShoppingCleanup } from './shopping-cleanup';
+import {
+  isShopFeatureActive,
+  runShopDemandStep,
+  runShopReconcileStep,
+  startShopWorker,
+  stopShopWorker,
+} from '../shop/worker';
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let productSyncTimer: ReturnType<typeof setInterval> | null = null;
@@ -89,7 +96,7 @@ function getSchedulerStepEventLevel(status: SchedulerStepStatus): 'info' | 'warn
 
 function getSchedulerStepCategory(name: SchedulerStepName): HistoryEventInput['category'] {
   if (name === 'conflict_check') return 'conflict';
-  if (name === 'shopping_cleanup') return 'shopping';
+  if (name === 'shopping_cleanup' || name === 'shop_demand' || name === 'shop_reconcile') return 'shopping';
   return 'sync';
 }
 
@@ -105,6 +112,10 @@ function getSchedulerStepLabel(name: SchedulerStepName): string {
       return 'Conflict check';
     case 'shopping_cleanup':
       return 'Shopping cleanup';
+    case 'shop_demand':
+      return 'Shop demand';
+    case 'shop_reconcile':
+      return 'Shop receipts';
   }
 }
 
@@ -326,7 +337,22 @@ function startTimers(): void {
     }
 
     try {
+      // Shop steps only exist while plugin installations exist; without them the
+      // poll cycle is exactly the same as before.
+      const shopActive = isShopFeatureActive();
+      const shopDemandSteps: SchedulerStepDefinition[] = shopActive ? [{
+        name: 'shop_demand',
+        failureLogPrefix: '[Scheduler] Shop demand error:',
+        run: runShopDemandStep,
+      }] : [];
+      const shopReconcileSteps: SchedulerStepDefinition[] = shopActive ? [{
+        name: 'shop_reconcile',
+        failureLogPrefix: '[Scheduler] Shop receipt reconciliation error:',
+        run: runShopReconcileStep,
+      }] : [];
       await runSchedulerCycle('poll', [
+        // Demand is observed first so manual checks in this cycle reference the current revision.
+        ...shopDemandSteps,
         {
           name: 'mealie_to_grocy',
           failureLogPrefix: '[Scheduler] Mealie poll error:',
@@ -343,6 +369,8 @@ function startTimers(): void {
             return buildGrocyToMealieHistoryOutcome('grocy_to_mealie', result);
           },
         },
+        // Receipt bookings run after the low-stock poll so its snapshot predates them.
+        ...shopReconcileSteps,
         {
           name: 'conflict_check',
           failureLogPrefix: '[Scheduler] Conflict check error:',
@@ -416,6 +444,7 @@ function startTimers(): void {
     nextCleanupRun = new Date(Date.now() + cleanupMs);
   }, cleanupMs);
 
+  startShopWorker();
   log.info('[Scheduler] Poll timers started');
 }
 
@@ -436,6 +465,7 @@ export function stopScheduler(): void {
     clearInterval(cleanupTimer);
     cleanupTimer = null;
   }
+  stopShopWorker();
   if (schedulerLockHeld) {
     releaseSchedulerLock();
     schedulerLockHeld = false;
