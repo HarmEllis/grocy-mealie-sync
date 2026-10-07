@@ -204,6 +204,23 @@ export const demandRevisions = sqliteTable('demand_revisions', {
 // Retailer catalogue and central mappings (provider level, shared by installations)
 // ---------------------------------------------------------------------------
 
+/** Durable automatic catalogue searches for ingredients on the active Mealie list. */
+export const shopCatalogSearches = sqliteTable('shop_catalog_searches', {
+  id: text('id').primaryKey(),
+  providerId: text('provider_id').notNull(),
+  targetKind: text('target_kind').notNull(),
+  targetId: text('target_id').notNull(),
+  targetName: text('target_name').notNull(),
+  query: text('query').notNull(),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+  status: text('status').notNull().default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  resultCount: integer('result_count').notNull().default(0),
+  lastError: text('last_error'),
+  nextAttemptAt: integer('next_attempt_at', { mode: 'timestamp_ms' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+}, table => [index('idx_shop_catalog_searches_provider').on(table.providerId)]);
+
 export const retailerProducts = sqliteTable('retailer_products', {
   id: text('id').primaryKey(),
   providerId: text('provider_id').notNull(),

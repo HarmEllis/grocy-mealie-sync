@@ -77,6 +77,10 @@ function formatConflictKindBreakdown(conflicts: Array<Pick<MappingConflictRecord
 
 export function formatHistoryActionLabel(action: HistoryRunAction): string {
   switch (action) {
+    case 'shop_list_sync':
+      return 'Retailer shopping list sync';
+    case 'shop_catalog_search':
+      return 'Retailer product suggestions';
     case 'scheduler_cycle':
       return 'Scheduler cycle';
     case 'product_sync':

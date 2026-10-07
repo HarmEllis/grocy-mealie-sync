@@ -235,6 +235,7 @@ export interface ConversionLibraryMcpServices {
 }
 
 export interface HistoryMcpServices {
+  listHistoryActivityResource?: typeof import('@/lib/use-cases/history/read').listHistoryActivityResource;
   listRecentHistoryResource(params?: ListRecentHistoryParams): Promise<RecentHistoryResource>;
   getHistoryRunResource(params: GetHistoryRunParams): Promise<HistoryRunResource>;
 }

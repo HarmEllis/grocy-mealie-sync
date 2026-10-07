@@ -130,6 +130,26 @@ try {
   await page.unroute('**/api/plugins/installations');
   await page.unroute('**/api/plugins/installations/*/auth');
 
+  // Automatically discovered ingredients and proposals are visible without a manual catalogue search.
+  const realOverview = await (await fetch(`${baseUrl}/api/shop/overview`)).json();
+  await page.route('**/api/shop/overview', route => route.fulfill({ json: { ...realOverview,
+    installations: realOverview.installations.map(item => ({ ...item, providerId: 'synthetic-shop' })),
+  } }));
+  await page.route('**/api/shop/mappings?*', route => route.fulfill({ json: {
+    searches: [{ id: 'synthetic-search', targetName: 'Cherry tomaten', status: 'complete', resultCount: 1, lastError: null }],
+    products: [{ providerId: 'synthetic-shop', externalId: '123', name: 'Synthetic cherry tomatoes', packageAmount: 250, packageUnit: 'g', measure: 'unit' }],
+    suggestions: [{ id: 'synthetic-suggestion', retailerProductId: '123', targetKind: 'grocy_product', targetId: '1', targetName: 'Cherry tomaten', score: 0.9 }],
+    mappings: [],
+  } }));
+  await page.goto(`${baseUrl}/shopping`, { waitUntil: 'networkidle', timeout: 180_000 });
+  await page.getByRole('tab', { name: 'Products', exact: true }).click();
+  await page.getByText('Shopping ingredients to map', { exact: true }).waitFor();
+  await page.getByText('Found 1 products; review the suggestions or use Map below').waitFor();
+  await page.getByRole('button', { name: 'Accept', exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Confirm', exact: true }).count(), 0, 'catalogue proposals are not confirmed mappings');
+  await page.unroute('**/api/shop/overview');
+  await page.unroute('**/api/shop/mappings?*');
+
   // Shopping page: every tab hydrates and renders.
   await page.goto(`${baseUrl}/shopping`, { waitUntil: 'networkidle', timeout: 180_000 });
   await page.getByRole('heading', { name: 'Shopping' }).first().waitFor();

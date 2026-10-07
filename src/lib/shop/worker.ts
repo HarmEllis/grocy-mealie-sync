@@ -1,4 +1,5 @@
 import { config } from '../config';
+import { recordHistoryRun } from '../history-store';
 import type { HistoryEventInput } from '../history-store';
 import { log } from '../logger';
 import { getPluginGateway, setShopWorker, type ShopWorkerHandle } from '../plugins/runtime';
@@ -14,7 +15,9 @@ import { syncInstallationList } from './list-sync';
 import { persistExports, projectDemand, targetKey, type ProjectionMapping } from './projection';
 import { isReceiptPullDue, pullReceipts } from './receipts';
 import { hasPendingReceiptEffects, runShopReconcile } from './reconcile-executor';
-import { generateSuggestions, listRetailerMappings } from './retailer-catalog';
+import { generateSuggestions, listRetailerMappings, listRetailerProducts } from './retailer-catalog';
+import { queueCatalogDiscovery, discoverCatalogProducts } from './catalog-discovery';
+import { listActiveExports } from './projection';
 import type { TargetKind } from './units';
 
 /**
@@ -54,6 +57,8 @@ export async function runShopDemandStep(): Promise<ShopStepOutcome> {
   if (projecting.length === 0) return { status: 'success', summary };
 
   const ctx = await loadUnitContext();
+  // Shopping rows already contain names for Mealie-only ingredients.
+  for (const item of items) if (item.foodId && item.food?.name) ctx.mealieFoodNames.set(item.foodId, item.food.name);
   const open = listOpenDemand(shoppingListId);
   const demands = open.map(({ revision }) => {
     let subItems = null;
@@ -87,6 +92,8 @@ export async function runShopDemandStep(): Promise<ShopStepOutcome> {
         confirmed: mapping.confirmed,
       });
     }
+    queueCatalogDiscovery(providerId, demands, ctx);
+    const previous = new Map(listActiveExports(installation.id).map(row => [row.retailerProductId, row]));
     const projection = projectDemand(demands, preferred, ctx);
     const persisted = persistExports(installation.id, providerId, projection.lines, new Date());
     (summary.projections as unknown[]).push({
@@ -99,11 +106,20 @@ export async function runShopDemandStep(): Promise<ShopStepOutcome> {
       ...[...ctx.grocyProducts.values()].map(product => ({ targetKind: 'grocy_product' as const, targetId: String(product.id), targetName: product.name })),
     ];
     generateSuggestions(providerId, candidates);
-    if (persisted.written > 0) {
+    const names = new Map(listRetailerProducts(providerId).map(product => [product.externalId, product.name]));
+    const current = new Map(listActiveExports(installation.id).map(row => [row.retailerProductId, row]));
+    for (const id of new Set([...previous.keys(), ...current.keys()])) {
+      const before = previous.get(id);
+      const after = current.get(id);
+      if (before?.id === after?.id) continue;
+      const productName = names.get(id) ?? id;
+      const packages = after?.packages ?? 0;
       events.push(activityEvent({
-        source: 'Mealie', target: 'App', category: 'shopping', entityKind: 'system',
-        entityRef: `plugin:${installation.id}`, message: `Updated ${persisted.written} product(s) for the ${installation.name} shopping list.`,
-        reason: 'Open Mealie demand changed.', details: { installationId: installation.id, ...persisted },
+        source: 'Mealie', target: 'App', category: 'shopping', entityKind: 'product', productName,
+        entityRef: `retailer:${providerId}:${id}`,
+        message: after ? `Prepared ${packages} package(s) of ${productName} for the ${installation.name} shopping list.`
+          : `Removed the demand for ${productName} from the ${installation.name} shopping list plan.`,
+        reason: 'Open Mealie demand changed.', details: { installationId: installation.id, retailerProductId: id, packages, previousPackages: before?.packages ?? 0 },
       }));
     }
   }
@@ -161,11 +177,32 @@ export function createShopWorker(): ShopWorkerHandle & { start: () => void; stop
     // Without connected plugins the worker does nothing, not even a database read.
     if (!gateway || sessions.length === 0) return;
     const installations = listInstallations();
+    const searchedProviders = new Set<string>();
     for (const session of sessions) {
       const installation = installations.find(candidate => candidate.id === session.installationId);
       if (!installation || installation.revokedAt) continue;
       const capabilities = new Set<string>(session.hello.capabilities);
       const now = new Date();
+
+      if (installation.settings.listSyncEnabled && installation.providerId && capabilities.has('catalog') && session.hello.authState === 'authenticated' && !searchedProviders.has(installation.providerId)) {
+        searchedProviders.add(installation.providerId);
+        const discoveries = await discoverCatalogProducts(installation.providerId, async query =>
+          (await gateway.call(installation.id, 'catalog.search', { query }, { timeoutMs: 20_000 })).products);
+        if (discoveries.length) {
+          try {
+            await recordHistoryRun({ trigger: 'scheduler', action: 'shop_catalog_search', status: discoveries.some(d => d.error) ? 'partial' : 'success', startedAt: now, finishedAt: new Date(),
+              events: discoveries.map(d => activityEvent({ source: 'Mealie', target: 'App', category: 'mapping', productName: d.targetName,
+                message: d.error ? `${d.targetName}: ${d.error}` : `${d.targetName}: found ${d.products} retailer product(s); review the proposed mappings in Shop.`,
+                reason: 'An open Mealie ingredient has no preferred retailer product.', level: d.error ? 'warning' : 'info',
+              })),
+            });
+          } catch (error) { log.warn('[Shop] Could not record catalogue discovery:', error); }
+        }
+        for (const discovery of discoveries) {
+          if (discovery.error) log.warn(`[Shop] ${discovery.targetName}: ${discovery.error}`);
+          else log.info(`[Shop] ${discovery.targetName}: found ${discovery.products} catalogue product(s) for mapping review.`);
+        }
+      }
 
       if (installation.settings.listSyncEnabled && capabilities.has('list') && listSyncOwner(installations, installation)) {
         listRequests.delete(installation.id);

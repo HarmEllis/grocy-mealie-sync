@@ -14,6 +14,7 @@ import {
 } from '@/lib/use-cases/inventory/manage';
 import {
   getHistoryRunResource,
+  listHistoryActivityResource,
   listRecentHistoryResource,
 } from '@/lib/use-cases/history/read';
 import {
@@ -117,6 +118,7 @@ import { registerMappingTools } from './tools/mappings';
 import { registerProductTools } from './tools/products';
 import { registerShoppingTools } from './tools/shopping';
 import { registerUnitTools } from './tools/units';
+import { registerShopTools } from './tools/shop';
 import { registerCatalogTools } from './tools/catalog';
 
 export function createGrocyMealieSyncMcpServer(
@@ -234,6 +236,7 @@ export function createGrocyMealieSyncMcpServer(
       ...overrides.conversionLibrary,
     },
     history: {
+      listHistoryActivityResource,
       listRecentHistoryResource,
       getHistoryRunResource,
       ...overrides.history,
@@ -274,6 +277,7 @@ export function createGrocyMealieSyncMcpServer(
   registerConversionTools(server, services.conversions);
   registerConversionLibrary(server, services.conversionLibrary, services.conversions);
   registerHistoryTools(server, services.history);
+  registerShopTools(server);
   registerConflictTools(server, services.conflicts);
   registerDiagnosticTools(server, services.diagnostics);
   registerCatalogTools(server, services.catalog);

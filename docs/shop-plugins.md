@@ -85,6 +85,28 @@ and list binding*. The reset forgets list ownership and **turns both toggles
 off**, so a new account never inherits the old receipt activation boundary;
 turning receipts on again moves the boundary to the moment you re-enable it.
 
+## Automatic product proposals
+
+With shared-list sync enabled, the next regular synchronization observes open
+Mealie rows and queues a catalogue search for each ingredient without a preferred
+retailer mapping. The plugin worker performs up to three searches per retailer
+per worker pass (normally once per minute), outside the main synchronization lock. Grocy-linked ingredients use
+the Grocy product name; Mealie-only ingredients use the food name supplied by the
+shopping row. Sub-product rows are searched per child when no usable parent
+mapping exists. Free-text rows without a food identity require manual mapping.
+
+Under Shopping → Products, **Shopping ingredients to map** shows waiting searches,
+results and failures. Search results create name-based proposals, never confirmed
+mappings. Accept a proposal or use Map, then confirm the amount per package in
+the target unit. Existing preferred mappings are reused. Search state survives
+restarts and quantity changes; deleting and re-adding a Mealie row preserves its
+product proposals and mapping. Rejected pairs remain rejected. Failed searches
+retry with backoff; **Search again** also allows a manual retry. No-result searches
+wait for a manual retry or catalogue search.
+
+History records product names and quantities separately: a prepared shopping-list
+plan is distinct from a list operation confirmed by the retailer plugin.
+
 ## Mappings
 
 Mappings are kept per retailer (provider), shared by all installations of that
@@ -186,3 +208,29 @@ Late or missing receipts book nothing; manual checking keeps working as before.
   parent product.
 - Whether retailer list lines written through an API appear on a physical
   hand scanner depends on the retailer and must be checked per plugin.
+
+
+## MCP control
+
+Every Shop UI action is also exposed over the app's authenticated MCP endpoint.
+`plugins.list` reads setup and connection state; `plugins.create`, `plugins.update`,
+`plugins.rotate_token`, `plugins.revoke` and `plugins.reset_binding` manage the
+installation. Creation and rotation return the new secret once; ordinary reads
+never return it. `plugins.auth_begin`, `plugins.auth_submit` and
+`plugins.auth_logout` relay the same sign-in forms and safe errors as the UI.
+Keep entered sign-in values out of agent logs and source control.
+
+Use `plugins.catalog_search`, `shop.mappings.list`, `shop.targets.search`,
+`shop.mappings.save/update/delete`, `shop.suggestions.decide` and
+`shop.searches.retry` for products and proposals. `shop.overview` reads all Shop
+tabs, including receipt lines, ownership, pending effects and discrepancies.
+`shop.lists.sync`, `shop.receipts.pull`, `shop.lines.resolve`,
+`shop.review.resolve`, `shop.effects.resolve` and `shop.discrepancies.resolve`
+perform the same validated, locked actions as the browser. An uncertain write
+requires evidence and a deliberate resolution; MCP does not bypass these checks.
+
+`history.list_activity` reads the product-level history shown in the UI, with
+search, action, trigger, status, kind, date and pagination filters.
+`history.list_runs` accepts the same run filters; `history.get_run` returns the
+full ordered events. `history.status` reports history enablement and retention.
+Date filters accept `YYYY-MM-DD` (whole days in server local time) or ISO timestamps.

@@ -1,3 +1,7 @@
+import { recordHistoryRun, type HistoryEventInput } from '../history-store';
+import { activityEvent } from '../sync/activity';
+import { getRetailerProduct } from './retailer-catalog';
+import { log } from '../logger';
 import { randomUUID } from 'crypto';
 import { and, eq } from 'drizzle-orm';
 import { db } from '../db';
@@ -158,13 +162,34 @@ async function sendApply(installationId: string, pending: PendingApply, deps: Li
   for (const update of recordsAfterApply(pending.plan, response.results)) {
     writeRecord(installationId, update.retailerProductId, update.record, now);
   }
+  const events: HistoryEventInput[] = [];
+  const installation = getInstallation(installationId);
   for (const opResult of response.results) {
     // Per-op `failed` means the plugin guarantees nothing was written for that op.
-    if (opResult.status === 'applied') result.applied++;
+    if (opResult.status === 'applied') {
+      result.applied++;
+      const planned = pending.plan.ops[opResult.index];
+      const op = planned.op;
+      const productName = installation?.providerId ? getRetailerProduct(installation.providerId, planned.retailerProductId)?.name ?? planned.retailerProductId : planned.retailerProductId;
+      const quantity = op.op === 'remove' ? 0 : op.quantity;
+      const message = `${productName}: ${installation?.name ?? 'Retailer'} confirmed ${op.op === 'remove' ? 'removal from the shared list' : `shared-list quantity ${quantity}`}.`;
+      log.info(`[Shop] ${message}`);
+      events.push(activityEvent({ source: 'App', target: 'App', category: 'shopping', productName,
+        entityRef: `retailer:${installation?.providerId}:${planned.retailerProductId}`, message,
+        reason: 'The plugin confirmed this shopping list operation.',
+        details: { installationId, retailerProductId: planned.retailerProductId, operation: op.op, quantity, managedQuantity: planned.onApplied?.managedQty ?? 0 },
+      }));
+    }
     else if (opResult.status === 'conflict') result.conflicts++;
     else result.failed++;
   }
   writePending(installationId, null);
+  if (events.length) {
+    // Audit storage must never reopen an already settled retailer operation.
+    try {
+      await recordHistoryRun({ trigger: 'scheduler', action: 'shop_list_sync', status: result.failed || result.conflicts ? 'partial' : 'success', startedAt: now, finishedAt: now, events });
+    } catch (error) { log.warn('[Shop] Could not record confirmed list changes:', error); }
+  }
   return true;
 }
 

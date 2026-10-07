@@ -10,7 +10,7 @@ const SHOP_TABLES = [
   'plugin_installations', 'app_meta', 'check_lifecycles', 'shop_effects', 'demands', 'demand_revisions',
   'retailer_products', 'retailer_mappings', 'retailer_suggestions', 'shop_exports', 'shop_export_allocations',
   'shop_list_lines', 'receipts', 'receipt_lines', 'reconciliation_links', 'discrepancies', 'receipt_cursors',
-  'low_stock_accounted_restocks',
+  'low_stock_accounted_restocks', 'shop_catalog_searches',
 ];
 
 describe('shop plugin migrations', () => {
@@ -59,4 +59,26 @@ describe('shop plugin migrations', () => {
       sqlite.close();
     }
   });
+
+  it('upgrades the rc.1 schema while preserving existing retailer products and shopping demand', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gms-catalog-upgrade-'));
+    tempDirs.push(tempDir);
+    const journal = JSON.parse(fs.readFileSync(path.resolve('drizzle/meta/_journal.json'), 'utf8'));
+    const entries = journal.entries.filter((entry: { idx: number }) => entry.idx <= 15);
+    fs.mkdirSync(path.join(tempDir, 'meta'));
+    fs.writeFileSync(path.join(tempDir, 'meta/_journal.json'), JSON.stringify({ ...journal, entries }));
+    for (const entry of entries) fs.copyFileSync(path.resolve(`drizzle/${entry.tag}.sql`), path.join(tempDir, `${entry.tag}.sql`));
+    const sqlite = new Database(':memory:');
+    try {
+      const database = drizzle(sqlite);
+      migrate(database, { migrationsFolder: tempDir });
+      sqlite.exec(`INSERT INTO retailer_products (id, provider_id, external_id, name, measure, last_seen_at) VALUES ('ah:123', 'ah', '123', 'Synthetic tomatoes', 'unit', 1);
+        INSERT INTO demands (mealie_item_id, shopping_list_id, status, first_seen_at) VALUES ('row', 'list', 'open', 1);`);
+      migrate(database, { migrationsFolder: path.resolve('drizzle') });
+      expect(sqlite.prepare('SELECT name FROM retailer_products').all()).toEqual([{ name: 'Synthetic tomatoes' }]);
+      expect(sqlite.prepare('SELECT mealie_item_id, status FROM demands').all()).toEqual([{ mealie_item_id: 'row', status: 'open' }]);
+      expect(sqlite.prepare('SELECT COUNT(*) AS count FROM shop_catalog_searches').get()).toEqual({ count: 0 });
+    } finally { sqlite.close(); }
+  });
+
 });

@@ -52,6 +52,8 @@ export const historyRunActions = [
   'shopping_remove_item',
   'shopping_merge_duplicates',
   'shopping_cleanup',
+  'shop_list_sync',
+  'shop_catalog_search',
   'conflict_remap',
   'conversion_create',
   'conversion_delete',

@@ -188,12 +188,13 @@ interface MappingRow {
 
 interface ProductRow { providerId: string; externalId: string; name: string; packageAmount: number | null; packageUnit: string | null; measure: string }
 interface SuggestionRow { id: string; retailerProductId: string; targetKind: string; targetId: string; targetName: string; score: number }
+interface CatalogSearchRow { id: string; targetName: string; status: string; resultCount: number; lastError: string | null }
 interface TargetOption { kind: 'grocy_product' | 'mealie_food'; id: string; name: string; baseUnitId: string | null; baseUnitName: string | null }
 
 function ProductsTab({ overview }: { overview: ShopOverview }) {
   const providers = useMemo(() => [...new Set(overview.installations.map(installation => installation.providerId).filter((id): id is string => Boolean(id)))], [overview]);
   const [providerId, setProviderId] = useState<string>('');
-  const [data, setData] = useState<{ mappings: MappingRow[]; products: ProductRow[]; suggestions: SuggestionRow[] } | null>(null);
+  const [data, setData] = useState<{ mappings: MappingRow[]; products: ProductRow[]; suggestions: SuggestionRow[]; searches?: CatalogSearchRow[] } | null>(null);
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<ProductRow | null>(null);
   const activeProvider = providerId || providers[0] || '';
@@ -208,7 +209,11 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
     }
   }, [activeProvider]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    const interval = window.setInterval(load, 15_000);
+    return () => window.clearInterval(interval);
+  }, [load]);
 
   if (!activeProvider) return <p className="text-sm text-muted-foreground">Connect a plugin first; mappings are kept per retailer.</p>;
   const mappingByProduct = new Map((data?.mappings ?? []).map(mapping => [mapping.retailerProductId, mapping]));
@@ -238,6 +243,25 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
           <Button size="sm" type="submit" disabled={!connected}><Search className="size-4" /> Search</Button>
         </form>
       </div>
+
+      {data?.searches?.length ? (
+        <AppCardSection title="Shopping ingredients to map" subtitle="New Mealie ingredients are searched automatically. Choose a product below and confirm its package amount before it goes to the retailer list.">
+          <ul className="space-y-2 text-sm">
+            {data.searches.map(search => (
+              <li key={search.id} className="rounded border border-border p-2">
+                <span className="font-semibold">{search.targetName}</span>{' · '}
+                {search.status === 'pending' ? 'Waiting for the connected plugin to search' : search.status === 'error'
+                  ? search.lastError : search.resultCount ? `Found ${search.resultCount} products; review the suggestions or use Map below` : 'No products found; try a manual catalogue search'}
+                {search.status !== 'pending' ? (
+                  <Button size="sm" variant="ghost" onClick={async () => {
+                    if (await post(`/api/shop/searches/${search.id}/retry`, {}, 'Catalogue search queued')) await load();
+                  }}>Search again</Button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </AppCardSection>
+      ) : null}
 
       {data?.suggestions.length ? (
         <AppCardSection title="Suggestions" subtitle="Each suggestion is decided once and never shown again.">

@@ -319,6 +319,8 @@ This MCP surface is intended for daily operational workflows across Grocy, Meali
 - product and unit mapping management, including mapping suggestions
 - stock updates and Grocy stock-related product defaults
 - Mealie shopping-list correction, including add-by-name flows that can turn phrases like `vanille kwark` into product `kwark` plus note `vanille`
+- complete Shop plugin setup and review, including tokens, retailer sign-in, catalogue searches, mappings, receipts and uncertain-write decisions
+- product-level history with the same search, date, status and pagination filters as the UI
 - conflict, history, and product-state diagnostics
 
 Examples:

@@ -1,3 +1,4 @@
+import { listCatalogSearches } from '@/lib/shop/catalog-discovery';
 import { z } from 'zod';
 import { listRetailerMappings, listRetailerProducts, listSuggestions, upsertRetailerMapping } from '@/lib/shop/retailer-catalog';
 import { readJson, ShopApiError, shopRoute } from '@/lib/shop/api-helpers';
@@ -24,6 +25,7 @@ export async function GET(request: Request) {
       mappings: listRetailerMappings(providerId),
       products: listRetailerProducts(providerId),
       suggestions: listSuggestions(providerId),
+      searches: listCatalogSearches(providerId),
     };
   });
 }
