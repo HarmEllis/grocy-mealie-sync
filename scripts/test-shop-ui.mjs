@@ -98,6 +98,38 @@ try {
   assert.equal(listed.installations[0].tokenHint, rotatedToken.slice(-4));
   assert.ok(!JSON.stringify(listed).includes(rotatedToken), 'listing never exposes the token');
 
+  // Sign-in failures stay visible, clear secrets and require a fresh step.
+  await page.route('**/api/plugins/installations', route => route.fulfill({ json: {
+    installations: [{ ...listed.installations[0], connected: true, capabilities: ['auth'] }],
+  } }));
+  let beginCount = 0;
+  let submitCount = 0;
+  await page.route('**/api/plugins/installations/*/auth', route => {
+    const body = route.request().postDataJSON();
+    if (body.action === 'begin') {
+      beginCount++;
+      return route.fulfill({ json: { step: { stepId: `synthetic-step-${beginCount}`, kind: 'form', title: 'Synthetic retailer sign-in',
+        fields: [{ name: 'code', label: 'Login code', type: 'password', secret: true, required: true }] } } });
+    }
+    submitCount++;
+    return route.fulfill({ status: 502, json: { error: 'The retailer rejected the login code. Start a new login.', code: 'UNAUTHENTICATED', outcome: 'not_applied', retryable: false } });
+  });
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.getByRole('button', { name: 'Retailer sign-in' }).click();
+  await page.getByLabel('Login code').fill('synthetic-single-use-code');
+  const initialBeginCount = beginCount;
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: 'The retailer rejected the login code.' }).waitFor();
+  assert.equal(await page.getByLabel('Login code').count(), 0, 'the stale form and secret are removed');
+  await page.getByRole('button', { name: 'Start a new sign-in', exact: true }).click();
+  await page.getByLabel('Login code').waitFor();
+  assert.equal(await page.getByLabel('Login code').inputValue(), '');
+  assert.equal(beginCount, initialBeginCount + 1);
+  assert.equal(submitCount, 1, 'starting over never replays the failed code');
+  await page.getByRole('button', { name: 'Close', exact: true }).first().click();
+  await page.unroute('**/api/plugins/installations');
+  await page.unroute('**/api/plugins/installations/*/auth');
+
   // Shopping page: every tab hydrates and renders.
   await page.goto(`${baseUrl}/shopping`, { waitUntil: 'networkidle', timeout: 180_000 });
   await page.getByRole('heading', { name: 'Shopping' }).first().waitFor();

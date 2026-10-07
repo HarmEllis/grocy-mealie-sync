@@ -5,7 +5,7 @@ import { ExternalLink, Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { AppInput } from '@/components/redesign/primitives';
-import { apiJson } from './api';
+import { apiJson, ShopRequestError } from './api';
 import type { AuthStep } from '@/lib/plugins/protocol/v1';
 
 function safeHttpsUrl(value: string | undefined): string | null {
@@ -27,7 +27,7 @@ export function PluginAuthDialog({ installation, onClose }: { installation: { id
   const [step, setStep] = useState<AuthStep | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; guidance: string } | null>(null);
 
   async function call(body: Record<string, unknown>) {
     setBusy(true);
@@ -39,7 +39,19 @@ export function PluginAuthDialog({ installation, onClose }: { installation: { id
       });
       setStep(data.step);
     } catch (caught) {
-      setError((caught as Error).message);
+      const unavailable = caught instanceof ShopRequestError && (caught.code === 'NOT_CONNECTED' || caught.status === 503);
+      const incompatible = caught instanceof ShopRequestError && ['UPSTREAM_CHANGED', 'BAD_RESPONSE', 'NOT_SUPPORTED'].includes(caught.code ?? '');
+      setError({
+        message: caught instanceof Error ? caught.message : 'The sign-in request failed.',
+        guidance: unavailable
+          ? 'The plugin is unavailable. Check that its container is running and connected, then start a new sign-in.'
+          : incompatible
+            ? 'The plugin could not complete this sign-in step. Check for a plugin update before trying a new sign-in.'
+            : 'Start a new sign-in and follow the steps again. A login code may already have been used; do not submit the same code again.',
+      });
+      // A failed relay may have consumed a single-use code. Begin a fresh flow;
+      // never leave a stale form available for another submission.
+      setStep(null);
     } finally {
       setValues({});
       setBusy(false);
@@ -63,7 +75,13 @@ export function PluginAuthDialog({ installation, onClose }: { installation: { id
         </DialogHeader>
 
         {busy && !step ? <Loader2 className="size-5 animate-spin" /> : null}
-        {error ? <p className="text-sm text-[var(--badge-error-text)]" role="alert">{error}</p> : null}
+        {error ? (
+          <div className="space-y-2 rounded-md border border-[var(--badge-error-text)]/40 p-3 text-sm" role="alert">
+            <p className="font-semibold text-[var(--badge-error-text)]">Sign-in failed</p>
+            <p className="break-words">{error.message}</p>
+            <p className="text-muted-foreground">{error.guidance}</p>
+          </div>
+        ) : null}
 
         {url ? (
           <a className="inline-flex items-center gap-1 text-sm underline" href={url} target="_blank" rel="noopener noreferrer">
@@ -98,6 +116,7 @@ export function PluginAuthDialog({ installation, onClose }: { installation: { id
         ) : null}
 
         <DialogFooter>
+          {error ? <Button size="sm" disabled={busy} onClick={() => void call({ action: 'begin' })}>Start a new sign-in</Button> : null}
           {step?.kind === 'done' ? (
             <Button size="sm" variant="outline" disabled={busy} onClick={() => void call({ action: 'logout' })}>Sign out</Button>
           ) : null}

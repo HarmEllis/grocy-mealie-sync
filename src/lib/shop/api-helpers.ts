@@ -2,7 +2,17 @@ import { NextResponse } from 'next/server';
 import { ZodError, z } from 'zod';
 import { log } from '../logger';
 import { acquireSyncLock, releaseSyncLock } from '../sync/mutex';
-import { PluginCallError } from '../plugins/gateway';
+import { errorCodeSchema, outcomeSchema } from '../plugins/protocol/v1';
+
+// The custom WebSocket server and Next route bundle load separate class copies.
+// Validate the public error contract instead of relying on instanceof.
+const pluginCallErrorSchema = z.object({
+  name: z.literal('PluginCallError'),
+  message: z.string().max(1000),
+  code: z.union([errorCodeSchema, z.enum(['NOT_CONNECTED', 'BAD_RESPONSE'])]),
+  outcome: outcomeSchema,
+  retryable: z.boolean(),
+});
 
 export class ShopApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -21,9 +31,11 @@ export async function shopRoute<T>(label: string, body: () => Promise<T> | T): P
     if (error instanceof ShopApiError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
-    if (error instanceof PluginCallError) {
-      const status = error.code === 'NOT_CONNECTED' ? 503 : error.code === 'NOT_SUPPORTED' ? 400 : 502;
-      return NextResponse.json({ error: error.message, code: error.code, outcome: error.outcome }, { status });
+    const pluginError = pluginCallErrorSchema.safeParse(error);
+    if (pluginError.success) {
+      const detail = pluginError.data;
+      const status = detail.code === 'NOT_CONNECTED' ? 503 : detail.code === 'NOT_SUPPORTED' ? 400 : 502;
+      return NextResponse.json({ error: detail.message, code: detail.code, outcome: detail.outcome, retryable: detail.retryable }, { status });
     }
     log.error(`[Shop API] ${label} failed:`, error);
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
