@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AppBadge, AppInput, ProgressRing } from '@/components/redesign/primitives';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { ThemedSelect } from '@/components/shared/ThemedSelect';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { Pagination } from '@/components/mapping-wizard/Pagination';
 import { buildPageWindow, DEFAULT_PAGE_SIZE } from '@/components/mapping-wizard/paging';
@@ -232,6 +233,14 @@ interface SuggestionRow { id: string; retailerProductId: string; targetKind: str
 interface CatalogSearchRow { id: string; targetName: string; status: string; resultCount: number; lastError: string | null }
 interface TargetOption { kind: 'grocy_product' | 'mealie_food'; id: string; name: string; baseUnitId: string | null; baseUnitName: string | null }
 
+function targetKey(target: TargetOption): string {
+  return `${target.kind}:${target.id}`;
+}
+
+function targetLabel(target: TargetOption): string {
+  return target.kind === 'grocy_product' ? `Grocy: ${target.name} (${target.baseUnitName ?? 'stock unit'})` : `Mealie only: ${target.name}`;
+}
+
 function ProductsTab({ overview }: { overview: ShopOverview }) {
   const providers = useMemo(() => [...new Set(overview.installations.map(installation => installation.providerId).filter((id): id is string => Boolean(id)))], [overview]);
   const [providerId, setProviderId] = useState<string>('');
@@ -290,7 +299,7 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
       </div>
       <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
         {providers.length > 1 ? (
-          <SearchableSelect options={providers.map(id => ({ value: id, label: id }))} value={activeProvider} onChange={value => { if (value !== null) setProviderId(value); }} ariaLabel="Retailer" clearable={false} className="w-full sm:w-44" />
+          <ThemedSelect options={providers.map(id => ({ value: id, label: id }))} value={activeProvider} onChange={setProviderId} ariaLabel="Retailer" className="w-full sm:w-44" />
         ) : <AppBadge>{activeProvider}</AppBadge>}
         <form
           className="flex w-full min-w-0 items-center gap-2 sm:w-auto"
@@ -352,7 +361,7 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
       <ShopSection title="Retailer products" subtitle="Automatic list and receipt processing only uses confirmed mappings.">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row">
           <AppInput className="min-w-0 flex-1" aria-label="Filter retailer products" placeholder="Filter by product or mapped ingredient" value={productQuery} onChange={event => setProductQuery(event.target.value)} />
-          <SearchableSelect ariaLabel="Product mapping filter" value={productFilter} onChange={value => { if (value !== null) setProductFilter(value); }} clearable={false} className="w-full sm:w-64" options={[
+          <ThemedSelect ariaLabel="Product mapping filter" value={productFilter} onChange={setProductFilter} className="w-full sm:w-64" options={[
             { value: 'all', label: `All products (${products.length})` },
             { value: 'available', label: `Available to map (${products.length - mappedCount})` },
             { value: 'mapped', label: `Mapped (${mappedCount})` },
@@ -405,7 +414,7 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
               );
             })}
         </ShopTable>
-        <Pagination searchablePageSize window={pageWindow} onOffsetChange={setOffset} onPageSizeChange={size => { setPageSize(size); setOffset(0); }} itemLabel="retailer products" />
+        <Pagination themedPageSize window={pageWindow} onOffsetChange={setOffset} onPageSizeChange={size => { setPageSize(size); setOffset(0); }} itemLabel="retailer products" />
       </ShopSection>
 
       {editing ? <MappingEditor providerId={activeProvider} product={editing} mapping={mappingByProduct.get(editing.externalId) ?? null} onClose={() => { setEditing(null); void load(); }} /> : null}
@@ -444,6 +453,8 @@ function MappingAmount({ mapping, onSaved }: { mapping: MappingRow; onSaved: () 
 function MappingEditor({ providerId, product, mapping, onClose }: { providerId: string; product: ProductRow; mapping: MappingRow | null; onClose: () => void }) {
   const [query, setQuery] = useState(mapping?.targetName ?? product.name);
   const [targets, setTargets] = useState<TargetOption[]>([]);
+  const [unitsLoaded, setUnitsLoaded] = useState(false);
+  const [unitsError, setUnitsError] = useState(false);
   const [mealieUnits, setMealieUnits] = useState<Array<{ id: string; name: string }>>([]);
   const [selected, setSelected] = useState<TargetOption | null>(mapping && mapping.targetId ? {
     kind: mapping.targetKind as TargetOption['kind'], id: mapping.targetId, name: mapping.targetName,
@@ -454,11 +465,15 @@ function MappingEditor({ providerId, product, mapping, onClose }: { providerId: 
   const [amount, setAmount] = useState(mapping?.packageBaseAmount?.toString() ?? '');
 
   async function search() {
+    setUnitsLoaded(false);
+    setUnitsError(false);
     try {
       const result = await apiJson<{ targets: TargetOption[]; mealieUnits: Array<{ id: string; name: string }> }>(`/api/shop/targets?query=${encodeURIComponent(query)}`);
       setTargets(result.targets);
       setMealieUnits(result.mealieUnits);
+      setUnitsLoaded(true);
     } catch (error) {
+      setUnitsError(true);
       toast.error('Search failed', { description: (error as Error).message });
     }
   }
@@ -467,6 +482,10 @@ function MappingEditor({ providerId, product, mapping, onClose }: { providerId: 
 
   async function save() {
     if (!selected) return;
+    if (selected.kind === 'mealie_food' && mealieUnitId && (!unitsLoaded || !mealieUnits.some(unit => unit.id === mealieUnitId))) {
+      toast.error(unitsError ? 'Mealie units could not be loaded; press Find to retry' : unitsLoaded ? 'This Mealie unit is no longer available; choose another unit' : 'Wait for Mealie units to load before saving');
+      return;
+    }
     const baseUnit = selected.kind === 'grocy_product'
       ? { id: selected.baseUnitId, name: selected.baseUnitName }
       : { id: mealieUnitId || null, name: mealieUnits.find(unit => unit.id === mealieUnitId)?.name ?? null };
@@ -512,16 +531,20 @@ function MappingEditor({ providerId, product, mapping, onClose }: { providerId: 
         </form>
         <SearchableSelect
           className="w-full" ariaLabel="Target" placeholder="Choose a target…"
-          value={selected ? `${selected.kind}:${selected.id}` : null}
-          onChange={value => setSelected(targets.find(target => `${target.kind}:${target.id}` === value) ?? (value === (selected ? `${selected.kind}:${selected.id}` : null) ? selected : null))}
-          extraOption={selected ? { value: `${selected.kind}:${selected.id}`, label: selected.kind === 'grocy_product' ? `Grocy: ${selected.name} (${selected.baseUnitName ?? 'stock unit'})` : `Mealie only: ${selected.name}` } : null}
-          options={targets.map(target => ({ value: `${target.kind}:${target.id}`, label: target.kind === 'grocy_product' ? `Grocy: ${target.name} (${target.baseUnitName ?? 'stock unit'})` : `Mealie only: ${target.name}` }))}
+          value={selected ? targetKey(selected) : null}
+          onChange={value => setSelected(value === null ? null : targets.find(target => targetKey(target) === value) ?? selected)}
+          extraOption={selected ? { value: targetKey(selected), label: targetLabel(selected) } : null}
+          options={targets.map(target => ({ value: targetKey(target), label: targetLabel(target) }))}
         />
         {selected?.kind === 'mealie_food' ? (
-          <SearchableSelect className="w-full" ariaLabel="Mealie unit" value={mealieUnitId} onChange={value => setMealieUnitId(value ?? '')} clearable={false} options={[{ value: '', label: 'Count (no unit)' }, ...mealieUnits.map(unit => ({ value: unit.id, label: unit.name }))]} />
+          <div className="space-y-1">
+            <SearchableSelect className="w-full" ariaLabel="Mealie unit" placeholder="Count (no unit)" extraOption={mealieUnitId && mapping?.packageBaseUnitId === mealieUnitId ? { value: mealieUnitId, label: mapping.packageBaseUnitName ?? mealieUnitId } : null} value={mealieUnitId} onChange={value => setMealieUnitId(value ?? '')} clearable={false} options={[{ value: '', label: 'Count (no unit)' }, ...mealieUnits.map(unit => ({ value: unit.id, label: unit.name }))]} />
+            {unitsError ? <p role="alert" className="text-xs text-destructive">Mealie units could not be loaded; press Find to retry.</p>
+              : unitsLoaded && mealieUnitId && !mealieUnits.some(unit => unit.id === mealieUnitId) ? <p role="alert" className="text-xs text-destructive">This Mealie unit is no longer available; choose another unit.</p> : null}
+          </div>
         ) : null}
         <div className="flex flex-wrap items-center gap-2">
-          <SearchableSelect className="w-full sm:w-56" ariaLabel="Role" value={role} onChange={value => { if (value !== null) setRole(value); }} clearable={false} options={[{ value: 'preferred', label: 'Preferred product' }, { value: 'alternative', label: 'Remembered alternative' }]} />
+          <ThemedSelect className="w-full sm:w-56" ariaLabel="Role" value={role} onChange={setRole} options={[{ value: 'preferred', label: 'Preferred product' }, { value: 'alternative', label: 'Remembered alternative' }]} />
           <AppInput className="w-28" value={amount} onChange={event => setAmount(event.target.value)} placeholder="Amount" inputMode="decimal" aria-label="Amount per package" />
           <span className="text-xs text-muted-foreground">
             {product.measure === 'weight' ? 'per kg' : 'per package'} in {selected?.kind === 'grocy_product' ? selected.baseUnitName ?? 'the stock unit' : 'the chosen unit'}

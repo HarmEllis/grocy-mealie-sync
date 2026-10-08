@@ -155,6 +155,7 @@ try {
     for (const name of ['Search again', 'Reject']) {
       const button = page.getByRole('button', { name, exact: true });
       const gap = await button.evaluate(node => node.closest('li').getBoundingClientRect().right - node.getBoundingClientRect().right);
+      // 12px row padding + 1px border + 4px rounding tolerance.
       assert.ok(gap <= 17, `${width}px: ${name} is right aligned (${gap}px)`);
     }
   }
@@ -166,6 +167,8 @@ try {
   // Populated mobile layouts must stay within the viewport, including mapping controls.
   const mobileProduct = { providerId: 'synthetic-shop', externalId: '123', name: 'Synthetic cherry tomatoes with a deliberately long product name', packageAmount: 250, packageUnit: 'g', measure: 'unit' };
   let mobileRole = 'alternative';
+  let mealieMode = false;
+  let unitResponseGate = null;
   let confirmedAmount = null;
   let extraProducts = [];
   let extraSuggestions = [];
@@ -173,7 +176,7 @@ try {
   await page.route('**/api/shop/mappings?*', route => route.fulfill({ json: {
     products: [mobileProduct, { ...mobileProduct, externalId: '456', name: 'Aubergine' }, ...extraProducts], suggestions: extraSuggestions, searches: [],
     mappings: [{ id: 'mobile-mapping', providerId: 'synthetic-shop', retailerProductId: '123', retailerProductName: mobileProduct.name,
-      targetKind: 'grocy_product', targetId: '79', packageBaseUnitId: '11', targetName: 'Cherry tomaten', role: mobileRole, packageBaseAmount: confirmedAmount,
+      targetKind: mealieMode ? 'mealie_food' : 'grocy_product', targetId: '79', packageBaseUnitId: '11', targetName: 'Cherry tomaten', role: mobileRole, packageBaseAmount: confirmedAmount,
       packageBaseUnitName: 'Doos', confirmed: confirmedAmount !== null }],
   } }));
   await page.route('**/api/shop/mappings/mobile-mapping', route => {
@@ -182,9 +185,12 @@ try {
     if (body.packageBaseAmount) confirmedAmount = body.packageBaseAmount;
     return route.fulfill({ json: { ok: true } });
   });
-  await page.route('**/api/shop/targets?*', route => route.fulfill({ json: {
-    targets: [{ kind: 'grocy_product', id: '79', name: 'Cherry tomaten', baseUnitId: '11', baseUnitName: 'Doos' }], mealieUnits: [],
-  } }));
+  await page.route('**/api/shop/targets?*', async route => {
+    if (unitResponseGate) await unitResponseGate;
+    await route.fulfill({ json: {
+      targets: [{ kind: mealieMode ? 'mealie_food' : 'grocy_product', id: '79', name: 'Cherry tomaten', baseUnitId: '11', baseUnitName: 'Doos' }], mealieUnits: [],
+    } });
+  });
   await page.unroute('**/api/shop/overview');
   await page.route('**/api/shop/overview', route => route.fulfill({ json: { ...realOverview,
     installations: realOverview.installations.map(item => ({ ...item, providerId: 'synthetic-shop' })),
@@ -224,19 +230,48 @@ try {
     if (width === 390 || width === 1280) await page.screenshot({ path: `/tmp/gms-shop-products-${width}.png`, fullPage: true });
     await row.getByRole('button', { name: 'Change', exact: true }).click();
     await page.getByRole('dialog').waitFor();
-    assert.equal(await page.getByLabel('Role', { exact: true }).inputValue(), 'Remembered alternative', 'editing preserves the current role');
+    assert.equal(await page.getByLabel('Role', { exact: true }).textContent(), 'Remembered alternative', 'editing preserves the current role');
     assert.equal(await page.getByLabel('Target', { exact: true }).inputValue(), 'Grocy: Cherry tomaten (Doos)', 'editing preserves the current target');
     await chooseOption('Target', 'Grocy: Cherry tomaten (Doos)');
     await assertNoPageOverflow(`${width}px mapping editor`);
     if (width === 390) await page.screenshot({ path: '/tmp/gms-shop-mobile.png', fullPage: true });
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   }
+  // Retain the saved Mealie unit label while units load, then reject deleted units.
+  mealieMode = true;
+  let releaseUnits;
+  unitResponseGate = new Promise(resolve => { releaseUnits = resolve; });
+  let savedMappings = 0;
+  await page.route('**/api/shop/mappings', route => {
+    savedMappings++;
+    return route.fulfill({ json: { ok: true } });
+  });
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.getByRole('tab', { name: 'Products', exact: true }).click();
+  await page.getByTestId('retailer-product').filter({ hasText: 'Cherry tomaten' }).getByRole('button', { name: 'Change', exact: true }).click();
+  assert.equal(await page.getByLabel('Mealie unit', { exact: true }).inputValue(), 'Doos', 'saved unit remains visible while units are loading');
+  const unitResponse = page.waitForResponse(response => response.url().includes('/api/shop/targets?'));
+  releaseUnits();
+  unitResponseGate = null;
+  await unitResponse;
+  await page.getByRole('button', { name: 'Save mapping', exact: true }).click();
+  await page.getByText('This Mealie unit is no longer available; choose another unit', { exact: true }).waitFor();
+  assert.equal(savedMappings, 0, 'deleted unit cannot be submitted');
+  await chooseOption('Mealie unit', 'Count (no unit)');
+  await page.getByRole('button', { name: 'Save mapping', exact: true }).click();
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  assert.equal(savedMappings, 1, 'explicit no-unit choice can be saved');
+  await page.unroute('**/api/shop/mappings');
+  mealieMode = false;
   // Reuse the Mapping pager and reset it when filters narrow the result set.
   extraProducts = Array.from({ length: 60 }, (_, index) => ({ ...mobileProduct, externalId: `extra-${index}`, name: `Available product ${String(index).padStart(2, '0')}` }));
   await page.getByRole('tab', { name: 'Overview', exact: true }).click();
   await page.getByRole('tab', { name: 'Products', exact: true }).click();
   await page.getByLabel('Filter retailer products').fill('');
   await chooseOption('Product mapping filter', 'All products (62)');
+  await chooseOption('retailer products per page', '25');
+  await page.getByText('Showing 1-25 of 62 retailer products').waitFor();
+  assert.equal(await page.getByTestId('retailer-product').count(), 25);
   await chooseOption('retailer products per page', '50');
   await page.getByText('Showing 1-50 of 62 retailer products').waitFor();
   assert.equal(await page.getByTestId('retailer-product').count(), 50);
@@ -265,7 +300,8 @@ try {
   await page.getByRole('button', { name: 'Show fewer suggestions' }).click();
   assert.equal(await page.getByRole('button', { name: 'Accept', exact: true }).count(), 5);
   // Popups use theme colors rather than the browser's native select palette.
-  assert.equal(await page.locator('select').count(), 0, 'all Shop choices use comboboxes');
+  assert.equal(await page.locator('select').count(), 0, 'Shop choices do not use native select popups');
+  assert.equal(await page.getByRole('combobox', { name: 'Product mapping filter' }).evaluate(node => node.tagName), 'BUTTON', 'short choice lists do not focus a text input');
   let lightPopupColor;
   for (const theme of ['light', 'dark']) {
     await page.evaluate(theme => {

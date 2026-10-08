@@ -2,7 +2,7 @@
 
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { SearchableSelect } from '@/components/shared/SearchableSelect';
+import { ThemedSelect } from '@/components/shared/ThemedSelect';
 import { NativeSelect } from '@/components/ui/native-select';
 import { describePageRange, PAGE_SIZE_OPTIONS, type PageWindow } from './paging';
 
@@ -11,7 +11,8 @@ interface PaginationProps {
   onOffsetChange: (offset: number) => void;
   onPageSizeChange: (pageSize: number) => void;
   disabled?: boolean;
-  searchablePageSize?: boolean;
+  /** Shop uses a themed button picker; existing Mapping controls retain their current behavior. */
+  themedPageSize?: boolean;
   /** Describes what is being counted, e.g. "products". Used for aria labels. */
   itemLabel: string;
 }
@@ -21,7 +22,7 @@ export function Pagination({
   onOffsetChange,
   onPageSizeChange,
   disabled = false,
-  searchablePageSize = false,
+  themedPageSize = false,
   itemLabel,
 }: PaginationProps) {
   const { offset, pageSize, page, pageCount, hasPrevious, hasNext } = window;
@@ -35,8 +36,8 @@ export function Pagination({
       <div className="flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
           Per page
-          {searchablePageSize ? (
-            <SearchableSelect options={PAGE_SIZE_OPTIONS.map(value => ({ value, label: String(value) }))} value={pageSize} onChange={value => { if (value !== null) onPageSizeChange(value); }} disabled={disabled} clearable={false} ariaLabel={`${itemLabel} per page`} className="w-[76px]" />
+          {themedPageSize ? (
+            <ThemedSelect options={PAGE_SIZE_OPTIONS.map(value => ({ value, label: String(value) }))} value={pageSize} onChange={onPageSizeChange} disabled={disabled} ariaLabel={`${itemLabel} per page`} className="w-[76px]" />
           ) : (
             <NativeSelect
               value={pageSize}
