@@ -2,6 +2,7 @@
 
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { NativeSelect } from '@/components/ui/native-select';
 import { describePageRange, PAGE_SIZE_OPTIONS, type PageWindow } from './paging';
 
@@ -10,6 +11,7 @@ interface PaginationProps {
   onOffsetChange: (offset: number) => void;
   onPageSizeChange: (pageSize: number) => void;
   disabled?: boolean;
+  searchablePageSize?: boolean;
   /** Describes what is being counted, e.g. "products". Used for aria labels. */
   itemLabel: string;
 }
@@ -19,6 +21,7 @@ export function Pagination({
   onOffsetChange,
   onPageSizeChange,
   disabled = false,
+  searchablePageSize = false,
   itemLabel,
 }: PaginationProps) {
   const { offset, pageSize, page, pageCount, hasPrevious, hasNext } = window;
@@ -32,17 +35,21 @@ export function Pagination({
       <div className="flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
           Per page
-          <NativeSelect
-            value={pageSize}
-            disabled={disabled}
-            onChange={event => onPageSizeChange(Number(event.target.value))}
-            aria-label={`${itemLabel} per page`}
-            containerClassName="w-[76px]"
-          >
-            {PAGE_SIZE_OPTIONS.map(option => (
-              <option key={option} value={option}>{option}</option>
-            ))}
-          </NativeSelect>
+          {searchablePageSize ? (
+            <SearchableSelect options={PAGE_SIZE_OPTIONS.map(value => ({ value, label: String(value) }))} value={pageSize} onChange={value => { if (value !== null) onPageSizeChange(value); }} disabled={disabled} clearable={false} ariaLabel={`${itemLabel} per page`} className="w-[76px]" />
+          ) : (
+            <NativeSelect
+              value={pageSize}
+              disabled={disabled}
+              onChange={event => onPageSizeChange(Number(event.target.value))}
+              aria-label={`${itemLabel} per page`}
+              containerClassName="w-[76px]"
+            >
+              {PAGE_SIZE_OPTIONS.map(option => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </NativeSelect>
+          )}
         </label>
 
         <Button

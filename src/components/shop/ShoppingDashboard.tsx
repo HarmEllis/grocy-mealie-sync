@@ -6,8 +6,9 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AppBadge, AppInput, AppSelect, ProgressRing } from '@/components/redesign/primitives';
+import { AppBadge, AppInput, ProgressRing } from '@/components/redesign/primitives';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { Pagination } from '@/components/mapping-wizard/Pagination';
 import { buildPageWindow, DEFAULT_PAGE_SIZE } from '@/components/mapping-wizard/paging';
 import { apiJson } from './api';
@@ -289,9 +290,7 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
       </div>
       <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
         {providers.length > 1 ? (
-          <AppSelect value={activeProvider} onChange={event => setProviderId(event.target.value)} aria-label="Retailer">
-            {providers.map(id => <option key={id} value={id}>{id}</option>)}
-          </AppSelect>
+          <SearchableSelect options={providers.map(id => ({ value: id, label: id }))} value={activeProvider} onChange={value => { if (value !== null) setProviderId(value); }} ariaLabel="Retailer" clearable={false} className="w-full sm:w-44" />
         ) : <AppBadge>{activeProvider}</AppBadge>}
         <form
           className="flex w-full min-w-0 items-center gap-2 sm:w-auto"
@@ -315,12 +314,14 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
         <ShopSection title="Shopping ingredients to map" subtitle="New Mealie ingredients are searched automatically. Choose a product below and confirm its package amount before it goes to the retailer list.">
           <ul className="space-y-2 text-sm">
             {data.searches.map(search => (
-              <li key={search.id} className="rounded-md border border-border bg-muted/20 p-3">
-                <span className="font-semibold">{search.targetName}</span>{' · '}
-                {search.status === 'pending' ? 'Waiting for the connected plugin to search' : search.status === 'error'
-                  ? search.lastError : search.resultCount ? `Found ${search.resultCount} products; review the suggestions or use Map below` : 'No products found; try a manual catalogue search'}
+              <li key={search.id} className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/20 p-3">
+                <div className="min-w-0 flex-1">
+                  <span className="font-semibold">{search.targetName}</span>{' · '}
+                  {search.status === 'pending' ? 'Waiting for the connected plugin to search' : search.status === 'error'
+                    ? search.lastError : search.resultCount ? `Found ${search.resultCount} products; review the suggestions or use Map below` : 'No products found; try a manual catalogue search'}
+                </div>
                 {search.status !== 'pending' ? (
-                  <Button size="sm" variant="ghost" onClick={async () => {
+                  <Button className="ml-auto shrink-0" size="sm" variant="ghost" onClick={async () => {
                     if (await post(`/api/shop/searches/${search.id}/retry`, {}, 'Catalogue search queued')) await load();
                   }}>Search again</Button>
                 ) : null}
@@ -337,8 +338,10 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
               <li key={suggestion.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-background/40 px-3 py-2">
                 <span>{data.products.find(product => product.externalId === suggestion.retailerProductId)?.name ?? suggestion.retailerProductId}</span>
                 <ArrowRight className="size-3 shrink-0 text-text-3" /><span className="font-semibold text-primary">{suggestion.targetName}</span><AppBadge tone="accent" small>{Math.round(suggestion.score * 100)}%</AppBadge>
-                <Button size="sm" variant="outline" onClick={async () => { if (await post(`/api/shop/suggestions/${suggestion.id}`, { action: 'accept' }, 'Mapping created; confirm its package amount')) await load(); }}><Check className="size-3.5" /> Accept</Button>
-                <Button size="sm" variant="ghost" onClick={async () => { if (await post(`/api/shop/suggestions/${suggestion.id}`, { action: 'reject' }, 'Suggestion rejected')) await load(); }}><X className="size-3.5" /> Reject</Button>
+                <div className="ml-auto flex shrink-0 justify-end gap-2">
+                  <Button size="sm" variant="outline" onClick={async () => { if (await post(`/api/shop/suggestions/${suggestion.id}`, { action: 'accept' }, 'Mapping created; confirm its package amount')) await load(); }}><Check className="size-3.5" /> Accept</Button>
+                  <Button size="sm" variant="ghost" onClick={async () => { if (await post(`/api/shop/suggestions/${suggestion.id}`, { action: 'reject' }, 'Suggestion rejected')) await load(); }}><X className="size-3.5" /> Reject</Button>
+                </div>
               </li>
             ))}
           </ul>
@@ -349,11 +352,11 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
       <ShopSection title="Retailer products" subtitle="Automatic list and receipt processing only uses confirmed mappings.">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row">
           <AppInput className="min-w-0 flex-1" aria-label="Filter retailer products" placeholder="Filter by product or mapped ingredient" value={productQuery} onChange={event => setProductQuery(event.target.value)} />
-          <AppSelect aria-label="Product mapping filter" value={productFilter} onChange={event => setProductFilter(event.target.value as typeof productFilter)}>
-            <option value="all">All products ({products.length})</option>
-            <option value="available">Available to map ({products.length - mappedCount})</option>
-            <option value="mapped">Mapped ({mappedCount})</option>
-          </AppSelect>
+          <SearchableSelect ariaLabel="Product mapping filter" value={productFilter} onChange={value => { if (value !== null) setProductFilter(value); }} clearable={false} className="w-full sm:w-64" options={[
+            { value: 'all', label: `All products (${products.length})` },
+            { value: 'available', label: `Available to map (${products.length - mappedCount})` },
+            { value: 'mapped', label: `Mapped (${mappedCount})` },
+          ]} />
         </div>
         {visibleProducts.length === 0 ? <p className="text-sm text-muted-foreground">No products match these filters.</p> : null}
         <ShopTable headers={['Product', 'Package', 'Mapped to', 'Amount per package', 'Actions']}>
@@ -402,7 +405,7 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
               );
             })}
         </ShopTable>
-        <Pagination window={pageWindow} onOffsetChange={setOffset} onPageSizeChange={size => { setPageSize(size); setOffset(0); }} itemLabel="retailer products" />
+        <Pagination searchablePageSize window={pageWindow} onOffsetChange={setOffset} onPageSizeChange={size => { setPageSize(size); setOffset(0); }} itemLabel="retailer products" />
       </ShopSection>
 
       {editing ? <MappingEditor providerId={activeProvider} product={editing} mapping={mappingByProduct.get(editing.externalId) ?? null} onClose={() => { setEditing(null); void load(); }} /> : null}
@@ -507,31 +510,18 @@ function MappingEditor({ providerId, product, mapping, onClose }: { providerId: 
           <AppInput className="min-w-0 flex-1" value={query} onChange={event => setQuery(event.target.value)} aria-label="Target search" />
           <Button size="sm" type="submit"><Search className="size-4" /> Find</Button>
         </form>
-        <AppSelect
-          containerClassName="w-full"
-          aria-label="Target"
-          value={selected ? `${selected.kind}:${selected.id}` : ''}
-          onChange={event => setSelected(targets.find(target => `${target.kind}:${target.id}` === event.target.value) ?? null)}
-        >
-          <option value="">Choose a target…</option>
-          {selected && !targets.some(target => target.kind === selected.kind && target.id === selected.id) ? <option value={`${selected.kind}:${selected.id}`}>{selected.name}</option> : null}
-          {targets.map(target => (
-            <option key={`${target.kind}:${target.id}`} value={`${target.kind}:${target.id}`}>
-              {target.kind === 'grocy_product' ? `Grocy: ${target.name} (${target.baseUnitName ?? 'stock unit'})` : `Mealie only: ${target.name}`}
-            </option>
-          ))}
-        </AppSelect>
+        <SearchableSelect
+          className="w-full" ariaLabel="Target" placeholder="Choose a target…"
+          value={selected ? `${selected.kind}:${selected.id}` : null}
+          onChange={value => setSelected(targets.find(target => `${target.kind}:${target.id}` === value) ?? (value === (selected ? `${selected.kind}:${selected.id}` : null) ? selected : null))}
+          extraOption={selected ? { value: `${selected.kind}:${selected.id}`, label: selected.kind === 'grocy_product' ? `Grocy: ${selected.name} (${selected.baseUnitName ?? 'stock unit'})` : `Mealie only: ${selected.name}` } : null}
+          options={targets.map(target => ({ value: `${target.kind}:${target.id}`, label: target.kind === 'grocy_product' ? `Grocy: ${target.name} (${target.baseUnitName ?? 'stock unit'})` : `Mealie only: ${target.name}` }))}
+        />
         {selected?.kind === 'mealie_food' ? (
-          <AppSelect containerClassName="w-full" aria-label="Mealie unit" value={mealieUnitId} onChange={event => setMealieUnitId(event.target.value)}>
-            <option value="">Count (no unit)</option>
-            {mealieUnits.map(unit => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
-          </AppSelect>
+          <SearchableSelect className="w-full" ariaLabel="Mealie unit" value={mealieUnitId} onChange={value => setMealieUnitId(value ?? '')} clearable={false} options={[{ value: '', label: 'Count (no unit)' }, ...mealieUnits.map(unit => ({ value: unit.id, label: unit.name }))]} />
         ) : null}
         <div className="flex flex-wrap items-center gap-2">
-          <AppSelect containerClassName="w-full sm:w-auto" aria-label="Role" value={role} onChange={event => setRole(event.target.value as 'preferred' | 'alternative')}>
-            <option value="preferred">Preferred product</option>
-            <option value="alternative">Remembered alternative</option>
-          </AppSelect>
+          <SearchableSelect className="w-full sm:w-56" ariaLabel="Role" value={role} onChange={value => { if (value !== null) setRole(value); }} clearable={false} options={[{ value: 'preferred', label: 'Preferred product' }, { value: 'alternative', label: 'Remembered alternative' }]} />
           <AppInput className="w-28" value={amount} onChange={event => setAmount(event.target.value)} placeholder="Amount" inputMode="decimal" aria-label="Amount per package" />
           <span className="text-xs text-muted-foreground">
             {product.measure === 'weight' ? 'per kg' : 'per package'} in {selected?.kind === 'grocy_product' ? selected.baseUnitName ?? 'the stock unit' : 'the chosen unit'}
@@ -664,10 +654,7 @@ function ReviewLine({ line, overview, reload }: { line: ShopOverview['review'][n
           <label className="flex items-center gap-2"><input type="checkbox" checked={fulfilOnly} onChange={event => setFulfilOnly(event.target.checked)} /> Fulfil demand only, book nothing in Grocy</label>
           {!fulfilOnly ? (
             <div className="flex flex-wrap items-center gap-2">
-              <AppSelect containerClassName="w-full sm:w-auto" aria-label="Product actually bought" value={productId} onChange={event => setProductId(event.target.value)}>
-                <option value="">Grocy product actually bought…</option>
-                {targets.map(target => <option key={target.id} value={target.id}>{target.name} ({target.baseUnitName ?? 'stock unit'})</option>)}
-              </AppSelect>
+              <SearchableSelect className="w-full sm:w-64" ariaLabel="Product actually bought" placeholder="Grocy product actually bought…" value={productId || null} onChange={value => setProductId(value ?? '')} options={targets.map(target => ({ value: target.id, label: `${target.name} (${target.baseUnitName ?? 'stock unit'})` }))} />
               <AppInput className="w-28" value={stockAmount} onChange={event => setStockAmount(event.target.value)} placeholder="Stock amount" inputMode="decimal" aria-label="Stock amount" />
               <label className="flex items-center gap-1"><input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} /> Remember as alternative</label>
             </div>

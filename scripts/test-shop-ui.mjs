@@ -150,7 +150,19 @@ try {
   await page.getByText('Shopping ingredients to map', { exact: true }).waitFor();
   await page.getByText('Found 1 products; review the suggestions or use Map below').waitFor();
   await page.getByRole('button', { name: 'Accept', exact: true }).waitFor();
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const name of ['Search again', 'Reject']) {
+      const button = page.getByRole('button', { name, exact: true });
+      const gap = await button.evaluate(node => node.closest('li').getBoundingClientRect().right - node.getBoundingClientRect().right);
+      assert.ok(gap <= 17, `${width}px: ${name} is right aligned (${gap}px)`);
+    }
+  }
   assert.equal(await page.getByRole('button', { name: 'Confirm', exact: true }).count(), 0, 'catalogue proposals are not confirmed mappings');
+  async function chooseOption(label, option) {
+    await page.getByRole('combobox', { name: label, exact: true }).click();
+    await page.getByRole('option', { name: option, exact: true }).click();
+  }
   // Populated mobile layouts must stay within the viewport, including mapping controls.
   const mobileProduct = { providerId: 'synthetic-shop', externalId: '123', name: 'Synthetic cherry tomatoes with a deliberately long product name', packageAmount: 250, packageUnit: 'g', measure: 'unit' };
   let mobileRole = 'alternative';
@@ -197,10 +209,10 @@ try {
     const rows = page.getByTestId('retailer-product');
     await rows.first().waitFor();
     assert.ok((await rows.first().textContent()).includes('Aubergine'), 'products are sorted alphabetically');
-    await page.getByLabel('Product mapping filter').selectOption('available');
+    await chooseOption('Product mapping filter', 'Available to map (1)');
     assert.equal(await rows.count(), 1);
     assert.ok((await rows.first().textContent()).includes('Aubergine'));
-    await page.getByLabel('Product mapping filter').selectOption('mapped');
+    await chooseOption('Product mapping filter', 'Mapped (1)');
     assert.equal(await rows.count(), 1);
     await page.getByLabel('Filter retailer products').fill('no-such-product');
     await page.getByText('No products match these filters.').waitFor();
@@ -212,9 +224,9 @@ try {
     if (width === 390 || width === 1280) await page.screenshot({ path: `/tmp/gms-shop-products-${width}.png`, fullPage: true });
     await row.getByRole('button', { name: 'Change', exact: true }).click();
     await page.getByRole('dialog').waitFor();
-    assert.equal(await page.getByLabel('Role', { exact: true }).inputValue(), 'alternative', 'editing preserves the current role');
-    assert.equal(await page.getByLabel('Target', { exact: true }).inputValue(), 'grocy_product:79', 'editing preserves the current target');
-    await page.getByLabel('Target', { exact: true }).selectOption('grocy_product:79');
+    assert.equal(await page.getByLabel('Role', { exact: true }).inputValue(), 'Remembered alternative', 'editing preserves the current role');
+    assert.equal(await page.getByLabel('Target', { exact: true }).inputValue(), 'Grocy: Cherry tomaten (Doos)', 'editing preserves the current target');
+    await chooseOption('Target', 'Grocy: Cherry tomaten (Doos)');
     await assertNoPageOverflow(`${width}px mapping editor`);
     if (width === 390) await page.screenshot({ path: '/tmp/gms-shop-mobile.png', fullPage: true });
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -224,7 +236,8 @@ try {
   await page.getByRole('tab', { name: 'Overview', exact: true }).click();
   await page.getByRole('tab', { name: 'Products', exact: true }).click();
   await page.getByLabel('Filter retailer products').fill('');
-  await page.getByLabel('Product mapping filter').selectOption('all');
+  await chooseOption('Product mapping filter', 'All products (62)');
+  await chooseOption('retailer products per page', '50');
   await page.getByText('Showing 1-50 of 62 retailer products').waitFor();
   assert.equal(await page.getByTestId('retailer-product').count(), 50);
   await page.getByRole('button', { name: 'Next page of retailer products' }).click();
@@ -251,6 +264,23 @@ try {
   assert.equal(await page.getByRole('button', { name: 'Accept', exact: true }).count(), 7);
   await page.getByRole('button', { name: 'Show fewer suggestions' }).click();
   assert.equal(await page.getByRole('button', { name: 'Accept', exact: true }).count(), 5);
+  // Popups use theme colors rather than the browser's native select palette.
+  assert.equal(await page.locator('select').count(), 0, 'all Shop choices use comboboxes');
+  let lightPopupColor;
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => {
+      document.documentElement.classList.remove('light', 'dark');
+      document.documentElement.classList.add(theme);
+      document.documentElement.setAttribute('data-theme', theme);
+    }, theme);
+    await page.getByRole('combobox', { name: 'Product mapping filter' }).click();
+    const popupColor = await page.getByRole('listbox').evaluate(node => getComputedStyle(node.parentElement).backgroundColor);
+    assert.notEqual(popupColor, 'rgba(0, 0, 0, 0)', `${theme}: popup has a themed background`);
+    if (theme === 'light') lightPopupColor = popupColor;
+    else assert.notEqual(popupColor, lightPopupColor, 'popup background changes with dark mode');
+    await page.screenshot({ path: `/tmp/gms-shop-combobox-${theme}.png`, fullPage: true });
+    await page.keyboard.press('Escape');
+  }
   await page.screenshot({ path: '/tmp/gms-shop-suggestions-desktop.png', fullPage: true });
   await page.unroute('**/api/shop/mappings/mobile-mapping');
   await page.unroute('**/api/shop/targets?*');
