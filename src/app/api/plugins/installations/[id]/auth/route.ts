@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { getPluginGateway } from '@/lib/plugins/runtime';
-import { readJson, ShopApiError, shopRoute } from '@/lib/shop/api-helpers';
+import { PLUGIN_AUTH_TIMEOUT_MS, readJson, ShopApiError, shopRoute, withPluginAuthLock } from '@/lib/shop/api-helpers';
 
 const bodySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('begin') }).strict(),
@@ -20,15 +20,17 @@ const bodySchema = z.discriminatedUnion('action', [
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   return shopRoute('Plugin auth step', async () => {
     const { id } = await context.params;
-    const gateway = getPluginGateway();
-    if (!gateway?.getSession(id)) throw new ShopApiError(503, 'The plugin is not connected');
-    const body = bodySchema.parse(await readJson(request));
-    const timeoutMs = 60_000;
-    const step = body.action === 'begin'
-      ? await gateway.call(id, 'auth.begin', {}, { timeoutMs })
-      : body.action === 'submit'
-        ? await gateway.call(id, 'auth.submit', { stepId: body.stepId, values: body.values }, { timeoutMs })
-        : await gateway.call(id, 'auth.logout', {}, { timeoutMs });
-    return { step };
+    return withPluginAuthLock(id, async () => {
+      const gateway = getPluginGateway();
+      if (!gateway?.getSession(id)) throw new ShopApiError(503, 'The plugin is not connected');
+      const body = bodySchema.parse(await readJson(request));
+      const timeoutMs = PLUGIN_AUTH_TIMEOUT_MS;
+      const step = body.action === 'begin'
+        ? await gateway.call(id, 'auth.begin', {}, { timeoutMs })
+        : body.action === 'submit'
+          ? await gateway.call(id, 'auth.submit', { stepId: body.stepId, values: body.values }, { timeoutMs })
+          : await gateway.call(id, 'auth.logout', {}, { timeoutMs });
+      return { step };
+    });
   });
 }

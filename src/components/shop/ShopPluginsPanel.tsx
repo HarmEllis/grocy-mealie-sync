@@ -106,8 +106,9 @@ export function ShopPluginsPanel() {
         const data = await apiJson<{ token: string }>(`/api/plugins/installations/${installation.id}/rotate`, { method: 'POST' });
         setIssued({ installationId: installation.id, name: installation.name, token: data.token });
       } else {
-        await apiJson(`/api/plugins/installations/${installation.id}/reset-binding`, { method: 'POST' });
-        toast.success('Account and list binding reset');
+        const result = await apiJson<{ warning?: string | null }>(`/api/plugins/installations/${installation.id}/reset-binding`, { method: 'POST' });
+        if (result.warning) toast.warning('Account and list binding reset', { description: result.warning });
+        else toast.success('Account and list binding reset');
       }
       setConfirm(null);
       await load();
@@ -257,7 +258,9 @@ export function ShopPluginsPanel() {
           ? 'The plugin is disconnected immediately and cannot reconnect with this token.'
           : confirm?.kind === 'rotate'
             ? 'A new token is shown once. The plugin must be restarted with the new token.'
-            : 'Use this only after the plugin was signed in to another account or list on purpose. List ownership is forgotten; stored receipts are kept and never booked again.'}
+            : confirm?.installation.capabilities.includes('auth')
+              ? 'This signs out the plugin when connected and disables both sync options. A disconnected plugin keeps its sign-in and binds its current account on reconnect. List ownership is forgotten; stored receipts are kept and never booked again.'
+              : 'This disables both sync options and forgets list ownership. Stored receipts are kept and never booked again.'}
       />
 
       {authFor ? <PluginAuthDialog installation={authFor} onClose={() => { setAuthFor(null); void load(); }} /> : null}

@@ -81,9 +81,14 @@ Anything else goes to review on the *Shopping* page.
 
 An installation is bound to the first retailer account and shopping list it
 reports. A different account or list is refused until you use *Reset account
-and list binding*. The reset forgets list ownership and **turns both toggles
-off**, so a new account never inherits the old receipt activation boundary;
-turning receipts on again moves the boundary to the moment you re-enable it.
+and list binding*. The reset signs out a connected plugin before clearing its
+binding. A failed sign-out keeps the binding intact. Start a fresh login after
+the reset. Disconnected plugins can still be reset to recover a refused account
+change; a warning explains that their current sign-in will bind on reconnect.
+To change accounts from within gm-sync, reset while the plugin is connected.
+The reset forgets list ownership and **turns both toggles off**, so a new account
+never inherits the old receipt activation boundary; turning receipts on again
+moves the boundary to the moment you re-enable it.
 
 ## Automatic product proposals
 

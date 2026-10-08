@@ -30,7 +30,7 @@ export function registerShopTools(server: McpServer, services: ShopMcpServices =
   register('plugins.update', 'Rename an installation or change list sync, receipt processing and Grocy store settings.', { id, name: z.string().trim().min(1).max(80).optional(), settings: installationSettingsPatchSchema.optional() });
   register('plugins.revoke', 'Revoke the installation token and disconnect its plugin immediately.', { id }, false, true);
   register('plugins.rotate_token', 'Invalidate the old token and return its replacement once. Restart the plugin with the new secret.', { id }, false, true);
-  register('plugins.reset_binding', 'Reset account/list binding and disable automation, after resolving account changes and pending work.', { id }, false, true);
+  register('plugins.reset_binding', 'Sign out the connected plugin, reset account/list binding and disable automation. Stored receipts are retained.', { id }, false, true);
   register('plugins.auth_begin', 'Begin retailer sign-in; returns the same declarative URL/form shown by gm-sync. Never logs entered secrets.', { id }, false, false, 'plugins.auth', 'body', { action: 'begin' });
   register('plugins.auth_submit', 'Submit one retailer sign-in step. Treat values as secrets; never retry a single-use code after failure.', { id, stepId: id, values: z.record(z.string().max(40), z.string().max(4096)) }, false, false, 'plugins.auth', 'body', { action: 'submit' });
   register('plugins.auth_logout', 'Disconnect retailer authentication inside the plugin.', { id }, false, true, 'plugins.auth', 'body', { action: 'logout' });

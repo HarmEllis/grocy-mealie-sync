@@ -7,7 +7,8 @@ vi.mock('@/lib/db', async () => { const { createTestDb } = await import('@/test-
 vi.mock('@/lib/plugins/runtime', () => ({ getPluginGateway: () => runtime.gateway, getShopWorker: () => null }));
 import { db } from '@/lib/db';
 import { receipts, receiptLines, retailerMappings, retailerProducts, pluginInstallations } from '@/lib/db/schema';
-import { recordHello } from '@/lib/plugins/installations';
+import { getInstallation, recordHello } from '@/lib/plugins/installations';
+import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
 import { registerShopTools } from '../tools/shop';
 
 beforeEach(() => { db.delete(receiptLines).run(); db.delete(receipts).run(); db.delete(retailerMappings).run(); db.delete(retailerProducts).run(); db.delete(pluginInstallations).run(); runtime.gateway = null; });
@@ -100,4 +101,81 @@ it('imports reference receipts and configures their products using the same MCP/
     const updated = data(await connection.client.callTool({ name: 'shop.overview', arguments: {} }));
     expect(updated.receipts).toEqual(expect.arrayContaining([expect.objectContaining({ lines: expect.arrayContaining([expect.objectContaining({ mapping: expect.objectContaining({ targetName: 'Chicken', confirmed: true }) })]) })]));
   } finally { await connection.close(); }
+});
+
+it('resets an authenticated installation through MCP only after the plugin completes sign-out', async () => {
+  const connection = await pair();
+  try {
+    const created = data(await connection.client.callTool({ name: 'plugins.create', arguments: { name: 'Account switch' } }));
+    const id = (created.installation as { id: string }).id;
+    const hello = { pluginName: 'Demo', pluginVersion: 'test', providerId: 'demo', providerLabel: 'Demo', accountKey: 'old-account', accountLabel: 'Old', protocolVersions: [1], capabilities: ['auth'], authState: 'authenticated' } satisfies Parameters<typeof recordHello>[1];
+    recordHello(id, { ...hello, protocolVersions: [1], capabilities: ['auth'] });
+    await connection.client.callTool({ name: 'plugins.update', arguments: { id, settings: { listSyncEnabled: true, receiptsEnabled: true } } });
+    const call = vi.fn(async () => { throw Object.assign(new Error('Synthetic sign-out failure'), { name: 'PluginCallError', code: 'UPSTREAM_UNAVAILABLE', outcome: 'not_applied', retryable: false }); });
+    const closeInstallation = vi.fn();
+    runtime.gateway = { getSession: () => ({}), call, closeInstallation };
+    expect((await connection.client.callTool({ name: 'plugins.reset_binding', arguments: { id } })).isError).toBe(true);
+    expect(getInstallation(id)?.settings.boundAccountKey).toBe('old-account');
+    expect(closeInstallation).not.toHaveBeenCalled();
+    runtime.gateway = { getSession: () => ({}), call: vi.fn(async () => { throw Object.assign(new Error('Synthetic timeout'), { name: 'PluginCallError', code: 'TIMEOUT', outcome: 'unknown', retryable: true }); }), closeInstallation };
+    const timedOut = await connection.client.callTool({ name: 'plugins.reset_binding', arguments: { id } });
+    expect(timedOut.isError).toBe(true);
+    expect(JSON.stringify(timedOut)).toContain('account binding has been kept');
+    expect(getInstallation(id)?.settings.boundAccountKey).toBe('old-account');
+    expect(closeInstallation).not.toHaveBeenCalled();
+    runtime.gateway = { getSession: () => ({}), call: vi.fn(async () => ({ kind: 'done' })), closeInstallation };
+    const reset = await connection.client.callTool({ name: 'plugins.reset_binding', arguments: { id } });
+    expect(reset.isError).not.toBe(true);
+    expect(getInstallation(id)).toMatchObject({ accountKey: null, authState: 'unauthenticated', settings: { boundAccountKey: null, pinnedListId: null, listSyncEnabled: false, receiptsEnabled: false } });
+    expect(closeInstallation).toHaveBeenCalledOnce();
+    expect(recordHello(id, { ...hello, accountKey: null, accountLabel: null, authState: 'unauthenticated', protocolVersions: [1], capabilities: ['auth'] }).ok).toBe(true);
+    expect(getInstallation(id)?.settings.boundAccountKey).toBeNull();
+    expect(recordHello(id, { ...hello, accountKey: 'new-account', protocolVersions: [1], capabilities: ['auth'] }).ok).toBe(true);
+    expect(getInstallation(id)?.settings.boundAccountKey).toBe('new-account');
+  } finally { await connection.close(); }
+});
+
+it('recovers a refused account hello through an offline MCP binding reset', async () => {
+  const connection = await pair();
+  try {
+    const created = data(await connection.client.callTool({ name: 'plugins.create', arguments: { name: 'Offline switch' } }));
+    const id = (created.installation as { id: string }).id;
+    const hello: Parameters<typeof recordHello>[1] = { pluginName: 'Demo', pluginVersion: 'test', providerId: 'demo', providerLabel: 'Demo', accountKey: 'old-account', accountLabel: 'Old', protocolVersions: [1], capabilities: ['auth'], authState: 'authenticated' };
+    recordHello(id, hello);
+    expect(recordHello(id, { ...hello, accountKey: 'new-account' }).ok).toBe(false);
+    const reset = await connection.client.callTool({ name: 'plugins.reset_binding', arguments: { id } });
+    expect(reset.isError).not.toBe(true);
+    expect(data(reset)).toMatchObject({ signedOut: false, warning: expect.stringContaining('disconnected') });
+    expect(recordHello(id, { ...hello, accountKey: 'new-account' }).ok).toBe(true);
+    expect(getInstallation(id)?.settings.boundAccountKey).toBe('new-account');
+  } finally { await connection.close(); }
+});
+
+it('serializes auth for one plugin without blocking another plugin or regular sync', async () => {
+  const connection = await pair();
+  let finish: (() => void) | undefined;
+  try {
+    const first = data(await connection.client.callTool({ name: 'plugins.create', arguments: { name: 'First' } }));
+    const second = data(await connection.client.callTool({ name: 'plugins.create', arguments: { name: 'Second' } }));
+    const id = (first.installation as { id: string }).id;
+    const other = (second.installation as { id: string }).id;
+    let started!: () => void;
+    const fetching = new Promise<void>(resolve => { started = resolve; });
+    const waiting = new Promise<void>(resolve => { finish = resolve; });
+    runtime.gateway = { getSession: () => ({}), call: async (installationId: string) => {
+      if (installationId === id) { started(); await waiting; }
+      return { stepId: 'synthetic', kind: 'done', title: 'Done' };
+    } };
+    const pending = connection.client.callTool({ name: 'plugins.auth_begin', arguments: { id } });
+    await fetching;
+    expect(acquireSyncLock()).toBe(true);
+    const conflict = await connection.client.callTool({ name: 'plugins.auth_logout', arguments: { id } });
+    expect(conflict.isError).toBe(true);
+    expect(JSON.stringify(conflict)).toContain('account action is already running');
+    const independent = await connection.client.callTool({ name: 'plugins.auth_begin', arguments: { id: other } });
+    expect(independent.isError).not.toBe(true);
+    releaseSyncLock();
+    finish!();
+    expect((await pending).isError).not.toBe(true);
+  } finally { finish?.(); releaseSyncLock(); await connection.close(); }
 });

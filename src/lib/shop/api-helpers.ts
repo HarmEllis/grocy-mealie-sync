@@ -1,12 +1,13 @@
+import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { ZodError, z } from 'zod';
 import { log } from '../logger';
-import { acquireSyncLock, releaseSyncLock } from '../sync/mutex';
+import { acquireLease, acquireSyncLock, releaseLease, releaseSyncLock } from '../sync/mutex';
 import { errorCodeSchema, outcomeSchema } from '../plugins/protocol/v1';
 
 // The custom WebSocket server and Next route bundle load separate class copies.
 // Validate the public error contract instead of relying on instanceof.
-const pluginCallErrorSchema = z.object({
+export const pluginCallErrorSchema = z.object({
   name: z.literal('PluginCallError'),
   message: z.string().max(1000),
   code: z.union([errorCodeSchema, z.enum(['NOT_CONNECTED', 'BAD_RESPONSE'])]),
@@ -60,4 +61,17 @@ export async function readJson(request: Request): Promise<unknown> {
   } catch {
     throw new ShopApiError(400, 'Request body must be JSON');
   }
+}
+
+export const PLUGIN_AUTH_TIMEOUT_MS = 60_000;
+
+/** Serialize interactive auth per installation without blocking unrelated synchronization. */
+export async function withPluginAuthLock<T>(id: string, body: () => Promise<T>): Promise<T> {
+  const name = `plugin-auth:${id}`;
+  const owner = randomUUID();
+  if (!acquireLease(name, owner, PLUGIN_AUTH_TIMEOUT_MS + 10_000)) {
+    throw new ShopApiError(409, 'An account action is already running for this plugin. Try again in a moment.');
+  }
+  try { return await body(); }
+  finally { releaseLease(name, owner); }
 }
