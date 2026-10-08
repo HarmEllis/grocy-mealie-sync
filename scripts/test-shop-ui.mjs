@@ -166,6 +166,8 @@ try {
   }
   // Populated mobile layouts must stay within the viewport, including mapping controls.
   const mobileProduct = { providerId: 'synthetic-shop', externalId: '123', name: 'Synthetic cherry tomatoes with a deliberately long product name', packageAmount: 250, packageUnit: 'g', measure: 'unit' };
+  let previewSuggestion = null;
+  await page.route('**/api/shop/mappings/preview', route => route.fulfill({ json: { baseUnitId: '11', baseUnitName: 'Doos', derivation: previewSuggestion, linkedFoods: [], conversions: [], demandConversions: [], requiresConfirmation: true, measure: 'unit' } }));
   let mobileRole = 'alternative';
   let mealieMode = false;
   let unitResponseGate = null;
@@ -195,8 +197,8 @@ try {
   await page.route('**/api/shop/overview', route => route.fulfill({ json: { ...realOverview,
     installations: realOverview.installations.map(item => ({ ...item, providerId: 'synthetic-shop' })),
     exports: [{ id: 'mobile-export', installationId: realOverview.installations[0].id, productName: mobileProduct.name, packages: 2, createdAt: new Date().toISOString() }],
-    receipts: [{ id: 'mobile-receipt', purchasedAt: new Date().toISOString(), storeLabel: 'Demo shop', status: 'processed', totalCents: 199,
-      lines: [{ id: 'mobile-line', description: mobileProduct.name, quantity: 2, unit: 'unit', amountCents: 199, status: 'review', reviewReason: 'mapping_unconfirmed', links: [] }] }],
+    receipts: [{ id: 'mobile-receipt', providerId: 'synthetic-shop', referenceOnly: true, purchasedAt: new Date().toISOString(), storeLabel: 'Demo shop', status: 'reference_only', totalCents: 199,
+      lines: [{ id: 'mobile-line', description: mobileProduct.name, retailerProductId: '123', quantity: 2, unit: 'unit', amountCents: 199, status: 'reference_only', reviewReason: 'mapping_unconfirmed', links: [] }] }],
     review: [{ id: 'mobile-review', description: mobileProduct.name, quantity: 2, unit: 'unit', amountCents: 199, reviewReason: 'mapping_missing' }],
   } }));
   async function assertNoPageOverflow(label) {
@@ -209,6 +211,18 @@ try {
     for (const tab of ['Overview', 'Products', 'Receipts', 'Review']) {
       await page.getByRole('tab', { name: new RegExp(`^${tab}`) }).click();
       await assertNoPageOverflow(`${width}px ${tab}`);
+      if (tab === 'Receipts') {
+        await page.getByText(/Status: Reference only/).waitFor();
+        await page.getByRole('button', { name: 'Map product', exact: true }).click();
+        await page.getByRole('dialog').waitFor();
+    if (width === 1280 && previewSuggestion) {
+      await page.getByRole('button', { name: 'Use suggested amount' }).waitFor();
+      assert.equal(await page.getByRole('dialog').getByLabel('Amount per package').inputValue(), '', 'catalogue proposals are not silently confirmed');
+      await page.getByRole('button', { name: 'Use suggested amount' }).click();
+      assert.equal(await page.getByRole('dialog').getByLabel('Amount per package').inputValue(), '2');
+    }
+        await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      }
       if (width === 390) await page.screenshot({ path: `/tmp/gms-shop-${tab.toLowerCase()}-mobile.png`, fullPage: true });
     }
     await page.getByRole('tab', { name: 'Products', exact: true }).click();
@@ -228,15 +242,30 @@ try {
     await row.waitFor();
     assert.equal(await row.evaluate(node => getComputedStyle(node).display), width < 768 ? 'block' : 'table-row');
     if (width === 390 || width === 1280) await page.screenshot({ path: `/tmp/gms-shop-products-${width}.png`, fullPage: true });
+    previewSuggestion = width === 1280 ? { amount: 2, explanation: '1 package = 2 Doos' } : null;
     await row.getByRole('button', { name: 'Change', exact: true }).click();
     await page.getByRole('dialog').waitFor();
+    if (width === 1280 && previewSuggestion) {
+      await page.getByRole('button', { name: 'Use suggested amount' }).waitFor();
+      assert.equal(await page.getByRole('dialog').getByLabel('Amount per package').inputValue(), '', 'catalogue proposals are not silently confirmed');
+      await page.getByRole('button', { name: 'Use suggested amount' }).click();
+      assert.equal(await page.getByRole('dialog').getByLabel('Amount per package').inputValue(), '2');
+    }
     assert.equal(await page.getByLabel('Role', { exact: true }).textContent(), 'Remembered alternative', 'editing preserves the current role');
-    assert.equal(await page.getByLabel('Target', { exact: true }).inputValue(), 'Grocy: Cherry tomaten (Doos)', 'editing preserves the current target');
-    await chooseOption('Target', 'Grocy: Cherry tomaten (Doos)');
+    assert.equal(await page.getByLabel('Target', { exact: true }).inputValue(), '(G) Cherry tomaten · Doos', 'editing preserves the current target');
+    await chooseOption('Target', '(G) Cherry tomaten · Doos');
+    const targetRequest = page.waitForRequest(request => request.url().includes('/api/shop/targets?query=kipfilet'));
+    await page.getByLabel('Target', { exact: true }).click();
+    await page.getByLabel('Target', { exact: true }).fill('kipfilet');
+    await targetRequest;
+    await page.getByRole('option', { name: '(G) Cherry tomaten · Doos', exact: true }).waitFor();
+    await page.keyboard.press('Escape');
+
     await assertNoPageOverflow(`${width}px mapping editor`);
     if (width === 390) await page.screenshot({ path: '/tmp/gms-shop-mobile.png', fullPage: true });
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   }
+  previewSuggestion = null;
   // Retain the saved Mealie unit label while units load, then reject deleted units.
   mealieMode = true;
   let releaseUnits;

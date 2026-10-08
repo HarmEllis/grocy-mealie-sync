@@ -9,7 +9,7 @@ import { listEffects } from './ledger';
 import { getPendingListApply, listLineRecords } from './list-sync';
 import { listActiveExports } from './projection';
 import { getReceiptCursor } from './receipts';
-import { listRetailerProducts } from './retailer-catalog';
+import { listRetailerMappings, listRetailerProducts } from './retailer-catalog';
 
 export interface InstallationView {
   id: string;
@@ -92,6 +92,7 @@ export function shopOverview() {
     pausedObservedQty: row.pausedObservedQty,
   })));
 
+  const retailerMappings = new Map(listRetailerMappings().map(mapping => [`${mapping.providerId}:${mapping.retailerProductId}`, mapping]));
   const recentReceipts = db.select().from(receipts).orderBy(desc(receipts.purchasedAt)).limit(50).all();
   const receiptIds = recentReceipts.map(row => row.id);
   const lineRows = receiptIds.length > 0 ? db.select().from(receiptLines).where(inArray(receiptLines.receiptId, receiptIds)).all() : [];
@@ -101,6 +102,8 @@ export function shopOverview() {
     id: receipt.id,
     installationId: receipt.installationId,
     externalReceiptId: receipt.externalReceiptId,
+    providerId: receipt.providerId,
+    referenceOnly: receipt.status === 'reference_only' || receipt.status === 'ignored_before_activation',
     purchasedAt: receipt.purchasedAt.toISOString(),
     storeLabel: receipt.storeLabel,
     totalCents: receipt.totalCents,
@@ -111,6 +114,7 @@ export function shopOverview() {
       kind: line.kind,
       retailerProductId: line.retailerProductId,
       description: line.description,
+      mapping: retailerMappings.get(`${receipt.providerId}:${line.retailerProductId}`) ?? null,
       quantity: line.quantity,
       unit: line.unit,
       amountCents: line.amountCents,

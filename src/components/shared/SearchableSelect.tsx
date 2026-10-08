@@ -45,6 +45,8 @@ interface SearchableSelectProps<T extends string | number> {
   onChange: (value: T | null) => void;
   placeholder?: string;
   searchPlaceholder?: string;
+  /** Server-backed search skips local filtering of the fetched results. */
+  onSearchChange?: (query: string) => void;
   ariaLabel?: string;
   className?: string;
   controlClassName?: string;
@@ -77,6 +79,7 @@ export function SearchableSelect<T extends string | number>({
   onChange,
   placeholder = 'Search...',
   searchPlaceholder,
+  onSearchChange,
   ariaLabel,
   className,
   controlClassName,
@@ -128,8 +131,8 @@ export function SearchableSelect<T extends string | number>({
   );
 
   const openOptions = useMemo<ReadonlyArray<Option<T>>>(
-    () => (open ? filterOptions({ options, query, limit, isValueExcluded, pinned: pinnedOption }) : NO_OPTIONS),
-    [open, options, query, limit, isValueExcluded, pinnedOption],
+    () => (open ? filterOptions({ options, query: onSearchChange ? '' : query, limit, isValueExcluded, pinned: pinnedOption }) : NO_OPTIONS),
+    [open, options, query, limit, isValueExcluded, pinnedOption, onSearchChange],
   );
 
   const listOptions = open ? openOptions : closedOptions;
@@ -170,7 +173,7 @@ export function SearchableSelect<T extends string | number>({
           }
         }}
         inputValue={inputValue}
-        onInputValueChange={nextValue => setQuery(nextValue)}
+        onInputValueChange={(nextValue, details) => { setQuery(nextValue); if (details.reason === 'input-change') onSearchChange?.(nextValue); }}
         openOnInputClick
         autoHighlight
         highlightItemOnHover

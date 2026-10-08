@@ -17,7 +17,7 @@ import { rememberReceiptProduct } from './retailer-catalog';
  * The plugin keeps no acknowledgement state; storing a receipt never means it was booked.
  */
 
-export type ReceiptStatus = 'ignored_before_activation' | 'stored' | 'planned' | 'processed' | 'needs_review' | 'changed';
+export type ReceiptStatus = 'reference_only' | 'ignored_before_activation' | 'stored' | 'planned' | 'processed' | 'needs_review' | 'changed';
 export type ReceiptRow = typeof receipts.$inferSelect;
 export type ReceiptLineRow = typeof receiptLines.$inferSelect;
 
@@ -68,12 +68,12 @@ function activationBoundary(installation: PluginInstallation): Date | null {
   return ledger && ledger > activated ? ledger : activated;
 }
 
-function storeReceipt(installation: PluginInstallation, accountKey: string, receipt: Receipt, boundary: Date, now: Date): 'stored' | 'ignored' | 'duplicate' {
+function storeReceipt(installation: PluginInstallation, accountKey: string, receipt: Receipt, boundary: Date | null, now: Date, referenceOnly = false, existingId?: string): 'stored' | 'ignored' | 'duplicate' {
   const purchasedAt = new Date(receipt.purchasedAt);
-  const ignored = purchasedAt.getTime() < boundary.getTime();
+  const ignored = referenceOnly || (boundary !== null && purchasedAt.getTime() < boundary.getTime());
   let duplicate = false;
   db.transaction((tx) => {
-    const id = randomUUID();
+    const id = existingId ?? randomUUID();
     const inserted = tx.insert(receipts).values({
       id,
       installationId: installation.id,
@@ -83,18 +83,19 @@ function storeReceipt(installation: PluginInstallation, accountKey: string, rece
       purchasedAt,
       fetchedAt: now,
       contentHash: receiptContentHash(receipt),
-      status: ignored ? 'ignored_before_activation' : 'stored',
+      status: referenceOnly ? 'reference_only' : ignored ? 'ignored_before_activation' : 'stored',
       lineCount: receipt.lines.length,
       storeLabel: receipt.storeLabel ?? null,
       totalCents: receipt.totalCents ?? null,
     }).onConflictDoNothing().run();
-    if (inserted.changes === 0) {
+    if (existingId) {
+      tx.update(receipts).set({ status: 'reference_only', contentHash: receiptContentHash(receipt), fetchedAt: now, lineCount: receipt.lines.length, storeLabel: receipt.storeLabel ?? null, totalCents: receipt.totalCents ?? null }).where(eq(receipts.id, id)).run();
+    } else if (inserted.changes === 0) {
       // Another installation of the same retailer account already stored it.
       duplicate = true;
       return;
     }
-    // Receipts before the activation boundary are kept as headers only.
-    if (ignored) return;
+
     for (const line of receipt.lines) {
       tx.insert(receiptLines).values({
         id: randomUUID(),
@@ -108,13 +109,13 @@ function storeReceipt(installation: PluginInstallation, accountKey: string, rece
         unit: line.unit,
         unitPriceCents: line.unitPriceCents ?? null,
         amountCents: line.amountCents ?? null,
-        status: line.kind === 'product' ? 'pending' : 'ignored',
+        status: ignored ? 'reference_only' : line.kind === 'product' ? 'pending' : 'ignored',
         reviewReason: null,
       }).run();
     }
   });
   if (duplicate) return 'duplicate';
-  if (!ignored && installation.providerId) {
+  if (installation.providerId) {
     for (const line of receipt.lines) {
       if (line.kind === 'product' && line.retailerProductId) {
         rememberReceiptProduct(installation.providerId, line.retailerProductId, line.description, /kg|gram|^g$/i.test(line.unit) ? 'weight' : 'unit', now);
@@ -171,7 +172,7 @@ export async function pullReceipts(installation: PluginInstallation, deps: Recei
           eq(receipts.externalReceiptId, summary.receiptId),
         )).get();
         if (existing) {
-          if (existing.status === 'ignored_before_activation' || existing.status === 'changed') continue;
+          if (existing.status === 'reference_only' || existing.status === 'ignored_before_activation' || existing.status === 'changed') continue;
           // No upstream revision exists, so always compare the full content.
           const fresh = await deps.getReceipt(summary.receiptId);
           if (receiptContentHash(fresh) !== existing.contentHash) {
@@ -226,4 +227,48 @@ export function getReceiptLine(id: string): ReceiptLineRow | null {
 
 export function setReceiptStatus(id: string, status: ReceiptStatus, now = new Date()): void {
   db.update(receipts).set({ status, ...(status === 'processed' ? { processedAt: now } : {}) }).where(eq(receipts.id, id)).run();
+}
+
+/** Import recent receipts for setup only. Never moves the processing cursor or creates effects. */
+export async function pullReferenceReceipts(installation: PluginInstallation, deps: ReceiptPullDeps, limit: 5 | 10) {
+  const accountKey = installation.accountKey;
+  if (!accountKey || !installation.providerId) throw new Error('Sign in to a retailer account first');
+  if (installation.settings.boundAccountKey && installation.settings.boundAccountKey !== accountKey) throw new Error('The retailer account binding changed');
+  const summaries = new Map<string, ReceiptSummary>();
+  // Start with a recent window; widen only if it contains fewer than requested.
+  for (const days of [90, 365, 3650, null]) {
+    const since = days === null ? '1970-01-01T00:00:00.000Z' : new Date(deps.now().getTime() - days * 86400000).toISOString();
+    let cursor: string | undefined;
+    for (let page = 0; page < MAX_PAGES_PER_PULL; page++) {
+      const response = await deps.listReceipts({ since, ...(cursor ? { cursor } : {}) });
+      for (const receipt of response.receipts) summaries.set(receipt.receiptId, receipt);
+      cursor = response.nextCursor ?? undefined;
+      if (!cursor) break;
+    }
+    if (cursor) throw new Error('Receipt history is too large to determine the latest receipts in one request');
+    if (summaries.size >= limit) break;
+  }
+  const latest = [...summaries.values()].sort((a, b) => Date.parse(b.purchasedAt) - Date.parse(a.purchasedAt)).slice(0, limit);
+  let imported = 0;
+  let activeSkipped = 0;
+  const boundary = installation.settings.receiptsEnabled ? activationBoundary(installation) : null;
+  for (const summary of latest) {
+    if (boundary && Date.parse(summary.purchasedAt) >= boundary.getTime()) { activeSkipped++; continue; }
+    const existing = db.select().from(receipts).where(and(eq(receipts.providerId, installation.providerId), eq(receipts.accountKey, accountKey), eq(receipts.externalReceiptId, summary.receiptId))).get();
+    if (existing && (existing.status !== 'ignored_before_activation' || getReceiptLines(existing.id).length > 0)) continue;
+    const fresh = await deps.getReceipt(summary.receiptId);
+    if (boundary && Date.parse(fresh.purchasedAt) >= boundary.getTime()) { activeSkipped++; continue; }
+    if (fresh.receiptId !== summary.receiptId) throw new Error('The retailer returned a different receipt');
+    storeReceipt(installation, accountKey, fresh, null, deps.now(), true, existing?.id);
+    imported++;
+  }
+  return { listed: latest.length, imported, activeSkipped, referenceOnly: true, externalReceiptIds: latest.map(receipt => receipt.receiptId) };
+}
+
+/** Account-scoped product IDs for catalogue hydration across duplicate installations. */
+export function referenceReceiptProductIds(providerId: string, accountKey: string, externalIds: string[]): string[] {
+  if (!externalIds.length) return [];
+  const rows = db.select({ id: receipts.id }).from(receipts).where(and(eq(receipts.providerId, providerId), eq(receipts.accountKey, accountKey), inArray(receipts.externalReceiptId, externalIds))).all();
+  if (!rows.length) return [];
+  return [...new Set(db.select({ productId: receiptLines.retailerProductId }).from(receiptLines).where(inArray(receiptLines.receiptId, rows.map(row => row.id))).all().flatMap(line => line.productId ? [line.productId] : []))];
 }

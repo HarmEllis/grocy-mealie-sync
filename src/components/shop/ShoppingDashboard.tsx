@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ArrowRight, Check, LayoutDashboard, Link2, Loader2, Package, Receipt, RefreshCw, Search, TriangleAlert, Unlink, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,8 @@ import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { Pagination } from '@/components/mapping-wizard/Pagination';
 import { buildPageWindow, DEFAULT_PAGE_SIZE } from '@/components/mapping-wizard/paging';
 import { apiJson } from './api';
+import type { mappingPreview } from '@/lib/shop/mapping-preview';
+import type { TargetOption } from '@/lib/shop/targets';
 import type { ShopOverview } from '@/lib/shop/overview';
 
 type Tab = 'overview' | 'products' | 'receipts' | 'review';
@@ -231,14 +233,14 @@ interface MappingRow {
 interface ProductRow { providerId: string; externalId: string; name: string; packageAmount: number | null; packageUnit: string | null; measure: string }
 interface SuggestionRow { id: string; retailerProductId: string; targetKind: string; targetId: string; targetName: string; score: number }
 interface CatalogSearchRow { id: string; targetName: string; status: string; resultCount: number; lastError: string | null }
-interface TargetOption { kind: 'grocy_product' | 'mealie_food'; id: string; name: string; baseUnitId: string | null; baseUnitName: string | null }
 
 function targetKey(target: TargetOption): string {
   return `${target.kind}:${target.id}`;
 }
 
 function targetLabel(target: TargetOption): string {
-  return target.kind === 'grocy_product' ? `Grocy: ${target.name} (${target.baseUnitName ?? 'stock unit'})` : `Mealie only: ${target.name}`;
+  const prefix = target.source === 'grocy_mealie' ? 'G+M' : target.kind === 'grocy_product' ? 'G' : 'M';
+  return `(${prefix}) ${target.name}${target.baseUnitName ? ` · ${target.baseUnitName}` : ''}`;
 }
 
 function ProductsTab({ overview }: { overview: ShopOverview }) {
@@ -451,7 +453,12 @@ function MappingAmount({ mapping, onSaved }: { mapping: MappingRow; onSaved: () 
 }
 
 function MappingEditor({ providerId, product, mapping, onClose }: { providerId: string; product: ProductRow; mapping: MappingRow | null; onClose: () => void }) {
-  const [query, setQuery] = useState(mapping?.targetName ?? product.name);
+  const [query, setQuery] = useState('');
+  const dialogTitleRef = useRef<HTMLHeadingElement | null>(null);
+  const requestSequence = useRef(0);
+  const [preview, setPreview] = useState<Awaited<ReturnType<typeof mappingPreview>> | null>(null);
+  const [previewAttempt, setPreviewAttempt] = useState(0);
+  const [previewError, setPreviewError] = useState(false);
   const [targets, setTargets] = useState<TargetOption[]>([]);
   const [unitsLoaded, setUnitsLoaded] = useState(false);
   const [unitsError, setUnitsError] = useState(false);
@@ -464,26 +471,46 @@ function MappingEditor({ providerId, product, mapping, onClose }: { providerId: 
   const [role, setRole] = useState<'preferred' | 'alternative'>(mapping?.role === 'alternative' ? 'alternative' : 'preferred');
   const [amount, setAmount] = useState(mapping?.packageBaseAmount?.toString() ?? '');
 
-  async function search() {
+  useEffect(() => {
+    const sequence = ++requestSequence.current;
     setUnitsLoaded(false);
     setUnitsError(false);
-    try {
-      const result = await apiJson<{ targets: TargetOption[]; mealieUnits: Array<{ id: string; name: string }> }>(`/api/shop/targets?query=${encodeURIComponent(query)}`);
-      setTargets(result.targets);
-      setMealieUnits(result.mealieUnits);
-      setUnitsLoaded(true);
-    } catch (error) {
-      setUnitsError(true);
-      toast.error('Search failed', { description: (error as Error).message });
-    }
-  }
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await apiJson<{ targets: TargetOption[]; mealieUnits: Array<{ id: string; name: string }> }>(`/api/shop/targets?query=${encodeURIComponent(query)}&suggestFor=${encodeURIComponent(product.name.slice(0, 200))}`);
+        if (sequence !== requestSequence.current) return;
+        setTargets(result.targets);
+        setSelected(current => {
+          const found = current && result.targets.find(target => targetKey(target) === targetKey(current));
+          return current && found ? { ...current, source: found.source, linkedFoods: found.linkedFoods } : current;
+        });
+        setMealieUnits(result.mealieUnits);
+        setUnitsLoaded(true);
+      } catch {
+        if (sequence === requestSequence.current) setUnitsError(true);
+      }
+    }, 250);
+    return () => { window.clearTimeout(timer); requestSequence.current++; };
+  }, [query, product.name]);
 
-  useEffect(() => { void search(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => {
+    let cancelled = false;
+    setPreview(null);
+    setPreviewError(false);
+    if (selected) void apiJson<Awaited<ReturnType<typeof mappingPreview>>>('/api/shop/mappings/preview', {
+      method: 'POST', body: JSON.stringify({ providerId, retailerProductId: product.externalId, targetKind: selected.kind, targetId: selected.id, baseUnitId: mealieUnitId || null }),
+    }).then(result => {
+      if (cancelled) return;
+      setPreview(result);
+    }).catch(() => { if (!cancelled) setPreviewError(true); });
+    return () => { cancelled = true; };
+  }, [selected?.kind, selected?.id, mealieUnitId, providerId, product.externalId, previewAttempt]);
 
   async function save() {
     if (!selected) return;
+    if (selected.kind === 'grocy_product' && preview && selected.baseUnitId !== preview.baseUnitId) { toast.error('The Grocy stock unit changed; select the target again and confirm its package amount'); return; }
     if (selected.kind === 'mealie_food' && mealieUnitId && (!unitsLoaded || !mealieUnits.some(unit => unit.id === mealieUnitId))) {
-      toast.error(unitsError ? 'Mealie units could not be loaded; press Find to retry' : unitsLoaded ? 'This Mealie unit is no longer available; choose another unit' : 'Wait for Mealie units to load before saving');
+      toast.error(unitsError ? 'Mealie units could not be loaded; try searching again' : unitsLoaded ? 'This Mealie unit is no longer available; choose another unit' : 'Wait for Mealie units to load before saving');
       return;
     }
     const baseUnit = selected.kind === 'grocy_product'
@@ -519,27 +546,28 @@ function MappingEditor({ providerId, product, mapping, onClose }: { providerId: 
 
   return (
     <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto break-words sm:max-w-xl [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:min-h-10 [&_[data-slot=button]]:whitespace-normal">
+      <DialogContent initialFocus={dialogTitleRef} className="max-h-[calc(100dvh-2rem)] overflow-y-auto break-words sm:max-w-xl [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:min-h-10 [&_[data-slot=button]]:whitespace-normal">
         <DialogHeader>
-          <DialogTitle>Map {product.name}</DialogTitle>
+          <DialogTitle ref={dialogTitleRef} tabIndex={-1}>Map {product.name}</DialogTitle>
           <DialogDescription>Pick a Grocy product, or a Mealie food when the item is not tracked in Grocy.</DialogDescription>
         </DialogHeader>
       <div className="space-y-3 text-sm">
-        <form className="flex min-w-0 gap-2" onSubmit={(event) => { event.preventDefault(); void search(); }}>
-          <AppInput className="min-w-0 flex-1" value={query} onChange={event => setQuery(event.target.value)} aria-label="Target search" />
-          <Button size="sm" type="submit"><Search className="size-4" /> Find</Button>
-        </form>
+        {!query ? <p className="text-xs text-muted-foreground">Suggestions based on {product.name}. Type to search all targets.</p> : null}
+        <p className="text-xs text-muted-foreground">(G+M) Grocy + Mealie linked, recommended · (G) Grocy only · (M) Mealie only</p>
         <SearchableSelect
-          className="w-full" ariaLabel="Target" placeholder="Choose a target…"
+          className="w-full" ariaLabel="Target" placeholder="Search a Grocy product or Mealie ingredient…" onSearchChange={setQuery}
           value={selected ? targetKey(selected) : null}
-          onChange={value => setSelected(value === null ? null : targets.find(target => targetKey(target) === value) ?? selected)}
+          onChange={value => { const next = value === null ? null : targets.find(target => targetKey(target) === value) ?? selected; if (next && (!selected || targetKey(next) !== targetKey(selected) || next.baseUnitId !== selected.baseUnitId)) setAmount(''); setSelected(next); }}
           extraOption={selected ? { value: targetKey(selected), label: targetLabel(selected) } : null}
           options={targets.map(target => ({ value: targetKey(target), label: targetLabel(target) }))}
         />
+        {!unitsLoaded && !unitsError ? <p className="text-xs text-muted-foreground" role="status">Searching targets…</p> : null}
+        {unitsError ? <p className="text-xs text-destructive" role="alert">Targets could not be loaded. Change the search to retry.</p> : null}
+        {selected?.linkedFoods?.length ? <p className="text-xs text-muted-foreground">Linked to Mealie: {selected.linkedFoods.map(food => food.name).join(', ')}.</p> : null}
         {selected?.kind === 'mealie_food' ? (
           <div className="space-y-1">
-            <SearchableSelect className="w-full" ariaLabel="Mealie unit" placeholder="Count (no unit)" extraOption={mealieUnitId && mapping?.packageBaseUnitId === mealieUnitId ? { value: mealieUnitId, label: mapping.packageBaseUnitName ?? mealieUnitId } : null} value={mealieUnitId} onChange={value => setMealieUnitId(value ?? '')} clearable={false} options={[{ value: '', label: 'Count (no unit)' }, ...mealieUnits.map(unit => ({ value: unit.id, label: unit.name }))]} />
-            {unitsError ? <p role="alert" className="text-xs text-destructive">Mealie units could not be loaded; press Find to retry.</p>
+            <SearchableSelect className="w-full" ariaLabel="Mealie unit" placeholder="Count (no unit)" extraOption={mealieUnitId && mapping?.packageBaseUnitId === mealieUnitId ? { value: mealieUnitId, label: mapping.packageBaseUnitName ?? mealieUnitId } : null} value={mealieUnitId} onChange={value => { if (value !== mealieUnitId) setAmount(''); setMealieUnitId(value ?? ''); }} clearable={false} options={[{ value: '', label: 'Count (no unit)' }, ...mealieUnits.map(unit => ({ value: unit.id, label: unit.name }))]} />
+            {unitsError ? <p role="alert" className="text-xs text-destructive">Mealie units could not be loaded; try searching again.</p>
               : unitsLoaded && mealieUnitId && !mealieUnits.some(unit => unit.id === mealieUnitId) ? <p role="alert" className="text-xs text-destructive">This Mealie unit is no longer available; choose another unit.</p> : null}
           </div>
         ) : null}
@@ -550,8 +578,18 @@ function MappingEditor({ providerId, product, mapping, onClose }: { providerId: 
             {product.measure === 'weight' ? 'per kg' : 'per package'} in {selected?.kind === 'grocy_product' ? selected.baseUnitName ?? 'the stock unit' : 'the chosen unit'}
           </span>
         </div>
+        {selected ? <div className="space-y-1 rounded-md border bg-muted/30 p-3 text-xs">
+          <p>1 {product.measure === 'weight' ? 'kg bought' : 'retailer package'} = {amount || '?'} {selected.kind === 'grocy_product' ? selected.baseUnitName ?? 'stock units' : mealieUnits.find(unit => unit.id === mealieUnitId)?.name ?? (mealieUnitId ? mapping?.packageBaseUnitName ?? 'units' : 'items')} in {selected.kind === 'grocy_product' ? 'Grocy' : 'Mealie'}.</p>
+          {preview?.derivation ? <div className="space-y-1"><p>Suggested from catalogue: {preview.derivation.explanation}. Check before saving.</p><Button size="sm" variant="outline" onClick={() => setAmount(String(preview.derivation!.amount))}>Use suggested amount</Button></div> : <p>Enter and confirm the amount from the package or retailer catalogue.</p>}
+          {previewError ? <div><p role="alert">Unit preview could not be loaded; check your unit configuration.</p><Button size="sm" variant="outline" onClick={() => setPreviewAttempt(current => current + 1)}>Retry unit preview</Button></div> : null}
+          {selected.kind === 'grocy_product' && preview ? <>
+            <p>{preview.conversions.filter(item => item.ok).length} Mealie unit conversion(s) available.</p>
+            {preview.demandConversions?.map(item => <p key={item.mealieItemId}>{item.mealieUnitName}: {item.ok ? `converts to ${item.amount} ${preview.baseUnitName}` : `Needs configuration or review (${item.reason})`}</p>)}
+            {preview.demandConversions?.some(item => !item.ok) ? <p>Some Mealie units cannot be converted or need review. <a className="text-primary underline" href="/conversions">Open Units &amp; Conversions</a></p> : null}
+          </> : null}
+        </div> : null}
         <div className="flex gap-2">
-          <Button size="sm" onClick={save} disabled={!selected}>Save mapping</Button>
+          <Button size="sm" onClick={save} disabled={!selected || (selected.kind === 'grocy_product' && !preview)}>Save mapping</Button>
           <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
         </div>
       </div>
@@ -561,19 +599,50 @@ function MappingEditor({ providerId, product, mapping, onClose }: { providerId: 
 }
 
 function ReceiptsTab({ overview, reload }: { overview: ShopOverview; reload: () => Promise<void> }) {
+  const [installationId, setInstallationId] = useState(overview.installations[0]?.id ?? '');
+  const [historyLimit, setHistoryLimit] = useState<5 | 10>(5);
+  const [fetching, setFetching] = useState(false);
+  const [editing, setEditing] = useState<{ providerId: string; product: ProductRow; mapping: MappingRow | null } | null>(null);
   return (
     <div className="space-y-3">
       <Button size="sm" variant="outline" onClick={async () => { if (await post('/api/shop/receipts/pull', {}, 'Receipt pull requested')) window.setTimeout(() => void reload(), 3000); }}>
         Pull receipts now
       </Button>
+      <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-3">
+        <ThemedSelect ariaLabel="Receipt retailer" value={installationId} onChange={setInstallationId} options={overview.installations.map(item => ({ value: item.id, label: item.name }))} className="w-full sm:w-56" />
+        <ThemedSelect ariaLabel="Historical receipt count" value={historyLimit} onChange={setHistoryLimit} options={[{ value: 5, label: 'Latest 5 receipts' }, { value: 10, label: 'Latest 10 receipts' }]} className="w-full sm:w-48" />
+        <Button size="sm" variant="outline" disabled={!installationId || fetching} onClick={async () => {
+          setFetching(true);
+          try {
+            const result = await apiJson<{ imported: number; activeSkipped: number; catalogueWarning: string | null }>('/api/shop/receipts/history', { method: 'POST', body: JSON.stringify({ installationId, limit: historyLimit }) });
+            toast.success(`${result.imported} receipt(s) loaded for setup`, { description: result.activeSkipped ? `${result.activeSkipped} recent purchase(s) remain for normal processing. Use Pull receipts now to retrieve them.` : undefined });
+            if (result.catalogueWarning) toast.warning(result.catalogueWarning);
+            await reload();
+          } catch (error) { toast.error('Could not load receipts', { description: (error as Error).message }); }
+          finally { setFetching(false); }
+        }}>{fetching ? 'Loading receipts…' : 'Load receipts for setup'}</Button>
+        <p className="w-full text-xs text-muted-foreground">Reference-only receipts help configure mappings. They never book stock or check off shopping items, even after processing is enabled.</p>
+      </div>
+      {editing ? <MappingEditor {...editing} onClose={() => { setEditing(null); void reload(); }} /> : null}
       {overview.receipts.length === 0 ? <p className="text-sm text-muted-foreground">No receipts stored yet.</p> : null}
       {overview.receipts.map(receipt => (
-        <ShopSection key={receipt.id} title={`${when(receipt.purchasedAt)} ${receipt.storeLabel ?? ''}`} subtitle={`Status: ${receipt.status.replaceAll('_', ' ')}${receipt.totalCents !== null ? ` · total ${money(receipt.totalCents)}` : ''}`}>
+        <ShopSection key={receipt.id} title={`${when(receipt.purchasedAt)} ${receipt.storeLabel ?? ''}`} subtitle={`Status: ${receipt.referenceOnly ? 'Reference only, setup' : receipt.status.replaceAll('_', ' ')}${receipt.totalCents !== null ? ` · total ${money(receipt.totalCents)}` : ''}`}>
           {receipt.lines.length === 0 ? <p className="text-xs text-muted-foreground">Bought before receipt processing was enabled; kept as a header only.</p> : (
             <ShopTable headers={['Line', 'Qty', 'Amount', 'Status', 'Attribution']}>
                 {receipt.lines.map(line => (
                   <TableRow key={line.id}>
-                    <ShopCell label="Line">{line.description}</ShopCell>
+                    <ShopCell label="Line">
+                      <p>{line.description}</p>
+                      {line.mapping ? <p className="text-xs text-muted-foreground">Mapped to {line.mapping.targetName} · {line.mapping.packageBaseAmount ?? '?'} {line.mapping.packageBaseUnitName ?? 'units'} per package</p> : null}
+                      {line.retailerProductId && receipt.providerId ? <Button size="sm" variant="outline" onClick={async () => {
+                        try {
+                          const data = await apiJson<{ products: ProductRow[]; mappings: MappingRow[] }>(`/api/shop/mappings?providerId=${encodeURIComponent(receipt.providerId)}`);
+                          const product = data.products.find(item => item.externalId === line.retailerProductId);
+                          if (!product) throw new Error('Receipt product is unavailable');
+                          setEditing({ providerId: receipt.providerId, product, mapping: data.mappings.find(item => item.retailerProductId === line.retailerProductId) ?? null });
+                        } catch (error) { toast.error('Could not open mapping', { description: (error as Error).message }); }
+                      }}>{line.mapping ? 'Change mapping' : 'Map product'}</Button> : null}
+                    </ShopCell>
                     <ShopCell label="Qty">{line.quantity} {line.unit}</ShopCell>
                     <ShopCell label="Amount">{money(line.amountCents)}</ShopCell>
                     <ShopCell label="Status">{line.status}{line.reviewReason ? ` (${REVIEW_LABELS[line.reviewReason] ?? line.reviewReason})` : ''}</ShopCell>

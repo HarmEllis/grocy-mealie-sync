@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
   return shopRoute('Mapping target search', async () => {
     const query = z.string().trim().max(200).parse(new URL(request.url).searchParams.get('query') ?? '');
-    return searchMappingTargets(query);
+    const suggestFor = z.string().trim().max(200).parse(new URL(request.url).searchParams.get('suggestFor') ?? '');
+    return searchMappingTargets(query, 20, suggestFor);
   });
 }

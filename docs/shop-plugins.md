@@ -66,7 +66,7 @@ Each installation has two toggles, both off by default:
   retailer list.
 - **Process receipts**: receipts are pulled and reconciled. Turning it on sets
   the activation boundary to "now"; receipts bought earlier are stored as
-  headers only and never booked. The boundary only moves forward.
+  reference-only lines and never booked. The boundary only moves forward.
 
 Disabling receipt processing or revoking a plugin stops new receipt plans.
 Existing ledger plans still settle so an applied Grocy booking receives its
@@ -234,3 +234,35 @@ search, action, trigger, status, kind, date and pagination filters.
 `history.list_runs` accepts the same run filters; `history.get_run` returns the
 full ordered events. `history.status` reports history enablement and retention.
 Date filters accept `YYYY-MM-DD` (whole days in server local time) or ISO timestamps.
+
+## Mapping setup and recent receipts
+
+The mapping dialog has one server-backed target search. Type any Grocy product
+or Mealie ingredient name; initial suggestions are based on the retailer product name shown above the field,
+with no brand-specific name stripping. Type a name to search directly. `(G+M)` identifies a linked Grocy/Mealie product and ranks first;
+`(G)` and `(M)` identify standalone products. Linked Mealie results resolve to
+one Grocy choice. The current choice remains selected when editing.
+
+The package preview explains the stock amount per retailer package (per kg for
+weighed products). It uses the same Mealie unit mappings and Grocy conversions
+as demand projection. Catalogue-derived amounts remain proposals until the user
+confirms them. Missing conversion paths for current demand link to Units &
+Conversions. Mealie-only mappings use the selected Mealie unit or a count.
+
+**Load receipts for setup** imports the latest 5 or 10 available receipts even
+when processing is disabled. Receipt details and known product mappings are
+visible, with direct mapping actions. Catalogue package details are fetched when
+supported by the plugin. Historical imports never advance the processing cursor,
+book stock or fulfil demand; enabling processing later does not promote them.
+Existing active receipts retain their processing state. New receipts bought
+after activation are left to the regular pull and reconciliation, even if setup
+history is requested before the worker sees them. Legacy header-only
+receipts can be hydrated by the setup import. Availability depends on what the
+retailer retains and returns.
+
+MCP uses the same handlers: `shop.targets.search` returns linked status and unit
+metadata; `shop.mappings.preview` explains package derivation and conversion
+paths; `shop.receipts.history` imports reference-only history and `shop.overview`
+returns its complete lines and current mappings. The existing `mappings.*`,
+`units.*` and `conversions.*` tools configure product/unit relationships. Use
+`shop.mappings.save` to save and explicitly confirm a checked package amount.

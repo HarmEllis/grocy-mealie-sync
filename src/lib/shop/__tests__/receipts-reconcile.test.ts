@@ -24,7 +24,7 @@ import { defaultEffectRunnerDeps, type EffectRunnerDeps } from '../effect-runner
 import { CheckDeferredError, ensureLedgerActivated, listEffects } from '../ledger';
 import { resetListOwnership } from '../list-sync';
 import { persistExports } from '../projection';
-import { getReceiptLines, listReceipts, pullReceipts, type ReceiptPullDeps } from '../receipts';
+import { getReceiptLines, listReceipts, pullReceipts, pullReferenceReceipts, type ReceiptPullDeps } from '../receipts';
 import { hasPendingReceiptEffects, runShopReconcile } from '../reconcile-executor';
 import { isShopFeatureActive } from '../worker';
 import { upsertRetailerMapping, upsertRetailerProducts } from '../retailer-catalog';
@@ -131,7 +131,56 @@ beforeEach(() => {
 });
 
 describe('receipt pulls', () => {
-  it('stores receipts once per retailer account and keeps old ones as headers', async () => {
+  it('leaves post-activation purchases to normal processing when setup is requested first', async () => {
+    const installation = setupInstallation();
+    mapMilk();
+    observeDemand('list', [row()], new Date('2026-10-04T10:00:00Z'));
+    const revisionId = db.select().from(schema.demandRevisions).get()!.id;
+    exportRow(installation.id, revisionId, new Date('2026-10-04T10:00:00Z'));
+    expect(await pullReferenceReceipts(installation, pullDeps([receipt()]), 5)).toMatchObject({ imported: 0, activeSkipped: 1 });
+    expect(listReceipts()).toHaveLength(0);
+    await pullReceipts(installation, pullDeps([receipt()]));
+    const items = { current: [row()] };
+    const run = runner(items);
+    await runShopReconcile(reconcileDeps(items, run));
+    expect(run.addStock).toHaveBeenCalledTimes(1);
+    expect(items.current[0].quantity).toBe(1);
+  });
+
+  it('imports the latest receipts while disabled and never books them after activation', async () => {
+    const installation = setupInstallation();
+    updateInstallationSettings(installation.id, { receiptsEnabled: false });
+    const disabled = getInstallation(installation.id)!;
+    const source = Array.from({ length: 12 }, (_, i) => receipt({ receiptId: `historic-${i}`, purchasedAt: new Date(Date.UTC(2026, 9, 1, i)).toISOString() }));
+    await pullReferenceReceipts(disabled, pullDeps(source), 5);
+    expect(listReceipts()).toHaveLength(5);
+    expect(listReceipts().every(item => item.status === 'reference_only')).toBe(true);
+    expect(listReceipts().map(item => item.externalReceiptId)).toEqual(['historic-7', 'historic-8', 'historic-9', 'historic-10', 'historic-11']);
+    expect(getReceiptLines(listReceipts()[0].id)).toHaveLength(3);
+    expect(db.select().from(schema.receiptCursors).all()).toHaveLength(0);
+    updateInstallationSettings(installation.id, { receiptsEnabled: true });
+    await pullReceipts(getInstallation(installation.id)!, pullDeps(source.slice(7)));
+    const run = runner({ current: [row()] });
+    await runShopReconcile(reconcileDeps({ current: [row()] }, run));
+    expect(listEffects()).toHaveLength(0);
+    expect(run.addStock).not.toHaveBeenCalled();
+    expect(run.updateMealieItem).not.toHaveBeenCalled();
+    expect(listReceipts().every(item => item.status === 'reference_only')).toBe(true);
+  });
+  it('hydrates legacy reference headers in place without creating effects', async () => {
+    const installation = setupInstallation();
+    const old = receipt({ receiptId: 'legacy', purchasedAt: '2026-08-20T10:00:00Z' });
+    await pullReceipts(installation, pullDeps([old]));
+    const header = listReceipts()[0];
+    db.delete(schema.receiptLines).run();
+    await pullReferenceReceipts(installation, pullDeps([old]), 5);
+    expect(getReceiptLines(listReceipts()[0].id)).toHaveLength(3);
+    expect(listReceipts()[0].status).toBe('reference_only');
+    expect(listReceipts()[0].id).toBe(header.id);
+    expect(listEffects()).toHaveLength(0);
+  });
+
+  it('stores receipts once per retailer account and keeps old receipt lines reference-only', async () => {
     const first = setupInstallation('First');
     const second = setupInstallation('Second');
     const old = receipt({ receiptId: 'old', purchasedAt: '2026-09-20T10:00:00.000Z' });
@@ -139,7 +188,7 @@ describe('receipt pulls', () => {
     expect(await pullReceipts(second, pullDeps([receipt()]))).toMatchObject({ stored: 0 });
     const stored = listReceipts();
     expect(stored.map(entry => [entry.externalReceiptId, entry.status])).toEqual([['old', 'ignored_before_activation'], ['r-1', 'stored']]);
-    expect(getReceiptLines(stored[0].id)).toEqual([]);
+    expect(getReceiptLines(stored[0].id).map(line => line.status)).toEqual(['reference_only', 'reference_only', 'reference_only']);
     expect(getReceiptLines(stored[1].id).map(line => line.status)).toEqual(['pending', 'ignored', 'pending']);
   });
 
