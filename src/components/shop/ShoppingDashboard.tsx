@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { Loader2, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AppBadge, AppCardSection, AppInput, AppSelect } from '@/components/redesign/primitives';
 import { apiJson } from './api';
@@ -218,6 +219,8 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
   const [providerId, setProviderId] = useState<string>('');
   const [data, setData] = useState<{ mappings: MappingRow[]; products: ProductRow[]; suggestions: SuggestionRow[]; searches?: CatalogSearchRow[] } | null>(null);
   const [query, setQuery] = useState('');
+  const [productQuery, setProductQuery] = useState('');
+  const [productFilter, setProductFilter] = useState<'all' | 'available' | 'mapped'>('all');
   const [editing, setEditing] = useState<ProductRow | null>(null);
   const activeProvider = providerId || providers[0] || '';
   const connected = overview.installations.find(installation => installation.providerId === activeProvider && installation.connected);
@@ -239,6 +242,16 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
 
   if (!activeProvider) return <p className="text-sm text-muted-foreground">Connect a plugin first; mappings are kept per retailer.</p>;
   const mappingByProduct = new Map((data?.mappings ?? []).map(mapping => [mapping.retailerProductId, mapping]));
+  const products = data?.products ?? [];
+  const mappedCount = products.filter(product => mappingByProduct.has(product.externalId)).length;
+  const normalizedQuery = productQuery.trim().toLocaleLowerCase();
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  const visibleProducts = products.filter(product => {
+    const mapping = mappingByProduct.get(product.externalId);
+    if (productFilter === 'mapped' && !mapping) return false;
+    if (productFilter === 'available' && mapping) return false;
+    return !normalizedQuery || `${product.name} ${mapping?.targetName ?? ''}`.toLocaleLowerCase().includes(normalizedQuery);
+  }).sort((a, b) => collator.compare(a.name, b.name) || collator.compare(a.externalId, b.externalId));
 
   return (
     <div className="space-y-4">
@@ -301,8 +314,17 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
       ) : null}
 
       <AppCardSection title="Retailer products" subtitle="Automatic list and receipt processing only uses confirmed mappings.">
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row">
+          <AppInput className="min-w-0 flex-1" aria-label="Filter retailer products" placeholder="Filter by product or mapped ingredient" value={productQuery} onChange={event => setProductQuery(event.target.value)} />
+          <AppSelect aria-label="Product mapping filter" value={productFilter} onChange={event => setProductFilter(event.target.value as typeof productFilter)}>
+            <option value="all">All products ({products.length})</option>
+            <option value="available">Available to map ({products.length - mappedCount})</option>
+            <option value="mapped">Mapped ({mappedCount})</option>
+          </AppSelect>
+        </div>
+        {visibleProducts.length === 0 ? <p className="text-sm text-muted-foreground">No products match these filters.</p> : null}
         <ShopTable headers={['Product', 'Package', 'Mapped to', 'Amount per package', 'Actions']}>
-            {(data?.products ?? []).map((product) => {
+            {visibleProducts.map((product) => {
               const mapping = mappingByProduct.get(product.externalId);
               return (
                 <tr key={product.externalId} data-testid="retailer-product">
@@ -437,7 +459,12 @@ function MappingEditor({ providerId, product, onClose }: { providerId: string; p
   }
 
   return (
-    <AppCardSection title={`Map ${product.name}`} subtitle="Pick a Grocy product, or a Mealie food when the item is not tracked in Grocy.">
+    <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto break-words sm:max-w-xl [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:min-h-10 [&_[data-slot=button]]:whitespace-normal">
+        <DialogHeader>
+          <DialogTitle>Map {product.name}</DialogTitle>
+          <DialogDescription>Pick a Grocy product, or a Mealie food when the item is not tracked in Grocy.</DialogDescription>
+        </DialogHeader>
       <div className="space-y-3 text-sm">
         <form className="flex min-w-0 gap-2" onSubmit={(event) => { event.preventDefault(); void search(); }}>
           <AppInput className="min-w-0 flex-1" value={query} onChange={event => setQuery(event.target.value)} aria-label="Target search" />
@@ -477,7 +504,8 @@ function MappingEditor({ providerId, product, onClose }: { providerId: string; p
           <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
         </div>
       </div>
-    </AppCardSection>
+      </DialogContent>
+    </Dialog>
   );
 }
 

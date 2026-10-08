@@ -157,7 +157,7 @@ try {
   let confirmedAmount = null;
   await page.unroute('**/api/shop/mappings?*');
   await page.route('**/api/shop/mappings?*', route => route.fulfill({ json: {
-    products: [mobileProduct], suggestions: [], searches: [],
+    products: [mobileProduct, { ...mobileProduct, externalId: '456', name: 'Aubergine' }], suggestions: [], searches: [],
     mappings: [{ id: 'mobile-mapping', providerId: 'synthetic-shop', retailerProductId: '123', retailerProductName: mobileProduct.name,
       targetKind: 'grocy_product', targetName: 'Cherry tomaten', role: mobileRole, packageBaseAmount: confirmedAmount,
       packageBaseUnitName: 'Doos', confirmed: confirmedAmount !== null }],
@@ -191,10 +191,23 @@ try {
       await assertNoPageOverflow(`${width}px ${tab}`);
     }
     await page.getByRole('tab', { name: 'Products', exact: true }).click();
-    const row = page.getByTestId('retailer-product');
+    const rows = page.getByTestId('retailer-product');
+    await rows.first().waitFor();
+    assert.ok((await rows.first().textContent()).includes('Aubergine'), 'products are sorted alphabetically');
+    await page.getByLabel('Product mapping filter').selectOption('available');
+    assert.equal(await rows.count(), 1);
+    assert.ok((await rows.first().textContent()).includes('Aubergine'));
+    await page.getByLabel('Product mapping filter').selectOption('mapped');
+    assert.equal(await rows.count(), 1);
+    await page.getByLabel('Filter retailer products').fill('no-such-product');
+    await page.getByText('No products match these filters.').waitFor();
+    assert.equal(await rows.count(), 0);
+    await page.getByLabel('Filter retailer products').fill('Cherry tomaten');
+    const row = rows.first();
     await row.waitFor();
     assert.equal(await row.evaluate(node => getComputedStyle(node).display), width < 768 ? 'block' : 'table-row');
     await row.getByRole('button', { name: 'Change', exact: true }).click();
+    await page.getByRole('dialog').waitFor();
     await page.getByLabel('Target', { exact: true }).selectOption('grocy_product:79');
     await assertNoPageOverflow(`${width}px mapping editor`);
     if (width === 390) await page.screenshot({ path: '/tmp/gms-shop-mobile.png', fullPage: true });
