@@ -68,7 +68,7 @@ export function PluginAuthDialog({ installation, onClose }: { installation: { id
 
   return (
     <Dialog open onOpenChange={open => { if (!open && !busy) onClose(); }}>
-      <DialogContent>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto break-words">
         <DialogHeader>
           <DialogTitle>{step?.title ?? `Sign in for ${installation.name}`}</DialogTitle>
           <DialogDescription>{step?.message ?? 'Follow the steps provided by the shop plugin.'}</DialogDescription>

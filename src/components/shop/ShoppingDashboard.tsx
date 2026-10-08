@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Loader2, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -49,6 +49,29 @@ async function post(url: string, body: unknown, success: string): Promise<boolea
   }
 }
 
+// Keep one set of controls and form state when table rows become mobile cards.
+function ShopTable({ headers, children }: { headers: string[]; children: ReactNode }) {
+  return (
+    <div className="min-w-0 overflow-x-auto">
+      <table className="block w-full text-sm md:table [&_tbody]:block md:[&_tbody]:table-row-group [&_tr]:mb-3 [&_tr]:block [&_tr]:rounded-lg [&_tr]:border [&_tr]:border-border [&_tr]:p-3 md:[&_tr]:mb-0 md:[&_tr]:table-row md:[&_tr]:border-0 md:[&_tr]:p-0">
+        <thead className="hidden md:table-header-group">
+          <tr className="text-left text-xs text-muted-foreground">{headers.map((header, index) => <th key={index} scope="col" className="px-2 py-2">{header}</th>)}</tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function ShopCell({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <td className="block min-w-0 break-words py-1.5 align-top md:table-cell md:px-2 md:py-3">
+      <span className="mb-1 block text-xs font-medium text-muted-foreground md:hidden">{label}</span>
+      {children}
+    </td>
+  );
+}
+
 export function ShoppingDashboard() {
   const [overview, setOverview] = useState<ShopOverview | null>(null);
   const [tab, setTab] = useState<Tab>('overview');
@@ -77,8 +100,8 @@ export function ShoppingDashboard() {
     + (overview?.lines.filter(line => line.pausedReason && line.pausedReason !== 'released').length ?? 0);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
+    <div className="min-w-0 space-y-4 break-words [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:min-h-10 [&_[data-slot=button]]:max-w-full [&_[data-slot=button]]:whitespace-normal md:[&_[data-slot=button]]:min-h-8">
+      <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" variant="outline" onClick={load} disabled={loading}>
           {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />} Refresh
         </Button>
@@ -95,12 +118,14 @@ export function ShoppingDashboard() {
       ) : null}
 
       <Tabs value={tab} onValueChange={value => setTab(value as Tab)}>
-        <TabsList>
+        <div className="min-w-0 overflow-x-auto pb-1">
+        <TabsList className="min-w-max max-md:h-10">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="products">Products</TabsTrigger>
           <TabsTrigger value="receipts">Receipts</TabsTrigger>
           <TabsTrigger value="review">Review{attention > 0 ? ` (${attention})` : ''}</TabsTrigger>
         </TabsList>
+        </div>
         <TabsContent value="overview">{overview ? <OverviewTab overview={overview} reload={load} /> : null}</TabsContent>
         <TabsContent value="products">{overview ? <ProductsTab overview={overview} /> : null}</TabsContent>
         <TabsContent value="receipts">{overview ? <ReceiptsTab overview={overview} reload={load} /> : null}</TabsContent>
@@ -131,14 +156,11 @@ function OverviewTab({ overview, reload }: { overview: ShopOverview; reload: () 
 
       <AppCardSection title="On the shared list" subtitle="Packages gm-sync currently wants on each retailer list. Your own additions are kept.">
         {overview.exports.length === 0 ? <p className="text-sm text-muted-foreground">Nothing exported.</p> : (
-          <table className="w-full text-sm">
-            <thead><tr className="text-left text-xs text-muted-foreground"><th>Plugin</th><th>Product</th><th>Packages</th><th>Since</th></tr></thead>
-            <tbody>
+          <ShopTable headers={['Plugin', 'Product', 'Packages', 'Since']}>
               {overview.exports.map(row => (
-                <tr key={row.id}><td>{installationName(row.installationId)}</td><td>{row.productName}</td><td>{row.packages}</td><td>{when(row.createdAt)}</td></tr>
+                <tr key={row.id}><ShopCell label="Plugin">{installationName(row.installationId)}</ShopCell><ShopCell label="Product">{row.productName}</ShopCell><ShopCell label="Packages">{row.packages}</ShopCell><ShopCell label="Since">{when(row.createdAt)}</ShopCell></tr>
               ))}
-            </tbody>
-          </table>
+          </ShopTable>
         )}
       </AppCardSection>
 
@@ -227,7 +249,7 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
           </AppSelect>
         ) : <AppBadge>{activeProvider}</AppBadge>}
         <form
-          className="flex items-center gap-2"
+          className="flex w-full min-w-0 items-center gap-2 sm:w-auto"
           onSubmit={async (event) => {
             event.preventDefault();
             if (!connected || !query.trim()) return;
@@ -239,7 +261,7 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
             }
           }}
         >
-          <AppInput value={query} onChange={event => setQuery(event.target.value)} placeholder="Search the retailer catalogue" aria-label="Catalogue search" />
+          <AppInput className="min-w-0 flex-1" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search the retailer catalogue" aria-label="Catalogue search" />
           <Button size="sm" type="submit" disabled={!connected}><Search className="size-4" /> Search</Button>
         </form>
       </div>
@@ -279,23 +301,37 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
       ) : null}
 
       <AppCardSection title="Retailer products" subtitle="Automatic list and receipt processing only uses confirmed mappings.">
-        <table className="w-full text-sm">
-          <thead><tr className="text-left text-xs text-muted-foreground"><th>Product</th><th>Package</th><th>Mapped to</th><th>Amount per package</th><th /></tr></thead>
-          <tbody>
+        <ShopTable headers={['Product', 'Package', 'Mapped to', 'Amount per package', 'Actions']}>
             {(data?.products ?? []).map((product) => {
               const mapping = mappingByProduct.get(product.externalId);
               return (
                 <tr key={product.externalId} data-testid="retailer-product">
-                  <td>{product.name}</td>
-                  <td>{product.measure === 'weight' ? 'by weight (per kg)' : `${product.packageAmount ?? ''} ${product.packageUnit ?? ''}`}</td>
-                  <td>{mapping ? `${mapping.targetName} (${mapping.targetKind === 'grocy_product' ? 'Grocy' : 'Mealie only'}, ${mapping.role})` : '—'}</td>
-                  <td>
+                  <ShopCell label="Product"><span className="font-semibold">{product.name}</span></ShopCell>
+                  <ShopCell label="Package">{product.measure === 'weight' ? 'by weight (per kg)' : `${product.packageAmount ?? ''} ${product.packageUnit ?? ''}`}</ShopCell>
+                  <ShopCell label="Mapped to">
+                    {mapping ? <div className="space-y-1">
+                      <p>{mapping.targetName} ({mapping.targetKind === 'grocy_product' ? 'Grocy' : 'Mealie only'})</p>
+                      <AppBadge small tone={mapping.role === 'preferred' ? 'accent' : 'warning'}>{mapping.role === 'preferred' ? 'Preferred for list sync' : 'Alternative; not sent to list'}</AppBadge>
+                    </div> : '—'}
+                  </ShopCell>
+                  <ShopCell label="Amount per package">
                     {mapping ? (
                       <MappingAmount mapping={mapping} onSaved={load} />
                     ) : null}
-                  </td>
-                  <td className="space-x-1 text-right">
+                  </ShopCell>
+                  <ShopCell label="Actions"><div className="flex flex-wrap gap-2 md:justify-end">
                     <Button size="sm" variant="outline" onClick={() => setEditing(product)}>{mapping ? 'Change' : 'Map'}</Button>
+                    {mapping?.role === 'alternative' ? (
+                      <Button size="sm" variant="outline" onClick={async () => {
+                        try {
+                          await apiJson(`/api/shop/mappings/${mapping.id}`, { method: 'PATCH', body: JSON.stringify({ role: 'preferred' }) });
+                          toast.success('Preferred product selected for list sync');
+                          await load();
+                        } catch (error) {
+                          toast.error('Could not select the preferred product', { description: (error as Error).message });
+                        }
+                      }}>Use for list</Button>
+                    ) : null}
                     {mapping ? (
                       <Button size="sm" variant="ghost" onClick={async () => {
                         try {
@@ -306,12 +342,11 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
                         }
                       }}>Remove</Button>
                     ) : null}
-                  </td>
+                  </div></ShopCell>
                 </tr>
               );
             })}
-          </tbody>
-        </table>
+        </ShopTable>
       </AppCardSection>
 
       {editing ? <MappingEditor providerId={activeProvider} product={editing} onClose={() => { setEditing(null); void load(); }} /> : null}
@@ -323,7 +358,7 @@ function MappingAmount({ mapping, onSaved }: { mapping: MappingRow; onSaved: () 
   const [value, setValue] = useState(mapping.packageBaseAmount?.toString() ?? '');
   return (
     <form
-      className="flex items-center gap-1"
+      className="flex flex-wrap items-center gap-2"
       onSubmit={async (event) => {
         event.preventDefault();
         const amount = Number(value);
@@ -340,7 +375,7 @@ function MappingAmount({ mapping, onSaved }: { mapping: MappingRow; onSaved: () 
         }
       }}
     >
-      <AppInput className="w-20" value={value} onChange={event => setValue(event.target.value)} inputMode="decimal" aria-label="Amount per package" />
+      <AppInput className="w-20 shrink-0" value={value} onChange={event => setValue(event.target.value)} inputMode="decimal" aria-label="Amount per package" />
       <span className="text-xs text-muted-foreground">{mapping.packageBaseUnitName ?? 'units'}</span>
       {mapping.confirmed ? <AppBadge small tone="success">confirmed</AppBadge> : <Button size="sm" type="submit" variant="outline">Confirm</Button>}
     </form>
@@ -404,11 +439,12 @@ function MappingEditor({ providerId, product, onClose }: { providerId: string; p
   return (
     <AppCardSection title={`Map ${product.name}`} subtitle="Pick a Grocy product, or a Mealie food when the item is not tracked in Grocy.">
       <div className="space-y-3 text-sm">
-        <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); void search(); }}>
-          <AppInput value={query} onChange={event => setQuery(event.target.value)} aria-label="Target search" />
+        <form className="flex min-w-0 gap-2" onSubmit={(event) => { event.preventDefault(); void search(); }}>
+          <AppInput className="min-w-0 flex-1" value={query} onChange={event => setQuery(event.target.value)} aria-label="Target search" />
           <Button size="sm" type="submit"><Search className="size-4" /> Find</Button>
         </form>
         <AppSelect
+          containerClassName="w-full"
           aria-label="Target"
           value={selected ? `${selected.kind}:${selected.id}` : ''}
           onChange={event => setSelected(targets.find(target => `${target.kind}:${target.id}` === event.target.value) ?? null)}
@@ -421,13 +457,13 @@ function MappingEditor({ providerId, product, onClose }: { providerId: string; p
           ))}
         </AppSelect>
         {selected?.kind === 'mealie_food' ? (
-          <AppSelect aria-label="Mealie unit" value={mealieUnitId} onChange={event => setMealieUnitId(event.target.value)}>
+          <AppSelect containerClassName="w-full" aria-label="Mealie unit" value={mealieUnitId} onChange={event => setMealieUnitId(event.target.value)}>
             <option value="">Count (no unit)</option>
             {mealieUnits.map(unit => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
           </AppSelect>
         ) : null}
         <div className="flex flex-wrap items-center gap-2">
-          <AppSelect aria-label="Role" value={role} onChange={event => setRole(event.target.value as 'preferred' | 'alternative')}>
+          <AppSelect containerClassName="w-full sm:w-auto" aria-label="Role" value={role} onChange={event => setRole(event.target.value as 'preferred' | 'alternative')}>
             <option value="preferred">Preferred product</option>
             <option value="alternative">Remembered alternative</option>
           </AppSelect>
@@ -455,22 +491,19 @@ function ReceiptsTab({ overview, reload }: { overview: ShopOverview; reload: () 
       {overview.receipts.map(receipt => (
         <AppCardSection key={receipt.id} title={`${when(receipt.purchasedAt)} ${receipt.storeLabel ?? ''}`} subtitle={`Status: ${receipt.status.replaceAll('_', ' ')}${receipt.totalCents !== null ? ` · total ${money(receipt.totalCents)}` : ''}`}>
           {receipt.lines.length === 0 ? <p className="text-xs text-muted-foreground">Bought before receipt processing was enabled; kept as a header only.</p> : (
-            <table className="w-full text-sm">
-              <thead><tr className="text-left text-xs text-muted-foreground"><th>Line</th><th>Qty</th><th>Amount</th><th>Status</th><th>Attribution</th></tr></thead>
-              <tbody>
+            <ShopTable headers={['Line', 'Qty', 'Amount', 'Status', 'Attribution']}>
                 {receipt.lines.map(line => (
                   <tr key={line.id}>
-                    <td>{line.description}</td>
-                    <td>{line.quantity} {line.unit}</td>
-                    <td>{money(line.amountCents)}</td>
-                    <td>{line.status}{line.reviewReason ? ` (${REVIEW_LABELS[line.reviewReason] ?? line.reviewReason})` : ''}</td>
-                    <td className="text-xs text-muted-foreground">
+                    <ShopCell label="Line">{line.description}</ShopCell>
+                    <ShopCell label="Qty">{line.quantity} {line.unit}</ShopCell>
+                    <ShopCell label="Amount">{money(line.amountCents)}</ShopCell>
+                    <ShopCell label="Status">{line.status}{line.reviewReason ? ` (${REVIEW_LABELS[line.reviewReason] ?? line.reviewReason})` : ''}</ShopCell>
+                    <ShopCell label="Attribution"><span className="text-xs text-muted-foreground">
                       {line.links.map(link => `${link.kind} ${Math.round(link.baseAmount * 1000) / 1000}`).join(', ')}
-                    </td>
+                    </span></ShopCell>
                   </tr>
                 ))}
-              </tbody>
-            </table>
+            </ShopTable>
           )}
         </AppCardSection>
       ))}
@@ -565,7 +598,7 @@ function ReviewLine({ line, overview, reload }: { line: ShopOverview['review'][n
           <label className="flex items-center gap-2"><input type="checkbox" checked={fulfilOnly} onChange={event => setFulfilOnly(event.target.checked)} /> Fulfil demand only, book nothing in Grocy</label>
           {!fulfilOnly ? (
             <div className="flex flex-wrap items-center gap-2">
-              <AppSelect aria-label="Product actually bought" value={productId} onChange={event => setProductId(event.target.value)}>
+              <AppSelect containerClassName="w-full sm:w-auto" aria-label="Product actually bought" value={productId} onChange={event => setProductId(event.target.value)}>
                 <option value="">Grocy product actually bought…</option>
                 {targets.map(target => <option key={target.id} value={target.id}>{target.name} ({target.baseUnitName ?? 'stock unit'})</option>)}
               </AppSelect>

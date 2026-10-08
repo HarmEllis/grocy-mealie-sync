@@ -77,6 +77,8 @@ try {
   const firstToken = (await tokenBox.textContent())?.trim() ?? '';
   assert.match(firstToken, /^gmsp_[a-f0-9]{24}_/, 'the new token is shown once');
   assert.ok((await page.locator('pre').first().textContent())?.includes(firstToken), 'the compose snippet contains the token');
+  await page.setViewportSize({ width: 360, height: 900 });
+  await assertNoPageOverflow('360px Settings token');
   await page.getByRole('button', { name: 'I stored the token' }).click();
   await tokenBox.waitFor({ state: 'detached' });
   const installation = page.getByTestId('plugin-installation').filter({ hasText: 'Demo shop' });
@@ -116,6 +118,7 @@ try {
   });
   await page.reload({ waitUntil: 'networkidle' });
   await page.getByRole('button', { name: 'Retailer sign-in' }).click();
+  await assertNoPageOverflow('360px retailer sign-in');
   await page.getByLabel('Login code').fill('synthetic-single-use-code');
   const initialBeginCount = beginCount;
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -129,6 +132,7 @@ try {
   await page.getByRole('button', { name: 'Close', exact: true }).first().click();
   await page.unroute('**/api/plugins/installations');
   await page.unroute('**/api/plugins/installations/*/auth');
+  await page.setViewportSize({ width: 1280, height: 1000 });
 
   // Automatically discovered ingredients and proposals are visible without a manual catalogue search.
   const realOverview = await (await fetch(`${baseUrl}/api/shop/overview`)).json();
@@ -147,6 +151,67 @@ try {
   await page.getByText('Found 1 products; review the suggestions or use Map below').waitFor();
   await page.getByRole('button', { name: 'Accept', exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'Confirm', exact: true }).count(), 0, 'catalogue proposals are not confirmed mappings');
+  // Populated mobile layouts must stay within the viewport, including mapping controls.
+  const mobileProduct = { providerId: 'synthetic-shop', externalId: '123', name: 'Synthetic cherry tomatoes with a deliberately long product name', packageAmount: 250, packageUnit: 'g', measure: 'unit' };
+  let mobileRole = 'alternative';
+  let confirmedAmount = null;
+  await page.unroute('**/api/shop/mappings?*');
+  await page.route('**/api/shop/mappings?*', route => route.fulfill({ json: {
+    products: [mobileProduct], suggestions: [], searches: [],
+    mappings: [{ id: 'mobile-mapping', providerId: 'synthetic-shop', retailerProductId: '123', retailerProductName: mobileProduct.name,
+      targetKind: 'grocy_product', targetName: 'Cherry tomaten', role: mobileRole, packageBaseAmount: confirmedAmount,
+      packageBaseUnitName: 'Doos', confirmed: confirmedAmount !== null }],
+  } }));
+  await page.route('**/api/shop/mappings/mobile-mapping', route => {
+    const body = route.request().postDataJSON();
+    if (body.role) mobileRole = body.role;
+    if (body.packageBaseAmount) confirmedAmount = body.packageBaseAmount;
+    return route.fulfill({ json: { ok: true } });
+  });
+  await page.route('**/api/shop/targets?*', route => route.fulfill({ json: {
+    targets: [{ kind: 'grocy_product', id: '79', name: 'Cherry tomaten', baseUnitId: '11', baseUnitName: 'Doos' }], mealieUnits: [],
+  } }));
+  await page.unroute('**/api/shop/overview');
+  await page.route('**/api/shop/overview', route => route.fulfill({ json: { ...realOverview,
+    installations: realOverview.installations.map(item => ({ ...item, providerId: 'synthetic-shop' })),
+    exports: [{ id: 'mobile-export', installationId: realOverview.installations[0].id, productName: mobileProduct.name, packages: 2, createdAt: new Date().toISOString() }],
+    receipts: [{ id: 'mobile-receipt', purchasedAt: new Date().toISOString(), storeLabel: 'Demo shop', status: 'processed', totalCents: 199,
+      lines: [{ id: 'mobile-line', description: mobileProduct.name, quantity: 2, unit: 'unit', amountCents: 199, status: 'review', reviewReason: 'mapping_unconfirmed', links: [] }] }],
+    review: [{ id: 'mobile-review', description: mobileProduct.name, quantity: 2, unit: 'unit', amountCents: 199, reviewReason: 'mapping_missing' }],
+  } }));
+  async function assertNoPageOverflow(label) {
+    const dimensions = await page.evaluate(() => ({ width: window.innerWidth, scroll: document.documentElement.scrollWidth }));
+    assert.ok(dimensions.scroll <= dimensions.width + 1, `${label}: page overflow ${JSON.stringify(dimensions)}`);
+  }
+  for (const width of [360, 390, 768, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${baseUrl}/shopping`, { waitUntil: 'networkidle' });
+    for (const tab of ['Overview', 'Products', 'Receipts', 'Review']) {
+      await page.getByRole('tab', { name: new RegExp(`^${tab}`) }).click();
+      await assertNoPageOverflow(`${width}px ${tab}`);
+    }
+    await page.getByRole('tab', { name: 'Products', exact: true }).click();
+    const row = page.getByTestId('retailer-product');
+    await row.waitFor();
+    assert.equal(await row.evaluate(node => getComputedStyle(node).display), width < 768 ? 'block' : 'table-row');
+    await row.getByRole('button', { name: 'Change', exact: true }).click();
+    await page.getByLabel('Target', { exact: true }).selectOption('grocy_product:79');
+    await assertNoPageOverflow(`${width}px mapping editor`);
+    if (width === 390) await page.screenshot({ path: '/tmp/gms-shop-mobile.png', fullPage: true });
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  }
+  await page.setViewportSize({ width: 360, height: 900 });
+  await page.getByTestId('retailer-product').getByLabel('Amount per package').fill('1');
+  await page.getByTestId('retailer-product').getByRole('button', { name: 'Confirm', exact: true }).click();
+  await page.getByText('confirmed', { exact: true }).waitFor();
+  assert.equal(confirmedAmount, 1);
+  await page.getByRole('button', { name: 'Use for list', exact: true }).click();
+  await page.getByText('Preferred for list sync', { exact: true }).waitFor();
+  assert.equal(mobileRole, 'preferred', 'changing role keeps the confirmed package amount');
+  assert.equal(confirmedAmount, 1);
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await page.unroute('**/api/shop/mappings/mobile-mapping');
+  await page.unroute('**/api/shop/targets?*');
   await page.unroute('**/api/shop/overview');
   await page.unroute('**/api/shop/mappings?*');
 

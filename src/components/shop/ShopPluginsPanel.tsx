@@ -128,7 +128,7 @@ export function ShopPluginsPanel() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4 break-words [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:min-h-10 [&_[data-slot=button]]:max-w-full [&_[data-slot=button]]:whitespace-normal md:[&_[data-slot=button]]:min-h-8">
       <p className="text-sm text-muted-foreground">
         Shop plugins run in their own containers without a web UI or published port. They connect to this app over a
         WebSocket on the same address and port. Each installation has its own token; retailer sign-in data stays inside the plugin.
@@ -142,7 +142,7 @@ export function ShopPluginsPanel() {
           value={name}
           maxLength={80}
           onChange={event => setName(event.target.value)}
-          className="w-64"
+          className="w-full sm:w-64"
         />
         <Button size="sm" onClick={create} disabled={!name.trim() || busy === 'create'}>
           {busy === 'create' ? <Loader2 className="size-4 animate-spin" /> : <Plug className="size-4" />}
@@ -156,8 +156,8 @@ export function ShopPluginsPanel() {
       {issued ? (
         <div className="space-y-2 rounded-lg border border-[var(--badge-warning-text)]/40 p-3" role="status">
           <p className="text-sm font-semibold">Token for {issued.name}: copy it now, it is shown only once.</p>
-          <div className="flex items-center gap-2">
-            <code className="block flex-1 break-all rounded bg-bg-3/60 p-2 text-xs" data-testid="plugin-token">{issued.token}</code>
+          <div className="flex min-w-0 flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+            <code className="block min-w-0 flex-1 break-all rounded bg-bg-3/60 p-2 text-xs" data-testid="plugin-token">{issued.token}</code>
             <Button size="sm" variant="outline" onClick={() => copy(issued.token)}><Copy className="size-4" /> Copy</Button>
           </div>
           <p className="text-xs text-muted-foreground">Docker Compose example (adjust the image and service names):</p>
