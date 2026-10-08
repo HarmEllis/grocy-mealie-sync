@@ -134,237 +134,228 @@ try {
   await page.unroute('**/api/plugins/installations/*/auth');
   await page.setViewportSize({ width: 1280, height: 1000 });
 
-  // Automatically discovered ingredients and proposals are visible without a manual catalogue search.
+  // Product-first mapping: one canonical row, one column per provider, editable
+  // alternatives and explicitly confirmed quantities. Fixtures never contact shops.
   const realOverview = await (await fetch(`${baseUrl}/api/shop/overview`)).json();
-  await page.route('**/api/shop/overview', route => route.fulfill({ json: { ...realOverview,
-    installations: realOverview.installations.map(item => ({ ...item, providerId: 'synthetic-shop' })),
+  const original = realOverview.installations[0];
+  const installations = [
+    { ...original, providerId: 'ah', providerLabel: 'Albert Heijn', connected: true, listReplacementBlocks: [{ retailerProductId: '123', blockingRetailerProductId: 'previous', blockingProductName: 'Previous cherry tomatoes', blockingKind: 'note', blockingReason: null }], features: ['list.notes'], manualNoteProductIds: [], settings: { ...original.settings, boundAccountKey: 'synthetic-account' } },
+    { ...original, id: 'ah-second', providerId: 'ah', providerLabel: 'Albert Heijn', connected: false },
+    { ...original, id: 'picnic', name: 'Picnic', providerId: 'picnic', providerLabel: 'Picnic', connected: false },
+  ];
+  const targets = [
+    { kind: 'grocy_product', id: '79', name: 'Cherry tomaten', source: 'grocy_mealie', linkedFoods: [{ id: 'food1', name: 'Tomaten' }], baseUnitId: '11', baseUnitName: 'Doos' },
+    { kind: 'grocy_product', id: '80', name: 'Aubergine', source: 'grocy', linkedFoods: [], baseUnitId: '11', baseUnitName: 'Doos' },
+    { kind: 'mealie_food', id: 'food2', name: 'Kipfilet', source: 'mealie', linkedFoods: [], baseUnitId: null, baseUnitName: null },
+    ...Array.from({ length: 60 }, (_, index) => ({ kind: 'grocy_product', id: `extra-${index}`, name: `Product ${String(index).padStart(2, '0')}`, source: 'grocy', linkedFoods: [], baseUnitId: '11', baseUnitName: 'Doos' })),
+  ];
+  const products = [
+    { providerId: 'ah', externalId: '123', name: 'AH Cherry tomatoes with a deliberately long product name', packageAmount: 250, packageUnit: 'g', measure: 'unit', availability: 'available' },
+    { providerId: 'ah', externalId: '456', name: 'AH Alternative cherry tomatoes', packageAmount: 500, packageUnit: 'g', measure: 'unit', availability: 'temporarily_unavailable' },
+    { providerId: 'ah', externalId: 'old', name: 'Discontinued tomatoes', packageAmount: 250, packageUnit: 'g', measure: 'unit', availability: 'discontinued' },
+  ];
+  const mappings = [{ id: 'mapping1', providerId: 'ah', retailerProductId: '123', retailerProductName: products[0].name, targetKind: 'grocy_product', targetId: '79', targetName: 'Cherry tomaten', role: 'preferred', packageBaseUnitId: '11', packageBaseUnitName: 'Doos', packageBaseAmount: null, confirmed: false }];
+  let catalogCalls = 0;
+  let savedBody;
+  let suggestions = [{ id: 'suggestion1', providerId: 'ah', retailerProductId: '456', targetKind: 'grocy_product', targetId: '79', targetName: 'Cherry tomaten', score: 0.9 }];
+  const searches = [{ id: 'search1', targetName: 'Cherry tomaten', status: 'complete', resultCount: 2, lastError: null }];
+  await page.route('**/api/shop/overview', route => route.fulfill({ json: { ...realOverview, installations,
+    exports: [{ id: 'e1', installationId: original.id, productName: products[0].name, packages: 2, createdAt: new Date().toISOString() }],
+    receipts: [{ id: 'r1', providerId: 'ah', referenceOnly: true, purchasedAt: new Date().toISOString(), storeLabel: 'Demo', status: 'reference_only', totalCents: 199, lines: [{ id: 'line1', description: products[0].name, retailerProductId: '123', quantity: 2, unit: 'unit', amountCents: 199, status: 'reference_only', links: [] }] }],
+    review: [],
   } }));
-  await page.route('**/api/shop/mappings?*', route => route.fulfill({ json: {
-    searches: [{ id: 'synthetic-search', targetName: 'Cherry tomaten', status: 'complete', resultCount: 1, lastError: null }],
-    products: [{ providerId: 'synthetic-shop', externalId: '123', name: 'Synthetic cherry tomatoes', packageAmount: 250, packageUnit: 'g', measure: 'unit' }],
-    suggestions: [{ id: 'synthetic-suggestion', retailerProductId: '123', targetKind: 'grocy_product', targetId: '1', targetName: 'Cherry tomaten', score: 0.9 }],
-    mappings: [],
-  } }));
-  await page.goto(`${baseUrl}/shopping`, { waitUntil: 'networkidle', timeout: 180_000 });
-  await page.getByRole('tab', { name: 'Products', exact: true }).click();
-  await page.getByText('Shopping ingredients to map', { exact: true }).waitFor();
-  await page.getByText('Found 1 products; review the suggestions or use Map below').waitFor();
-  await page.getByRole('button', { name: 'Accept', exact: true }).waitFor();
-  for (const width of [390, 1280]) {
-    await page.setViewportSize({ width, height: 900 });
-    for (const name of ['Search again', 'Reject']) {
-      const button = page.getByRole('button', { name, exact: true });
-      const gap = await button.evaluate(node => node.closest('li').getBoundingClientRect().right - node.getBoundingClientRect().right);
-      // 12px row padding + 1px border + 4px rounding tolerance.
-      assert.ok(gap <= 17, `${width}px: ${name} is right aligned (${gap}px)`);
+  await page.route('**/api/shop/products?*', route => {
+    const params = new URL(route.request().url()).searchParams;
+    const query = params.get('query')?.toLowerCase() ?? '';
+    const source = params.get('source');
+    const mapped = params.get('mapped');
+    const offset = Number(params.get('offset') ?? 0);
+    const limit = Number(params.get('limit') ?? 50);
+    const filtered = targets.filter(target => (!source || source === 'all' || target.source === source)
+      && (mapped === 'all' || !mapped || (target.id === '79') === (mapped === 'mapped'))
+      && `${target.name} ${target.linkedFoods.map(food => food.name).join(' ')}`.toLowerCase().includes(query));
+    return route.fulfill({ json: { targets: filtered.slice(offset, offset + limit), total: filtered.length, offset,
+      counts: { all: 63, grocy_mealie: 1, grocy: 61, mealie: 1, mapped: 1, unmapped: 62 }, mealieUnits: [{ id: 'g', name: 'gram' }],
+    } });
+  });
+  await page.route('**/api/shop/mappings', route => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: { mappings, products, suggestions, searches } });
+    savedBody = route.request().postDataJSON();
+    const index = mappings.findIndex(mapping => mapping.retailerProductId === savedBody.retailerProductId);
+    const row = { id: index < 0 ? `mapping${mappings.length + 1}` : mappings[index].id, ...savedBody, retailerProductName: products.find(product => product.externalId === savedBody.retailerProductId)?.name ?? savedBody.retailerProductId,
+      packageBaseUnitId: savedBody.baseUnitId, packageBaseUnitName: savedBody.baseUnitName, confirmed: savedBody.confirm };
+    if (index < 0) mappings.push(row); else mappings[index] = row;
+    return route.fulfill({ json: { mapping: row } });
+  });
+  await page.route('**/api/shop/mappings/*', route => {
+    const id = route.request().url().split('/').at(-1);
+    const mapping = mappings.find(mapping => mapping.id === id);
+    if (route.request().method() === 'DELETE') mappings.splice(mappings.indexOf(mapping), 1);
+    if (route.request().method() === 'PATCH') {
+      const body = route.request().postDataJSON();
+      if (body.role === 'preferred') for (const item of mappings) item.role = item.id === id ? 'preferred' : 'alternative';
     }
-  }
-  assert.equal(await page.getByRole('button', { name: 'Confirm', exact: true }).count(), 0, 'catalogue proposals are not confirmed mappings');
+    return route.fulfill({ json: { mapping } });
+  });
+  await page.route('**/api/shop/mappings?*', route => route.fulfill({ json: { mappings, products, suggestions, searches } }));
+  await page.route('**/api/shop/mappings/preview', route => route.fulfill({ json: { baseUnitId: '11', baseUnitName: 'Doos', derivation: { amount: 2, explanation: '1 package = 2 Doos' }, linkedFoods: [], conversions: [], demandConversions: [], requiresConfirmation: true, measure: 'unit' } }));
+  await page.route('**/api/plugins/installations/*/catalog?*', route => {
+    catalogCalls++;
+    return route.fulfill({ json: { products: products.map(product => ({ ...product, id: product.externalId })) } });
+  });
+  await page.route('**/api/shop/lists/fallback', route => {
+    const body = route.request().postDataJSON();
+    const installation = installations.find(item => item.id === body.installationId);
+    installation.manualNoteProductIds = body.mode === 'note' ? [...(installation.manualNoteProductIds ?? []), body.retailerProductId] : (installation.manualNoteProductIds ?? []).filter(id => id !== body.retailerProductId);
+    return route.fulfill({ json: { ok: true } });
+  });
+  await page.route('**/api/shop/targets?*', route => route.fulfill({ json: { targets: targets.slice(0, 3), mealieUnits: [{ id: 'g', name: 'gram' }] } }));
+  await page.route('**/api/shop/suggestions/*', route => route.fulfill({ json: { ok: true } }));
+  await page.route('**/api/shop/searches/*/retry', route => route.fulfill({ json: { ok: true } }));
+
   async function chooseOption(label, option) {
     await page.getByRole('combobox', { name: label, exact: true }).click();
     await page.getByRole('option', { name: option, exact: true }).click();
   }
-  // Populated mobile layouts must stay within the viewport, including mapping controls.
-  const mobileProduct = { providerId: 'synthetic-shop', externalId: '123', name: 'Synthetic cherry tomatoes with a deliberately long product name', packageAmount: 250, packageUnit: 'g', measure: 'unit' };
-  let previewSuggestion = null;
-  await page.route('**/api/shop/mappings/preview', route => route.fulfill({ json: { baseUnitId: '11', baseUnitName: 'Doos', derivation: previewSuggestion, linkedFoods: [], conversions: [], demandConversions: [], requiresConfirmation: true, measure: 'unit' } }));
-  let mobileRole = 'alternative';
-  let mealieMode = false;
-  let unitResponseGate = null;
-  let confirmedAmount = null;
-  let extraProducts = [];
-  let extraSuggestions = [];
-  await page.unroute('**/api/shop/mappings?*');
-  await page.route('**/api/shop/mappings?*', route => route.fulfill({ json: {
-    products: [mobileProduct, { ...mobileProduct, externalId: '456', name: 'Aubergine' }, ...extraProducts], suggestions: extraSuggestions, searches: [],
-    mappings: [{ id: 'mobile-mapping', providerId: 'synthetic-shop', retailerProductId: '123', retailerProductName: mobileProduct.name,
-      targetKind: mealieMode ? 'mealie_food' : 'grocy_product', targetId: '79', packageBaseUnitId: '11', targetName: 'Cherry tomaten', role: mobileRole, packageBaseAmount: confirmedAmount,
-      packageBaseUnitName: 'Doos', confirmed: confirmedAmount !== null }],
-  } }));
-  await page.route('**/api/shop/mappings/mobile-mapping', route => {
-    const body = route.request().postDataJSON();
-    if (body.role) mobileRole = body.role;
-    if (body.packageBaseAmount) confirmedAmount = body.packageBaseAmount;
-    return route.fulfill({ json: { ok: true } });
-  });
-  await page.route('**/api/shop/targets?*', async route => {
-    if (unitResponseGate) await unitResponseGate;
-    await route.fulfill({ json: {
-      targets: [{ kind: mealieMode ? 'mealie_food' : 'grocy_product', id: '79', name: 'Cherry tomaten', baseUnitId: '11', baseUnitName: 'Doos' }], mealieUnits: [],
-    } });
-  });
-  await page.unroute('**/api/shop/overview');
-  await page.route('**/api/shop/overview', route => route.fulfill({ json: { ...realOverview,
-    installations: realOverview.installations.map(item => ({ ...item, providerId: 'synthetic-shop' })),
-    exports: [{ id: 'mobile-export', installationId: realOverview.installations[0].id, productName: mobileProduct.name, packages: 2, createdAt: new Date().toISOString() }],
-    receipts: [{ id: 'mobile-receipt', providerId: 'synthetic-shop', referenceOnly: true, purchasedAt: new Date().toISOString(), storeLabel: 'Demo shop', status: 'reference_only', totalCents: 199,
-      lines: [{ id: 'mobile-line', description: mobileProduct.name, retailerProductId: '123', quantity: 2, unit: 'unit', amountCents: 199, status: 'reference_only', reviewReason: 'mapping_unconfirmed', links: [] }] }],
-    review: [{ id: 'mobile-review', description: mobileProduct.name, quantity: 2, unit: 'unit', amountCents: 199, reviewReason: 'mapping_missing' }],
-  } }));
   async function assertNoPageOverflow(label) {
     const dimensions = await page.evaluate(() => ({ width: window.innerWidth, scroll: document.documentElement.scrollWidth }));
     assert.ok(dimensions.scroll <= dimensions.width + 1, `${label}: page overflow ${JSON.stringify(dimensions)}`);
   }
   for (const width of [360, 390, 768, 1280]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto(`${baseUrl}/shopping`, { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/shopping`, { waitUntil: 'networkidle', timeout: 180_000 });
     for (const tab of ['Overview', 'Products', 'Receipts', 'Review']) {
       await page.getByRole('tab', { name: new RegExp(`^${tab}`) }).click();
       await assertNoPageOverflow(`${width}px ${tab}`);
       if (tab === 'Receipts') {
-        await page.getByText(/Status: Reference only/).waitFor();
         await page.getByRole('button', { name: 'Map product', exact: true }).click();
         await page.getByRole('dialog').waitFor();
-    if (width === 1280 && previewSuggestion) {
-      await page.getByRole('button', { name: 'Use suggested amount' }).waitFor();
-      assert.equal(await page.getByRole('dialog').getByLabel('Amount per package').inputValue(), '', 'catalogue proposals are not silently confirmed');
-      await page.getByRole('button', { name: 'Use suggested amount' }).click();
-      assert.equal(await page.getByRole('dialog').getByLabel('Amount per package').inputValue(), '2');
-    }
+        await page.getByLabel('Target', { exact: true }).click();
+        assert.equal(await page.getByLabel('Target', { exact: true }).inputValue(), '', 'receipt target search starts empty on opening');
+        await page.keyboard.press('Escape');
+        await assertNoPageOverflow(`${width}px receipt mapping`);
         await page.getByRole('button', { name: 'Cancel', exact: true }).click();
       }
-      if (width === 390) await page.screenshot({ path: `/tmp/gms-shop-${tab.toLowerCase()}-mobile.png`, fullPage: true });
     }
     await page.getByRole('tab', { name: 'Products', exact: true }).click();
-    const rows = page.getByTestId('retailer-product');
-    await rows.first().waitFor();
-    assert.ok((await rows.first().textContent()).includes('Aubergine'), 'products are sorted alphabetically');
-    await chooseOption('Product mapping filter', 'Available to map (1)');
-    assert.equal(await rows.count(), 1);
-    assert.ok((await rows.first().textContent()).includes('Aubergine'));
-    await chooseOption('Product mapping filter', 'Mapped (1)');
-    assert.equal(await rows.count(), 1);
-    await page.getByLabel('Filter retailer products').fill('no-such-product');
-    await page.getByText('No products match these filters.').waitFor();
-    assert.equal(await rows.count(), 0);
-    await page.getByLabel('Filter retailer products').fill('Cherry tomaten');
-    const row = rows.first();
-    await row.waitFor();
+    await page.getByTestId('shop-own-product').first().waitFor();
+    assert.ok((await page.getByTestId('shop-own-product').first().textContent()).includes('Cherry tomaten'), 'linked rows sort first');
+    const beforeOpen = catalogCalls;
+    await page.getByLabel('Search own products').fill('Cherry');
+    await page.getByText('Showing 1-1 of 1 own products').waitFor();
+    assert.equal(catalogCalls, beforeOpen, 'closed mapping rows never fetch retailer catalogues');
+    const row = page.getByTestId('shop-own-product').first();
+    await row.getByText('Waiting for Previous cherry tomatoes to leave the list', { exact: false }).waitFor();
+    assert.equal(await row.getByRole('combobox').count(), 2, 'multiple AH installations share one provider column');
     assert.equal(await row.evaluate(node => getComputedStyle(node).display), width < 768 ? 'block' : 'table-row');
-    if (width === 390 || width === 1280) await page.screenshot({ path: `/tmp/gms-shop-products-${width}.png`, fullPage: true });
-    previewSuggestion = width === 1280 ? { amount: 2, explanation: '1 package = 2 Doos' } : null;
-    await row.getByRole('button', { name: 'Change', exact: true }).click();
+    await row.getByRole('button', { name: 'Edit', exact: true }).click();
     await page.getByRole('dialog').waitFor();
-    if (width === 1280 && previewSuggestion) {
-      await page.getByRole('button', { name: 'Use suggested amount' }).waitFor();
-      assert.equal(await page.getByRole('dialog').getByLabel('Amount per package').inputValue(), '', 'catalogue proposals are not silently confirmed');
-      await page.getByRole('button', { name: 'Use suggested amount' }).click();
-      assert.equal(await page.getByRole('dialog').getByLabel('Amount per package').inputValue(), '2');
-    }
-    assert.equal(await page.getByLabel('Role', { exact: true }).textContent(), 'Remembered alternative', 'editing preserves the current role');
-    assert.equal(await page.getByLabel('Target', { exact: true }).inputValue(), '(G) Cherry tomaten · Doos', 'editing preserves the current target');
-    await chooseOption('Target', '(G) Cherry tomaten · Doos');
-    const targetRequest = page.waitForRequest(request => request.url().includes('/api/shop/targets?query=kipfilet'));
-    await page.getByLabel('Target', { exact: true }).click();
-    await page.getByLabel('Target', { exact: true }).fill('kipfilet');
-    await targetRequest;
-    await page.getByRole('option', { name: '(G) Cherry tomaten · Doos', exact: true }).waitFor();
-    await page.keyboard.press('Escape');
-
-    await assertNoPageOverflow(`${width}px mapping editor`);
-    if (width === 390) await page.screenshot({ path: '/tmp/gms-shop-mobile.png', fullPage: true });
-    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.getByRole('button', { name: 'Unit & amount', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Use suggested amount', exact: true }).waitFor();
+    assert.equal(await page.getByRole('dialog').getByLabel('Amount per package').inputValue(), mappings[0].packageBaseAmount?.toString() ?? '', 'opening preserves confirmation state');
+    await page.getByRole('button', { name: 'Use suggested amount', exact: true }).click();
+    await page.getByRole('button', { name: 'Confirm mapping', exact: true }).click();
+    await page.getByRole('button', { name: 'Confirm mapping', exact: true }).waitFor({ state: 'hidden' });
+    assert.equal(savedBody.packageBaseAmount, 2);
+    assert.equal(savedBody.baseUnitId, '11');
+    assert.equal(savedBody.confirm, true);
+    await assertNoPageOverflow(`${width}px own-product editor`);
+    if (width === 390) await page.screenshot({ path: '/tmp/gms-shop-own-products-mobile.png', fullPage: true });
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await chooseOption('Product source', '(M) Mealie only (1)');
+    await page.getByText('No products match these filters.').waitFor();
+    await page.getByLabel('Search own products').fill('');
+    await page.getByText('Showing 1-1 of 1 own products').waitFor();
+    assert.ok((await page.getByTestId('shop-own-product').first().textContent()).includes('Kipfilet'));
+    await chooseOption('Product source', 'All (63)');
   }
-  previewSuggestion = null;
-  // Retain the saved Mealie unit label while units load, then reject deleted units.
-  mealieMode = true;
-  let releaseUnits;
-  unitResponseGate = new Promise(resolve => { releaseUnits = resolve; });
-  let savedMappings = 0;
-  await page.route('**/api/shop/mappings', route => {
-    savedMappings++;
-    return route.fulfill({ json: { ok: true } });
-  });
-  await page.reload({ waitUntil: 'networkidle' });
-  await page.getByRole('tab', { name: 'Products', exact: true }).click();
-  await page.getByTestId('retailer-product').filter({ hasText: 'Cherry tomaten' }).getByRole('button', { name: 'Change', exact: true }).click();
-  assert.equal(await page.getByLabel('Mealie unit', { exact: true }).inputValue(), 'Doos', 'saved unit remains visible while units are loading');
-  const unitResponse = page.waitForResponse(response => response.url().includes('/api/shop/targets?'));
-  releaseUnits();
-  unitResponseGate = null;
-  await unitResponse;
-  await page.getByRole('button', { name: 'Save mapping', exact: true }).click();
-  await page.getByText('This Mealie unit is no longer available; choose another unit', { exact: true }).waitFor();
-  assert.equal(savedMappings, 0, 'deleted unit cannot be submitted');
-  await chooseOption('Mealie unit', 'Count (no unit)');
-  await page.getByRole('button', { name: 'Save mapping', exact: true }).click();
-  await page.getByRole('dialog').waitFor({ state: 'hidden' });
-  assert.equal(savedMappings, 1, 'explicit no-unit choice can be saved');
-  await page.unroute('**/api/shop/mappings');
-  mealieMode = false;
-  // Reuse the Mapping pager and reset it when filters narrow the result set.
-  extraProducts = Array.from({ length: 60 }, (_, index) => ({ ...mobileProduct, externalId: `extra-${index}`, name: `Available product ${String(index).padStart(2, '0')}` }));
-  await page.getByRole('tab', { name: 'Overview', exact: true }).click();
-  await page.getByRole('tab', { name: 'Products', exact: true }).click();
-  await page.getByLabel('Filter retailer products').fill('');
-  await chooseOption('Product mapping filter', 'All products (62)');
-  await chooseOption('retailer products per page', '25');
-  await page.getByText('Showing 1-25 of 62 retailer products').waitFor();
-  assert.equal(await page.getByTestId('retailer-product').count(), 25);
-  await chooseOption('retailer products per page', '50');
-  await page.getByText('Showing 1-50 of 62 retailer products').waitFor();
-  assert.equal(await page.getByTestId('retailer-product').count(), 50);
-  await page.getByRole('button', { name: 'Next page of retailer products' }).click();
-  await page.getByText('Showing 51-62 of 62 retailer products').waitFor();
-  assert.equal(await page.getByTestId('retailer-product').count(), 12);
-  await page.getByLabel('Filter retailer products').fill('Cherry tomaten');
-  await page.getByText('Showing 1-1 of 1 retailer products').waitFor();
-  await page.setViewportSize({ width: 360, height: 900 });
-  await page.getByTestId('retailer-product').getByLabel('Amount per package').fill('1');
-  await page.getByTestId('retailer-product').getByRole('button', { name: 'Confirm', exact: true }).click();
-  await page.getByText('confirmed', { exact: true }).waitFor();
-  assert.equal(confirmedAmount, 1);
-  await page.getByRole('button', { name: 'Use for list', exact: true }).click();
-  await page.getByText('Preferred for list sync', { exact: true }).waitFor();
-  assert.equal(mobileRole, 'preferred', 'changing role keeps the confirmed package amount');
-  assert.equal(confirmedAmount, 1);
-  await page.setViewportSize({ width: 1280, height: 1000 });
-  extraSuggestions = Array.from({ length: 7 }, (_, index) => ({ id: `proposal-${index}`, retailerProductId: '456', targetKind: 'grocy_product', targetId: String(index), targetName: `Suggested ingredient ${index}`, score: 0.9 }));
-  await page.reload({ waitUntil: 'networkidle' });
-  await page.getByRole('tab', { name: 'Products', exact: true }).click();
-  await page.getByRole('button', { name: 'Show 2 more suggestions' }).waitFor();
-  assert.equal(await page.getByRole('button', { name: 'Accept', exact: true }).count(), 5);
-  await page.getByRole('button', { name: 'Show 2 more suggestions' }).click();
-  assert.equal(await page.getByRole('button', { name: 'Accept', exact: true }).count(), 7);
-  await page.getByRole('button', { name: 'Show fewer suggestions' }).click();
-  assert.equal(await page.getByRole('button', { name: 'Accept', exact: true }).count(), 5);
-  // Popups use theme colors rather than the browser's native select palette.
-  assert.equal(await page.locator('select').count(), 0, 'Shop choices do not use native select popups');
-  assert.equal(await page.getByRole('combobox', { name: 'Product mapping filter' }).evaluate(node => node.tagName), 'BUTTON', 'short choice lists do not focus a text input');
-  let lightPopupColor;
+  // Add a replacement as a remembered alternative, never another preferred list line.
+  await page.getByLabel('Search own products').fill('Cherry');
+  await page.getByText('Showing 1-1 of 1 own products').waitFor();
+  await page.getByTestId('shop-own-product').filter({ hasText: 'Cherry tomaten' }).getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('button', { name: 'Add alternative', exact: true }).first().click();
+  const dialog = page.getByRole('dialog');
+  const picker = dialog.getByRole('combobox', { name: 'Albert Heijn product for Cherry tomaten', exact: true }).last();
+  await picker.click();
+  await page.getByRole('option', { name: 'AH Alternative cherry tomatoes · 500 g · temporarily out of stock', exact: true }).waitFor();
+  assert.equal(await page.getByRole('option', { name: /Discontinued tomatoes/ }).count(), 0, 'discontinued products are never selectable');
+  await picker.fill('Alternative');
+  await page.getByRole('option', { name: 'AH Alternative cherry tomatoes · 500 g · temporarily out of stock', exact: true }).click();
+  await dialog.getByLabel('Amount per package').fill('1');
+  await dialog.getByRole('button', { name: 'Confirm mapping', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Confirm mapping', exact: true }).waitFor({ state: 'hidden' });
+  assert.equal(savedBody.role, 'alternative');
+  assert.equal(mappings[0].role, 'preferred');
+  await dialog.getByRole('button', { name: 'Use as preferred', exact: true }).click();
+  assert.equal(mappings.find(mapping => mapping.retailerProductId === '456').role, 'preferred');
+  assert.equal(mappings.find(mapping => mapping.retailerProductId === '456').packageBaseAmount, 1);
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByLabel('Search own products').fill('');
+  await chooseOption('own products per page', '25');
+  await page.getByText('Showing 1-25 of 63 own products').waitFor();
+  assert.equal(await page.getByTestId('shop-own-product').count(), 25);
+  await page.getByRole('button', { name: 'Next page of own products' }).click();
+  await page.getByText('Showing 26-50 of 63 own products').waitFor();
+  await page.getByLabel('Search own products').fill('Cherry');
+  await page.getByText('Showing 1-1 of 1 own products').waitFor();
+  await chooseOption('Mapping status', 'Not yet mapped');
+  await page.getByText('No products match these filters.').waitFor();
+  await chooseOption('Mapping status', 'Mapped');
+  await page.getByText('Showing 1-1 of 1 own products').waitFor();
+  for (const name of ['Search again', 'Reject']) {
+    const button = page.getByRole('button', { name, exact: true });
+    const gap = await button.evaluate(node => node.parentElement.getBoundingClientRect().right - node.getBoundingClientRect().right);
+    assert.ok(gap <= 17, `${name} stays right aligned`);
+  }
+  assert.equal(await page.locator('select').count(), 0, 'Shop controls use themed popups');
+  let lightColor;
   for (const theme of ['light', 'dark']) {
     await page.evaluate(theme => {
-      document.documentElement.classList.remove('light', 'dark');
-      document.documentElement.classList.add(theme);
+      document.documentElement.classList.remove('light', 'dark'); document.documentElement.classList.add(theme);
       document.documentElement.setAttribute('data-theme', theme);
     }, theme);
-    await page.getByRole('combobox', { name: 'Product mapping filter' }).click();
-    const popupColor = await page.getByRole('listbox').evaluate(node => getComputedStyle(node.parentElement).backgroundColor);
-    assert.notEqual(popupColor, 'rgba(0, 0, 0, 0)', `${theme}: popup has a themed background`);
-    if (theme === 'light') lightPopupColor = popupColor;
-    else assert.notEqual(popupColor, lightPopupColor, 'popup background changes with dark mode');
-    await page.screenshot({ path: `/tmp/gms-shop-combobox-${theme}.png`, fullPage: true });
+    await page.getByRole('combobox', { name: 'Mapping status' }).click();
+    const color = await page.getByRole('listbox').evaluate(node => getComputedStyle(node.parentElement).backgroundColor);
+    assert.notEqual(color, 'rgba(0, 0, 0, 0)');
+    if (theme === 'light') lightColor = color; else assert.notEqual(color, lightColor);
     await page.keyboard.press('Escape');
   }
-  await page.screenshot({ path: '/tmp/gms-shop-suggestions-desktop.png', fullPage: true });
-  await page.unroute('**/api/shop/mappings/mobile-mapping');
-  await page.unroute('**/api/shop/targets?*');
-  await page.unroute('**/api/shop/overview');
-  await page.unroute('**/api/shop/mappings?*');
+  await page.screenshot({ path: '/tmp/gms-shop-own-products-desktop.png', fullPage: true });
+  // Offline choices retain known products and clearly explain the absent live search.
+  const offlinePicker = page.getByTestId('shop-own-product').getByRole('combobox', { name: 'Picnic product for Cherry tomaten' });
+  await offlinePicker.click();
+  await page.getByText('Plugin offline · known products only').waitFor();
+  await page.keyboard.press('Escape');
 
-  // Shopping page: every tab hydrates and renders.
-  await page.goto(`${baseUrl}/shopping`, { waitUntil: 'networkidle', timeout: 180_000 });
-  await page.getByRole('heading', { name: 'Shopping' }).first().waitFor();
-  await page.getByText('Demo shop').first().waitFor();
-  for (const [tab, marker] of [
-    ['Products', 'Connect a plugin first'],
-    ['Receipts', 'No receipts stored yet.'],
-    ['Review', 'Nothing to review.'],
-    ['Overview', 'Nothing exported.'],
-  ]) {
-    await page.getByRole('tab', { name: new RegExp(`^${tab}`) }).click();
-    await page.getByText(marker).first().waitFor({ timeout: 30_000 });
-  }
+  // A legacy direct-Mealie mapping remains visible in its linked canonical row.
+  // Moving it to Grocy requires a new amount, rather than reusing a Mealie amount.
+  const legacy = mappings.find(mapping => mapping.role === 'preferred');
+  legacy.targetKind = 'mealie_food'; legacy.targetId = 'food1';
+  legacy.packageBaseUnitId = 'g'; legacy.packageBaseUnitName = 'gram'; legacy.packageBaseAmount = 500;
+  await page.getByRole('button', { name: 'Refresh', exact: true }).last().click();
+  await page.getByText('Unit changed; reconfirm', { exact: true }).waitFor();
+  await page.getByTestId('shop-own-product').getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('button', { name: 'Unit & amount', exact: true }).first().click();
+  await page.getByText('This was mapped directly to the linked Mealie ingredient.', { exact: false }).waitFor();
+  assert.equal(await page.getByLabel('Amount per package').inputValue(), '', 'legacy unit amounts are not silently reused');
+  await page.getByLabel('Amount per package').fill('1.5');
+  await page.getByRole('button', { name: 'Confirm mapping', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm mapping', exact: true }).waitFor({ state: 'hidden' });
+  assert.equal(savedBody.targetKind, 'grocy_product');
+  assert.equal(savedBody.targetId, '79');
+  assert.equal(savedBody.baseUnitId, '11');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+
+  // The explicit escape only changes this account's representation, not mapping units.
+  await page.getByTestId('shop-own-product').getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('button', { name: 'Use text item', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Use preferred product', exact: true }).waitFor();
+  assert.deepEqual(installations[0].manualNoteProductIds, [savedBody.retailerProductId]);
+  assert.equal(mappings.find(mapping => mapping.role === 'preferred').packageBaseAmount, 1.5);
+  await page.getByRole('button', { name: 'Use preferred product', exact: true }).click();
+  await page.getByRole('button', { name: 'Use text item', exact: true }).first().waitFor();
+  assert.deepEqual(installations[0].manualNoteProductIds, []);
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
 
   // Revoke from Settings.
   await page.goto(`${baseUrl}/settings`, { waitUntil: 'networkidle', timeout: 180_000 });
@@ -373,9 +364,10 @@ try {
   await page.getByText('No shop plugins yet.').waitFor({ timeout: 30_000 });
 
   assert.deepEqual(pageErrors, [], 'no client-side errors');
-  console.log('Shop UI: plugin setup, mobile dialogs, responsive tabs, filters, sorting, pagination, suggestions and mapping actions passed.');
+  console.log('Shop UI: plugin setup, canonical product mappings, mobile dialogs, alternatives, units, provider columns, offline search, dark mode and pagination passed.');
 } catch (error) {
   console.error(error);
+  if (browser) { const pages = browser.contexts().flatMap(context => context.pages()); for (const page of pages) console.error((await page.locator('body').innerText()).slice(0, 4000)); }
   console.error('----- server output (last 6000 characters) -----');
   console.error(serverLog.slice(-6000));
   process.exitCode = 1;

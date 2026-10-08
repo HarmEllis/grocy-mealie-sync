@@ -6,6 +6,7 @@ import { z } from 'zod';
 import {
   CLOSE_CODES,
   DEFAULT_REQUEST_TIMEOUT_MS,
+  FEATURES,
   HEARTBEAT_INTERVAL_MS,
   HELLO_TIMEOUT_MS,
   MAX_FRAME_BYTES,
@@ -41,6 +42,11 @@ export class PluginCallError extends Error {
     this.outcome = outcome;
     this.retryable = retryable;
   }
+}
+
+/** Whether a plugin advertised an optional feature in its hello. */
+export function helloHasFeature(hello: Pick<HelloParams, 'features'> | null | undefined, feature: string): boolean {
+  return Boolean(hello?.features?.includes(feature));
 }
 
 export interface AuthenticatedInstallation {
@@ -126,6 +132,10 @@ class PluginSession {
       throw new PluginCallError('NOT_SUPPORTED', `Plugin does not offer the "${capability}" capability`, 'not_applied', false);
     }
     const validated = definition.params.parse(params);
+    if (method === 'list.apply' && !helloHasFeature(this.hello, FEATURES.listNotes)
+      && (validated as PluginMethodParams<'list.apply'>).ops.some(op => op.op === 'add_note' || op.op === 'remove_note')) {
+      throw new PluginCallError('NOT_SUPPORTED', 'Plugin does not support shopping list notes', 'not_applied', false);
+    }
     await this.acquireSlot();
     if (this.closed) {
       this.releaseSlot();

@@ -231,6 +231,14 @@ export const retailerProducts = sqliteTable('retailer_products', {
   packageAmount: real('package_amount'),
   packageUnit: text('package_unit'),
   measure: text('measure').notNull(),
+  /**
+   * available | temporarily_unavailable | discontinued | unknown. Only an
+   * explicit retailer statement changes it; a product missing from search
+   * results keeps its last known value.
+   */
+  availability: text('availability').notNull().default('unknown'),
+  /** When the retailer last reported a known availability; null while never checked. */
+  availabilityCheckedAt: integer('availability_checked_at', { mode: 'timestamp_ms' }),
   lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' }).notNull(),
 }, (table) => [
   uniqueIndex('idx_retailer_products_provider_external').on(table.providerId, table.externalId),
@@ -294,6 +302,8 @@ export const shopExports = sqliteTable('shop_exports', {
   fingerprint: text('fingerprint').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   supersededAt: integer('superseded_at', { mode: 'timestamp_ms' }),
+  /** First moment this demand was visible on the list as a free-text note instead of the product. */
+  noteExposedAt: integer('note_exposed_at', { mode: 'timestamp_ms' }),
 }, (table) => [
   index('idx_shop_exports_installation_product').on(table.installationId, table.retailerProductId),
 ]);
@@ -313,11 +323,19 @@ export const shopExportAllocations = sqliteTable('shop_export_allocations', {
   index('idx_shop_export_allocations_revision').on(table.demandRevisionId),
 ]);
 
-/** Ownership of a line on the retailer's shared list. Only lines with a record are ever touched. */
+/**
+ * Ownership of a line on the retailer's shared list. Only lines with a record
+ * are ever touched. `kind = note` records own the free-text note that stands in
+ * for a discontinued retailer product; `retailerProductId` then names that
+ * product, whose export the note represents.
+ */
 export const shopListLines = sqliteTable('shop_list_lines', {
   id: text('id').primaryKey(),
   installationId: text('installation_id').notNull(),
   retailerProductId: text('retailer_product_id').notNull(),
+  kind: text('kind').notNull().default('product'),
+  /** Exact text of an owned note. */
+  noteText: text('note_text'),
   lineId: text('line_id'),
   managedQty: integer('managed_qty').notNull(),
   baselineUserQty: integer('baseline_user_qty').notNull(),
@@ -328,7 +346,7 @@ export const shopListLines = sqliteTable('shop_list_lines', {
   releasedExportId: text('released_export_id'),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 }, (table) => [
-  uniqueIndex('idx_shop_list_lines_installation_product').on(table.installationId, table.retailerProductId),
+  uniqueIndex('idx_shop_list_lines_installation_product_kind').on(table.installationId, table.retailerProductId, table.kind),
 ]);
 
 // ---------------------------------------------------------------------------

@@ -74,6 +74,14 @@ export const RESERVED_CAPABILITIES = ['cart', 'order', 'slots', 'quote', 'promot
 export const capabilitySchema = z.enum([...CAPABILITIES, ...RESERVED_CAPABILITIES]);
 export type PluginCapability = z.infer<typeof capabilitySchema>;
 
+/**
+ * Optional additions to a capability, advertised in `hello.features`. Unknown
+ * names are ignored, so an older core still accepts a newer plugin.
+ * - `list.notes`: `list.apply` accepts `add_note` and `remove_note` operations.
+ */
+export const FEATURES = { listNotes: 'list.notes' } as const;
+export const featureNameSchema = z.string().min(1).max(64);
+
 export const authStateSchema = z.enum(['authenticated', 'unauthenticated', 'expired', 'unknown']);
 export type PluginAuthState = z.infer<typeof authStateSchema>;
 
@@ -163,6 +171,8 @@ export const helloParamsSchema = z.object({
   accountLabel: z.string().max(200).nullable(),
   protocolVersions: z.array(z.number().int().positive()).min(1).max(16),
   capabilities: z.array(capabilitySchema).max(32),
+  /** Optional capability additions such as `list.notes`; absent in older plugins. */
+  features: z.array(featureNameSchema).max(32).optional(),
   authState: authStateSchema,
 });
 export type HelloParams = z.infer<typeof helloParamsSchema>;
@@ -210,6 +220,16 @@ export const authLogoutParamsSchema = z.object({});
 // Catalog (core -> plugin)
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether the retailer still sells a product. Only report `discontinued` when
+ * the retailer says so explicitly: a product missing from search results is
+ * never discontinued. Omitted means `unknown`. Values this core does not know
+ * are read as omitted, so the list can grow without breaking older cores.
+ */
+export const PRODUCT_AVAILABILITY = ['available', 'temporarily_unavailable', 'discontinued', 'unknown'] as const;
+export const productAvailabilitySchema = z.enum(PRODUCT_AVAILABILITY);
+export type ProductAvailability = z.infer<typeof productAvailabilitySchema>;
+
 export const retailerProductSchema = z.object({
   id: identifier,
   name: shortText,
@@ -220,6 +240,7 @@ export const retailerProductSchema = z.object({
   packageUnit: z.string().max(32).optional(),
   /** `weight` products are sold by weight; receipt quantities are then weights. */
   measure: z.enum(['unit', 'weight']),
+  availability: productAvailabilitySchema.optional().catch(undefined),
 });
 export type RetailerProduct = z.infer<typeof retailerProductSchema>;
 
@@ -249,6 +270,10 @@ export type ShopList = z.infer<typeof shopListSchema>;
 export const listReadParamsSchema = z.object({});
 export const listReadResultSchema = shopListSchema;
 
+/** Free-text note on a shared list. Plugins encode amounts in the text; a note has no quantity of its own. */
+export const noteTextSchema = z.string().min(1).max(200)
+  .refine(value => value.trim().length > 0 && !/[\u0000-\u001f\u007f]/.test(value), 'Notes are single-line, non-empty text');
+
 export const listOpSchema = z.discriminatedUnion('op', [
   z.object({
     op: z.literal('add'),
@@ -267,6 +292,21 @@ export const listOpSchema = z.discriminatedUnion('op', [
     lineId: identifier,
     expectedQuantity: z.number().int().nonnegative(),
   }),
+  /**
+   * Requires the `list.notes` feature. Adds one free-text note. The result is
+   * `conflict` (reason `note_exists`) when a note with the same text, compared
+   * case-insensitively after trimming, already exists: it is never adopted.
+   */
+  z.object({
+    op: z.literal('add_note'),
+    text: noteTextSchema,
+  }),
+  /** Requires the `list.notes` feature. Only applies while the line is still a note with `expectedText`. */
+  z.object({
+    op: z.literal('remove_note'),
+    lineId: identifier,
+    expectedText: noteTextSchema,
+  }),
 ]);
 export type ListOp = z.infer<typeof listOpSchema>;
 
@@ -278,11 +318,24 @@ export const listApplyParamsSchema = z.object({
 });
 export type ListApplyParams = z.infer<typeof listApplyParamsSchema>;
 
+/**
+ * Machine-readable detail for a `failed` or `conflict` op result.
+ * - `product_discontinued`: the retailer definitively refuses the product
+ *   because it is no longer sold (only with `failed`).
+ * - `product_temporarily_unavailable`: the product cannot be listed right now.
+ * - `note_exists`: an `add_note` found a note with the same text.
+ * Unknown values are read as omitted.
+ */
+export const LIST_OP_REASONS = ['product_discontinued', 'product_temporarily_unavailable', 'note_exists'] as const;
+export const listOpReasonSchema = z.enum(LIST_OP_REASONS);
+export type ListOpReason = z.infer<typeof listOpReasonSchema>;
+
 export const listOpResultSchema = z.object({
   index: z.number().int().nonnegative(),
   status: z.enum(['applied', 'conflict', 'failed']),
   lineId: identifier.optional(),
   message: z.string().max(500).optional(),
+  reason: listOpReasonSchema.optional().catch(undefined),
 });
 export type ListOpResult = z.infer<typeof listOpResultSchema>;
 

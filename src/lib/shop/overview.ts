@@ -6,7 +6,8 @@ import { listInstallations, type PluginInstallation } from '../plugins/installat
 import { getPluginGateway } from '../plugins/runtime';
 import { listDiscrepancies } from './discrepancies';
 import { listEffects } from './ledger';
-import { getPendingListApply, listLineRecords } from './list-sync';
+import { getPendingListApply, listLineRecords, listReplacementBlocks, type ListReplacementBlock } from './list-sync';
+import { manualNoteProductIds } from './note-preferences';
 import { listActiveExports } from './projection';
 import { getReceiptCursor } from './receipts';
 import { listRetailerMappings, listRetailerProducts } from './retailer-catalog';
@@ -22,6 +23,7 @@ export interface InstallationView {
   pluginName: string | null;
   pluginVersion: string | null;
   capabilities: string[];
+  features?: string[];
   connected: boolean;
   connectedAt: string | null;
   lastSeenAt: string | null;
@@ -29,6 +31,9 @@ export interface InstallationView {
   settings: PluginInstallation['settings'];
   receiptCursor: { lastPullAt: string | null; lastError: string | null; resuming: boolean } | null;
   pendingListApply: boolean;
+  /** Preferred retailer products this account shows as a text note by choice. */
+  manualNoteProductIds?: string[];
+  listReplacementBlocks?: ListReplacementBlock[];
 }
 
 export function installationViews(): InstallationView[] {
@@ -48,6 +53,7 @@ export function installationViews(): InstallationView[] {
       pluginName: manifest?.pluginName ?? null,
       pluginVersion: manifest?.pluginVersion ?? null,
       capabilities: manifest?.capabilities ?? [],
+      features: manifest?.features ?? [],
       connected: Boolean(session),
       connectedAt: session?.connectedAt.toISOString() ?? null,
       lastSeenAt: installation.lastSeenAt?.toISOString() ?? null,
@@ -59,6 +65,8 @@ export function installationViews(): InstallationView[] {
         resuming: Boolean(cursor.pageCursor),
       } : null,
       pendingListApply: Boolean(getPendingListApply(installation.id)),
+      manualNoteProductIds: manualNoteProductIds(installation.id),
+      listReplacementBlocks: listReplacementBlocks(installation.id),
     };
   });
 }
@@ -84,6 +92,9 @@ export function shopOverview() {
   const lines = installations.flatMap(installation => listLineRecords(installation.id).map(row => ({
     installationId: installation.id,
     retailerProductId: row.retailerProductId,
+    /** `note`: free-text replacement for a discontinued product. */
+    kind: row.kind,
+    noteText: row.noteText,
     productName: nameOf(installation.id, row.retailerProductId),
     managedQty: row.managedQty,
     baselineUserQty: row.baselineUserQty,

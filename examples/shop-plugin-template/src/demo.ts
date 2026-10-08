@@ -4,16 +4,24 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { AdapterError } from '../lib/errors.ts';
 import {
-  helloParamsSchema, pluginMethods, receiptSchema, shopListSchema,
+  FEATURES, helloParamsSchema, pluginMethods, receiptSchema, shopListSchema,
   type HelloParams, type ListApplyParams, type ListOpResult, type PluginMethod, type Receipt, type RetailerProduct,
 } from '../lib/protocol/v1.ts';
 import type { ShopAdapter } from '../lib/client.ts';
 
 export const catalogue: RetailerProduct[] = [
-  { id: 'demo-milk', name: 'Demo milk', brand: 'Synthetic', packageAmount: 1, packageUnit: 'l', measure: 'unit' },
-  { id: 'demo-rice', name: 'Demo rice', brand: 'Synthetic', packageAmount: 500, packageUnit: 'g', measure: 'unit' },
+  { id: 'demo-milk', name: 'Demo milk', brand: 'Synthetic', packageAmount: 1, packageUnit: 'l', measure: 'unit', availability: 'available' },
+  { id: 'demo-rice', name: 'Demo rice', brand: 'Synthetic', packageAmount: 500, packageUnit: 'g', measure: 'unit', availability: 'temporarily_unavailable' },
   { id: 'demo-apples', name: 'Demo apples', brand: 'Synthetic', packageUnit: 'kg', measure: 'weight' },
+  // Retailers only report `discontinued` when they say so explicitly; it still answers catalog.get.
+  { id: 'demo-old-yoghurt', name: 'Demo old yoghurt', brand: 'Synthetic', packageAmount: 500, packageUnit: 'g', measure: 'unit', availability: 'discontinued' },
 ];
+
+/** Notes are identified by text; compare them like most retailers do. */
+export function sameNoteText(a: string, b: string): boolean {
+  const normalize = (text: string) => text.normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase();
+  return normalize(a) === normalize(b);
+}
 const stateSchema = z.object({
   authenticated: z.boolean(), accountKey: z.string().nullable(), boundAccountKey: z.string().nullable(),
   list: shopListSchema,
@@ -47,7 +55,7 @@ export class DemoAdapter implements ShopAdapter {
   getManifest(): HelloParams {
     return helloParamsSchema.parse({ pluginName: 'Demo shop', pluginVersion: '0.1.0', providerId: 'demo-shop', providerLabel: 'Demo shop',
       accountKey: this.state.accountKey, accountLabel: this.state.accountKey ? 'Synthetic demo account' : null,
-      protocolVersions: [1], capabilities: ['auth', 'catalog', 'list', 'receipts'],
+      protocolVersions: [1], capabilities: ['auth', 'catalog', 'list', 'receipts'], features: [FEATURES.listNotes],
       authState: this.state.authenticated ? 'authenticated' : 'unauthenticated' });
   }
   private async receipts(): Promise<Receipt[]> {
@@ -62,9 +70,30 @@ export class DemoAdapter implements ShopAdapter {
     const next = structuredClone(this.state);
     const results: ListOpResult[] = [];
     params.ops.forEach((operation, index) => {
+      if (operation.op === 'add_note') {
+        if (next.list.lines.some(line => line.retailerProductId === null && sameNoteText(line.description, operation.text))) {
+          // An identical note may be someone else's; never adopt it.
+          results.push({ index, status: 'conflict', reason: 'note_exists', message: 'A note with this text exists.' }); return;
+        }
+        const lineId = `note-${randomUUID()}`;
+        next.list.lines.push({ lineId, retailerProductId: null, description: operation.text, quantity: 1 });
+        results.push({ index, status: 'applied', lineId }); return;
+      }
+      if (operation.op === 'remove_note') {
+        const note = next.list.lines.find(candidate => candidate.lineId === operation.lineId);
+        if (!note || note.retailerProductId !== null || !sameNoteText(note.description, operation.expectedText)) {
+          results.push({ index, status: 'conflict', message: 'The note changed.' }); return;
+        }
+        next.list.lines = next.list.lines.filter(candidate => candidate !== note);
+        results.push({ index, status: 'applied', lineId: note.lineId }); return;
+      }
       if (operation.op === 'add') {
-        if (!catalogue.some(product => product.id === operation.retailerProductId)) {
+        const product = catalogue.find(candidate => candidate.id === operation.retailerProductId);
+        if (!product) {
           results.push({ index, status: 'failed', message: 'Unknown product.' }); return;
+        }
+        if (product.availability === 'discontinued') {
+          results.push({ index, status: 'failed', reason: 'product_discontinued', message: 'This product is no longer sold.' }); return;
         }
         if (next.list.lines.some(line => line.retailerProductId === operation.retailerProductId)) {
           results.push({ index, status: 'conflict', message: 'Product already exists.' }); return;

@@ -6,7 +6,7 @@ import {
   CLOSE_CODES, envelopeSchema, pluginEvents, HELLO_TIMEOUT_MS, helloParamsSchema, isPluginMethod,
   MAX_FRAME_BYTES, MAX_IN_FLIGHT_REQUESTS, PLUGIN_CONNECT_PATH, PLUGIN_SUBPROTOCOL, pluginMethods,
   PROTOCOL_VERSION, welcomeResultSchema,
-  type HelloParams, type PluginEvent, type PluginEventData, type PluginMethod,
+  type HelloParams, type ListApplyParams, type ListApplyResult, type PluginEvent, type PluginEventData, type PluginMethod,
 } from './protocol/v1.ts';
 import { AdapterError } from './errors.ts';
 import { OperationCache } from './operations.ts';
@@ -14,6 +14,12 @@ import { OperationCache } from './operations.ts';
 export interface ShopAdapter {
   getManifest(): HelloParams;
   handle(method: PluginMethod, params: unknown): Promise<unknown>;
+  /**
+   * Optional. Called instead of re-executing when a `list.apply` with the same
+   * opId was interrupted earlier. Return a complete result only when retailer
+   * evidence proves the outcome of every op; return null to keep it unknown.
+   */
+  reconcileListApply?(params: ListApplyParams): Promise<ListApplyResult | null>;
 }
 export interface ClientOptions {
   url: string;
@@ -142,7 +148,8 @@ export class PluginClient {
           const execute = () => this.adapter.handle(method, params.data);
           const manifest = this.adapter.getManifest();
           const result = method === 'list.apply'
-            ? await this.operations.run(`${manifest.providerId}:${manifest.accountKey ?? 'anonymous'}`, pluginMethods['list.apply'].params.parse(params.data), execute)
+            ? await this.operations.run(`${manifest.providerId}:${manifest.accountKey ?? 'anonymous'}`, pluginMethods['list.apply'].params.parse(params.data), execute,
+              this.adapter.reconcileListApply ? applyParams => this.adapter.reconcileListApply!(applyParams) : undefined)
             : await execute();
           const validated = pluginMethods[method].result.parse(result);
           this.send(socket, { v: PROTOCOL_VERSION, kind: 'res', id: frame.id, ok: true, result: validated });

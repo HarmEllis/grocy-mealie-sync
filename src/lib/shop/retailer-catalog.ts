@@ -1,9 +1,10 @@
+import { pruneManualNotePreference } from './note-preference-store';
 import { randomUUID } from 'crypto';
 import { and, eq } from 'drizzle-orm';
 import { db } from '../db';
 import { retailerMappings, retailerProducts, retailerSuggestions } from '../db/schema';
 import { fuzzyMatch } from '../fuzzy-match';
-import type { RetailerProduct } from '../plugins/protocol/v1';
+import type { ProductAvailability, RetailerProduct } from '../plugins/protocol/v1';
 import { derivePackageBaseAmount, type TargetKind } from './units';
 
 export type RetailerProductRow = typeof retailerProducts.$inferSelect;
@@ -15,18 +16,45 @@ function productKey(providerId: string, externalId: string): string {
   return `${providerId}:${externalId}`;
 }
 
+/** Availability older than this is refreshed with `catalog.get` before a mapping is confirmed. */
+export const AVAILABILITY_FRESH_MS = 6 * 60 * 60_000;
+
+export function isKnownAvailability(value: string | null | undefined): value is Exclude<ProductAvailability, 'unknown'> {
+  return value === 'available' || value === 'temporarily_unavailable' || value === 'discontinued';
+}
+
+/** Unknown, never checked or older than `AVAILABILITY_FRESH_MS`. */
+export function availabilityNeedsRefresh(row: Pick<RetailerProductRow, 'availability' | 'availabilityCheckedAt'> | null, now = new Date()): boolean {
+  if (!row || !isKnownAvailability(row.availability) || !row.availabilityCheckedAt) return true;
+  return now.getTime() - row.availabilityCheckedAt.getTime() > AVAILABILITY_FRESH_MS;
+}
+
+/**
+ * Remember catalogue products. Rediscovery never erases what is already known:
+ * optional fields that a result omits keep their stored value, and only an
+ * explicit known availability replaces the stored availability. A product
+ * missing from a result is not touched at all, so search omission can never
+ * mark a product discontinued.
+ */
 export function upsertRetailerProducts(providerId: string, products: RetailerProduct[], now = new Date()): void {
   if (products.length === 0) return;
   db.transaction((tx) => {
     for (const product of products) {
+      const current = tx.select().from(retailerProducts)
+        .where(and(eq(retailerProducts.providerId, providerId), eq(retailerProducts.externalId, product.id)))
+        .get();
+      const availability = isKnownAvailability(product.availability)
+        ? { availability: product.availability, availabilityCheckedAt: now }
+        : {};
       const values = {
         name: product.name,
-        brand: product.brand ?? null,
-        gtinsJson: product.gtins ? JSON.stringify(product.gtins) : null,
-        packageAmount: product.packageAmount ?? null,
-        packageUnit: product.packageUnit ?? null,
+        brand: product.brand ?? current?.brand ?? null,
+        gtinsJson: product.gtins ? JSON.stringify(product.gtins) : current?.gtinsJson ?? null,
+        packageAmount: product.packageAmount ?? current?.packageAmount ?? null,
+        packageUnit: product.packageUnit ?? current?.packageUnit ?? null,
         measure: product.measure,
         lastSeenAt: now,
+        ...availability,
       };
       tx.insert(retailerProducts)
         .values({ id: productKey(providerId, product.id), providerId, externalId: product.id, ...values })
@@ -34,6 +62,28 @@ export function upsertRetailerProducts(providerId: string, products: RetailerPro
         .run();
     }
   });
+}
+
+/**
+ * Record an explicit availability statement outside the catalogue, for
+ * example a list write the retailer refused because the product is no longer
+ * sold. Unknown statements never overwrite a known value.
+ */
+export function recordRetailerAvailability(providerId: string, externalId: string, availability: ProductAvailability, now = new Date()): void {
+  if (!isKnownAvailability(availability)) return;
+  db.insert(retailerProducts).values({
+    id: productKey(providerId, externalId),
+    providerId,
+    externalId,
+    name: externalId,
+    measure: 'unit',
+    availability,
+    availabilityCheckedAt: now,
+    lastSeenAt: now,
+  }).onConflictDoUpdate({
+    target: [retailerProducts.providerId, retailerProducts.externalId],
+    set: { availability, availabilityCheckedAt: now },
+  }).run();
 }
 
 /** Remember a product seen only on a receipt, without overwriting catalogue data. */
@@ -115,7 +165,12 @@ export function upsertRetailerMapping(input: UpsertMappingInput, now = new Date(
   const confirmed = Boolean(input.confirm && packageBaseAmount && packageBaseAmount > 0);
 
   return db.transaction((tx) => {
+    const existing = getRetailerMapping(input.providerId, input.retailerProductId);
+    if (existing && (input.role !== 'preferred' || existing.targetKind !== input.targetKind || existing.targetId !== input.targetId)) pruneManualNotePreference(input.providerId, input.retailerProductId);
     if (input.role === 'preferred') {
+      for (const other of listRetailerMappings(input.providerId)) {
+        if (other.role === 'preferred' && other.targetKind === input.targetKind && other.targetId === input.targetId && other.retailerProductId !== input.retailerProductId) pruneManualNotePreference(input.providerId, other.retailerProductId);
+      }
       // One preferred retailer product per target and provider; others become alternatives.
       tx.update(retailerMappings)
         .set({ role: 'alternative', updatedAt: now })
@@ -195,7 +250,12 @@ export function setRetailerMappingRole(id: string, role: MappingRole, now = new 
 }
 
 export function deleteRetailerMapping(id: string): boolean {
-  return db.delete(retailerMappings).where(eq(retailerMappings.id, id)).run().changes > 0;
+  return db.transaction(() => {
+    const mapping = getRetailerMappingById(id);
+    if (!mapping) return false;
+    pruneManualNotePreference(mapping.providerId, mapping.retailerProductId);
+    return db.delete(retailerMappings).where(eq(retailerMappings.id, id)).run().changes > 0;
+  });
 }
 
 /** Preferred, confirmed mapping per target, used for list projection. */

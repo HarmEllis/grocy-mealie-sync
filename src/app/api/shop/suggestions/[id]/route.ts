@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { getRetailerMapping, getSuggestion, rejectSuggestion, upsertRetailerMapping } from '@/lib/shop/retailer-catalog';
+import { getRetailerMapping, getSuggestion, rejectSuggestion } from '@/lib/shop/retailer-catalog';
 import { readJson, ShopApiError, shopRoute } from '@/lib/shop/api-helpers';
-import { resolveGrocyMappingTarget } from '@/lib/shop/targets';
+import { saveRetailerMapping } from '@/lib/shop/mapping-save';
 
 const bodySchema = z.discriminatedUnion('action', [
   z.object({
@@ -10,6 +10,7 @@ const bodySchema = z.discriminatedUnion('action', [
     baseUnitName: z.string().max(100).nullable().default(null),
     packageBaseAmount: z.number().positive().finite().nullable().optional(),
     confirm: z.boolean().default(false),
+    reassign: z.boolean().default(false),
   }).strict(),
   z.object({ action: z.literal('reject') }).strict(),
 ]);
@@ -26,27 +27,25 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       return { ok: true };
     }
     const existing = getRetailerMapping(suggestion.providerId, suggestion.retailerProductId);
-    const target = suggestion.targetKind === 'grocy_product'
-      ? await resolveGrocyMappingTarget(suggestion.targetId)
-      : null;
-    if (suggestion.targetKind === 'grocy_product' && !target) {
-      throw new ShopApiError(409, 'The suggested Grocy product or its stock unit is no longer available');
-    }
-    if (getSuggestion(id)?.status !== 'pending') {
-      throw new ShopApiError(409, 'Suggestion was already decided while its target was being resolved');
-    }
-    const mapping = upsertRetailerMapping({
+    // An explicitly confirmed amount must name the expected source unit, including for Grocy targets.
+    return saveRetailerMapping({
       providerId: suggestion.providerId,
       retailerProductId: suggestion.retailerProductId,
       targetKind: suggestion.targetKind as 'grocy_product' | 'mealie_food',
       targetId: suggestion.targetId,
-      targetName: target?.name ?? suggestion.targetName,
+      targetName: suggestion.targetName,
       role: existing?.role === 'alternative' ? 'alternative' : 'preferred',
-      baseUnitId: target?.baseUnitId ?? body.baseUnitId,
-      baseUnitName: target ? target.baseUnitName : body.baseUnitName,
+      baseUnitId: body.baseUnitId,
+      baseUnitName: suggestion.targetKind === 'grocy_product' ? null : body.baseUnitName,
       packageBaseAmount: body.packageBaseAmount,
       confirm: body.confirm,
+      reassign: body.reassign,
+    }, {
+      beforeWrite: () => {
+        if (getSuggestion(id)?.status !== 'pending') {
+          throw new ShopApiError(409, 'Suggestion was already decided while its target was being resolved');
+        }
+      },
     });
-    return { mapping };
   });
 }

@@ -1,6 +1,7 @@
 import { listCatalogSearches } from '@/lib/shop/catalog-discovery';
 import { z } from 'zod';
-import { listRetailerMappings, listRetailerProducts, listSuggestions, upsertRetailerMapping } from '@/lib/shop/retailer-catalog';
+import { listRetailerMappings, listRetailerProducts, listSuggestions } from '@/lib/shop/retailer-catalog';
+import { saveRetailerMapping } from '@/lib/shop/mapping-save';
 import { readJson, ShopApiError, shopRoute } from '@/lib/shop/api-helpers';
 
 export const dynamic = 'force-dynamic';
@@ -16,6 +17,7 @@ const upsertSchema = z.object({
   baseUnitName: z.string().max(100).nullable().default(null),
   packageBaseAmount: z.number().positive().finite().nullable().optional(),
   confirm: z.boolean().default(false),
+  expectedTargetKey: z.string().min(1).max(220).optional(), replacesMappingId: z.string().min(1).max(200).optional(), reassign: z.boolean().default(false),
 }).strict();
 
 export async function GET(request: Request) {
@@ -34,6 +36,7 @@ export async function POST(request: Request) {
   return shopRoute('Save shop mapping', async () => {
     const input = upsertSchema.parse(await readJson(request));
     if (input.targetKind === 'grocy_product' && !/^\d+$/.test(input.targetId)) throw new ShopApiError(400, 'Grocy product IDs are numeric');
-    return { mapping: upsertRetailerMapping(input) };
+    // Returns { mapping, availability, warnings }; the unit is the target's authoritative base unit.
+    return saveRetailerMapping(input);
   });
 }

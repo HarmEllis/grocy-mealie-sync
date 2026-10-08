@@ -129,6 +129,50 @@ retailer:
   catalogue data but are only used after you confirm them. When the Grocy stock
   unit of a target changes later, the mapping goes back to review.
 - Suggestions are decided once; a rejected pair is never suggested again.
+- Saving a mapping always uses the target's current unit: the Grocy stock unit
+  from Grocy, or an existing Mealie unit. An amount can only be confirmed in
+  that unit; a mapping saved with an outdated unit is stored unconfirmed with
+  the current unit and a warning. Saving the same target and unit again keeps
+  an existing confirmation. Confirming without an amount only works when the
+  package size converts exactly.
+
+## Own product inventory
+
+`GET /api/shop/products` (MCP `shop.products.list`) lists your own products,
+one canonical row per Grocy product (with its linked Mealie food) or Mealie-only
+food, with their retailer mappings. Filters: `source` (`all`, `grocy_mealie`,
+`grocy`, `mealie`), `mapped` (`all`, `mapped`, `unmapped`), `query`,
+`providerId`, `offset` and `limit` (at most 200). Grocy and Mealie data come
+from a 30 second snapshot (`refresh=true` bypasses it); mappings are always
+read fresh. A legacy preferred mapping on a Mealie food that is linked to a
+Grocy product is shown on the Grocy row without changing its unit; moving it
+to the Grocy product requires confirming the amount in the Grocy stock unit.
+
+## Product availability
+
+Every stored retailer product has an availability (`available`,
+`temporarily_unavailable`, `discontinued` or `unknown`) and the time it was
+last reported. Only an explicit statement from the plugin changes it: a
+product that disappears from search results keeps its last known value, and
+results without availability never erase stored package or availability data.
+
+Before a mapping is saved, unknown or stale availability (older than six
+hours) is refreshed with `catalog.get` when a signed-in plugin is connected.
+Without a plugin the stored value is used and returned as `unknown` when
+nothing is known, so known products can still be mapped offline. A product
+reported as discontinued cannot get a new mapping, be pointed at another
+target or become preferred. Existing mappings keep working with a warning.
+Mapping responses return `{ mapping, availability, warnings }`.
+
+Catalogue search (`GET /api/plugins/installations/:id/catalog?query=`) returns
+live plugin results first, then stored products matching the query, each with
+`availability`, `availabilityCheckedAt`, `live` and `saved`. `status` is
+`live`, `cached` (a live result younger than one minute for the same plugin
+session and retailer account; `refresh=1` bypasses it) or `offline` (stored
+products only, with a `message`). Identical concurrent searches share one
+plugin call. `POST /api/plugins/installations/:id/catalog/refresh` with
+`{ ids }` re-reads products with `catalog.get`; IDs the plugin does not return
+are listed as `missing` and keep their stored values.
 
 ## Shared list ownership
 
@@ -144,6 +188,48 @@ new demand produces a newer export.
 Demand is summed per retailer product in the base unit before rounding to
 whole packages, so one package can serve several shopping rows. Every export
 version is kept for later receipt attribution.
+
+### Discontinued products and notes
+
+The shared list never substitutes another product on its own. A temporarily
+unavailable product stays on the list as itself. When the retailer reports a
+mapped product as discontinued, either in the catalogue or by definitively
+refusing to add it (`product_discontinued`), the list carries one free-text
+note instead, written from the target's own name and open amount, for example
+`Kipfilet — 500 g`. Network errors, timeouts and unknown outcomes never cause
+a note; the uncertain operation stays pending and is replayed with the same
+operation ID.
+
+- Some retailers never report a product as gone. For those, a preferred
+  product can be shown as a note by hand: `POST /api/shop/lists/fallback`
+  with `{ installationId, retailerProductId, mode: 'note' | 'product' }`. The
+  choice is stored for that installation and its bound retailer account only,
+  never on the shared catalogue product, and a binding reset forgets it. It
+  needs a plugin with `list` and `list.notes` and a preferred mapping; a
+  product the retailer reports as discontinued cannot be switched back to
+  `product`. The request writes nothing itself: the next list sync applies
+  it with the staged transitions below, keeping demand, exports and receipt
+  attribution. `shop.overview` lists the choices as `manualNoteProductIds`.
+- Notes need a plugin with the `list.notes` feature. Without it nothing is
+  sent and the line is listed for review (`notes_unsupported`); only *Release*
+  applies.
+- A note with the same text that someone else wrote is never claimed, edited
+  or removed. gm-sync removes only the note it wrote, and only while its text
+  is unchanged. A note someone removed or edited is released and not added
+  again until the demand changes.
+- Changes are staged so one demand never has two managed lines: our product
+  units are removed before a note is added, a note is removed before the
+  product returns, and a changed amount removes the old note before the new
+  one is added in a later sync. A failed removal keeps the old line and blocks
+  the new one; a conflicting removal releases the old line to the household.
+- An uncertain note write stays pending. A plugin may settle it from the list,
+  but a matching note found after an uncertain add is never owned (it may be
+  the household's): it covers the demand and stays when the demand ends.
+- Mealie rows are never checked off because a note disappeared. The demand
+  stays attached to the original export: once a note was on the list, a
+  receipt for any product mapped to the same target counts it as exported
+  demand, including credits for manual checks.
+
 
 ## Receipts and reconciliation
 
@@ -225,12 +311,14 @@ never return it. `plugins.auth_begin`, `plugins.auth_submit` and
 `plugins.auth_logout` relay the same sign-in forms and safe errors as the UI.
 Keep entered sign-in values out of agent logs and source control.
 
-Use `plugins.catalog_search`, `shop.mappings.list`, `shop.targets.search`,
+Use `plugins.catalog_search` (with optional `refresh`), `plugins.catalog_refresh`,
+`shop.products.list`, `shop.mappings.list`, `shop.targets.search`,
 `shop.mappings.save/update/delete`, `shop.suggestions.decide` and
 `shop.searches.retry` for products and proposals. `shop.overview` reads all Shop
 tabs, including receipt lines, ownership, pending effects and discrepancies.
 `shop.lists.sync`, `shop.receipts.pull`, `shop.lines.resolve`,
 `shop.review.resolve`, `shop.effects.resolve` and `shop.discrepancies.resolve`
+(`shop.lines.resolve` takes `kind: note` for a waiting replacement note)
 perform the same validated, locked actions as the browser. An uncertain write
 requires evidence and a deliberate resolution; MCP does not bypass these checks.
 
@@ -271,3 +359,34 @@ paths; `shop.receipts.history` imports reference-only history and `shop.overview
 returns its complete lines and current mappings. The existing `mappings.*`,
 `units.*` and `conversions.*` tools configure product/unit relationships. Use
 `shop.mappings.save` to save and explicitly confirm a checked package amount.
+
+
+### Mapping safety and availability
+
+The product table searches your own ingredients separately from retailer products.
+Opening a retailer combobox shows remembered products immediately and searches the
+own ingredient name after a debounce without prefilling the input. Typing a query
+replaces that live search and keeps the local and live results merged. Closed rows
+never call a plugin. Availability is shared per provider: a refresh can use another
+connected installation of the same provider. A returned product without an explicit
+availability statement does not verify its old availability.
+
+UI and MCP mapping writes require an explicit package amount and the expected
+Grocy stock unit before confirmation. A derived amount is a suggestion until the
+caller echoes it. Reassigning a retailer product to an unrelated own target requires
+`reassign: true`; linked Mealie-to-Grocy canonical moves are allowed. An alternative
+can be replaced atomically with `replacesMappingId`. Deleting, demoting or moving a
+preferred mapping forgets its manual text-item preference for every account.
+
+Notes identified only by text have an upstream limitation: removing a managed note
+and readding identical text cannot be distinguished from the original note. An
+interrupted add that later finds matching text leaves it unowned and records a
+history message asking the household to remove it manually when bought.
+
+
+When switching the preferred product, the old managed product or note must leave
+the list first. Failed removals and paused ownership block the replacement, and
+the product table/editor name the old product that is holding it up. The same
+`listReplacementBlocks` details are readable in the MCP shop overview, including
+while a plugin is offline. Resolve a household edit through Shop Overview rather
+than adding a second representation.

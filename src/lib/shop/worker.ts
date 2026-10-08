@@ -3,6 +3,8 @@ import { recordHistoryRun } from '../history-store';
 import type { HistoryEventInput } from '../history-store';
 import { log } from '../logger';
 import { getPluginGateway, setShopWorker, type ShopWorkerHandle } from '../plugins/runtime';
+import { helloHasFeature } from '../plugins/gateway';
+import { FEATURES } from '../plugins/protocol/v1';
 import { getInstallation, hasActiveInstallations, listInstallations, type PluginInstallation } from '../plugins/installations';
 import { resolveShoppingListId } from '../settings';
 import { fetchAllMealieShoppingItems } from '../sync/helpers';
@@ -210,6 +212,7 @@ export function createShopWorker(): ShopWorkerHandle & { start: () => void; stop
           readList: () => gateway.call(installation.id, 'list.read', {}),
           applyList: params => gateway.call(installation.id, 'list.apply', params),
           now: () => new Date(),
+          notesSupported: helloHasFeature(session.hello, FEATURES.listNotes),
         });
         if (result.status !== 'ok' && result.status !== 'skipped') {
           log.warn(`[Shop] List sync for ${installation.name}: ${result.status}${result.message ? ` (${result.message})` : ''}`);

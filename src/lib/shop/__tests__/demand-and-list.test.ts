@@ -137,7 +137,7 @@ describe('projection', () => {
 });
 
 function record(overrides: Partial<LineRecord>): LineRecord {
-  return { retailerProductId: 'milk', lineId: 'l1', managedQty: 2, baselineUserQty: 0, lastWrittenQty: 2, pausedReason: null, pausedObservedQty: null, releasedExportId: null, ...overrides };
+  return { retailerProductId: 'milk', kind: 'product', noteText: null, lineId: 'l1', managedQty: 2, baselineUserQty: 0, lastWrittenQty: 2, pausedReason: null, pausedObservedQty: null, releasedExportId: null, ...overrides };
 }
 
 function list(lines: ShopList['lines']): ShopList {
@@ -161,9 +161,9 @@ describe('shared list ownership', () => {
 
   it('pauses on any unexplained reduction or missing line', () => {
     expect(planListSync([record({})], want(2), list([{ lineId: 'l1', retailerProductId: 'milk', description: '', quantity: 1 }])).immediate)
-      .toEqual([{ retailerProductId: 'milk', record: expect.objectContaining({ pausedReason: 'reduced_by_other', pausedObservedQty: 1 }) }]);
+      .toEqual([{ retailerProductId: 'milk', kind: 'product', record: expect.objectContaining({ pausedReason: 'reduced_by_other', pausedObservedQty: 1 }) }]);
     expect(planListSync([record({})], want(2), list([])).immediate)
-      .toEqual([{ retailerProductId: 'milk', record: expect.objectContaining({ pausedReason: 'line_missing' }) }]);
+      .toEqual([{ retailerProductId: 'milk', kind: 'product', record: expect.objectContaining({ pausedReason: 'line_missing' }) }]);
   });
 
   it('pauses instead of editing duplicate or reused lines', () => {
@@ -215,6 +215,20 @@ describe('list sync', () => {
       const cached = state.applied.get(params.opId);
       if (cached) return cached;
       const results = params.ops.map((op, index) => {
+        if (op.op === 'add_note') {
+          if (state.list.lines.some(line => line.retailerProductId === null && line.description.trim().toLowerCase() === op.text.trim().toLowerCase())) {
+            return { index, status: 'conflict' as const, reason: 'note_exists' as const };
+          }
+          const lineId = `note-${state.list.lines.length + 1}`;
+          state.list.lines.push({ lineId, retailerProductId: null, description: op.text, quantity: 1 });
+          return { index, status: 'applied' as const, lineId };
+        }
+        if (op.op === 'remove_note') {
+          const note = state.list.lines.find(candidate => candidate.lineId === op.lineId);
+          if (!note || note.retailerProductId !== null || note.description !== op.expectedText) return { index, status: 'conflict' as const };
+          state.list.lines = state.list.lines.filter(candidate => candidate !== note);
+          return { index, status: 'applied' as const, lineId: op.lineId };
+        }
         if (op.op === 'add') {
           const lineId = `line-${state.list.lines.length + 1}`;
           state.list.lines.push({ lineId, retailerProductId: op.retailerProductId, description: op.retailerProductId, quantity: op.quantity });

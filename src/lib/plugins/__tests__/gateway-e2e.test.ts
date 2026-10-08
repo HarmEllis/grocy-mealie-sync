@@ -170,6 +170,20 @@ describe('template plugin end to end', () => {
     expect((await gateway.call(installation.id, 'list.read', {})).lines).toEqual([expect.objectContaining({ retailerProductId: 'demo-milk', quantity: 2 })]);
     expect(await syncInstallationList(installation.id, listDeps)).toMatchObject({ status: 'ok', applied: 0 });
 
+    // Notes: advertised by the template, written and removed only by exact text.
+    expect(session.hello.features).toContain('list.notes');
+    const listId = (await gateway.call(installation.id, 'list.read', {})).listId;
+    const note = await gateway.call(installation.id, 'list.apply', { opId: 'e2e-note-add', listId, ops: [{ op: 'add_note', text: 'Demo yoghurt — 500 g' }] });
+    expect(note.results[0]).toMatchObject({ status: 'applied', lineId: expect.any(String) });
+    const again = await gateway.call(installation.id, 'list.apply', { opId: 'e2e-note-again', listId, ops: [{ op: 'add_note', text: 'demo yoghurt — 500 G' }] });
+    expect(again.results[0]).toMatchObject({ status: 'conflict', reason: 'note_exists' });
+    const refused = await gateway.call(installation.id, 'list.apply', { opId: 'e2e-discontinued', listId, ops: [{ op: 'add', retailerProductId: 'demo-old-yoghurt', quantity: 1 }] });
+    expect(refused.results[0]).toMatchObject({ status: 'failed', reason: 'product_discontinued' });
+    const removed = await gateway.call(installation.id, 'list.apply', { opId: 'e2e-note-remove', listId, ops: [{ op: 'remove_note', lineId: note.results[0].lineId!, expectedText: 'Demo yoghurt — 500 g' }] });
+    expect(removed.results[0].status).toBe('applied');
+    const [detail] = (await gateway.call(installation.id, 'catalog.get', { ids: ['demo-old-yoghurt'] })).products;
+    expect(detail.availability).toBe('discontinued');
+
     updateInstallationSettings(installation.id, { receiptsEnabled: true }, { now: new Date(Date.now() - 60_000) });
     const pull = await pullReceipts(getInstallation(installation.id)!, {
       listReceipts: params => gateway.call(installation.id, 'receipts.list', params),
@@ -194,6 +208,21 @@ describe('template plugin end to end', () => {
     await waitFor(() => gateway.getSession(installation.id) === null);
   }, 30_000);
 });
+
+it('rejects note operations for a legacy list plugin before sending any retailer write', async () => {
+  const { installation, token } = createInstallation('Legacy list feature test');
+  const dataDir = startTemplate(token);
+  const session = await waitFor(() => gateway.getSession(installation.id));
+  // Emulate a protocol-v1 peer that never advertised the additive feature.
+  delete session.hello.features;
+  const list = await gateway.call(installation.id, 'list.read', {});
+  await expect(gateway.call(installation.id, 'list.apply', { opId: 'legacy-note-add', listId: list.listId, ops: [{ op: 'add_note', text: 'Chicken — 500 g' }] }))
+    .rejects.toMatchObject({ code: 'NOT_SUPPORTED', outcome: 'not_applied' });
+  await expect(gateway.call(installation.id, 'list.apply', { opId: 'legacy-note-remove', listId: list.listId, ops: [{ op: 'remove_note', lineId: 'not-a-line', expectedText: 'Chicken — 500 g' }] }))
+    .rejects.toMatchObject({ code: 'NOT_SUPPORTED', outcome: 'not_applied' });
+  expect((await gateway.call(installation.id, 'list.read', {})).lines).toEqual([]);
+  expect(fs.existsSync(path.join(dataDir, 'protocol-operations')) && fs.readdirSync(path.join(dataDir, 'protocol-operations')).length > 0).toBe(false);
+}, 30_000);
 
 // Runs last: throttling is per remote address and would block the plugin tests above.
 describe('handshake throttling', () => {

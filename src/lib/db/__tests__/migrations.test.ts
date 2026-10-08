@@ -92,6 +92,40 @@ describe('SQLite migrations', () => {
     }
   });
 
+  it('upgrades shop list ownership and catalogue rows to note-aware, availability-aware tables', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gms-shop-notes-upgrade-'));
+    tempDirs.push(tempDir);
+    const journal = readDrizzleJournal();
+    const oldEntries = journal.entries.filter(entry => entry.idx <= 16);
+    fs.mkdirSync(path.join(tempDir, 'meta'));
+    fs.writeFileSync(path.join(tempDir, 'meta/_journal.json'), JSON.stringify({ version: '7', dialect: 'sqlite', entries: oldEntries }));
+    for (const entry of oldEntries) fs.copyFileSync(path.resolve(`drizzle/${entry.tag}.sql`), path.join(tempDir, `${entry.tag}.sql`));
+    const sqlite = new Database(':memory:');
+    try {
+      const db = drizzle(sqlite);
+      migrate(db, { migrationsFolder: tempDir });
+      sqlite.exec(`
+        INSERT INTO retailer_products (id, provider_id, external_id, name, measure, last_seen_at) VALUES ('ah:1', 'ah', '1', 'Kipfilet', 'unit', 1);
+        INSERT INTO shop_list_lines (id, installation_id, retailer_product_id, line_id, managed_qty, baseline_user_qty, last_written_qty, updated_at)
+          VALUES ('line', 'inst', '1', 'product:1', 2, 1, 3, 1);
+        INSERT INTO shop_exports (id, installation_id, provider_id, retailer_product_id, packages, base_amount, fingerprint, created_at)
+          VALUES ('export', 'inst', 'ah', '1', 1, 500, 'f', 1);
+      `);
+      migrate(db, { migrationsFolder: path.resolve('drizzle') });
+      expect(sqlite.prepare('SELECT availability, availability_checked_at FROM retailer_products').get()).toEqual({ availability: 'unknown', availability_checked_at: null });
+      expect(sqlite.prepare('SELECT kind, note_text, line_id, managed_qty, baseline_user_qty FROM shop_list_lines').get())
+        .toEqual({ kind: 'product', note_text: null, line_id: 'product:1', managed_qty: 2, baseline_user_qty: 1 });
+      expect(sqlite.prepare('SELECT note_exposed_at FROM shop_exports').get()).toEqual({ note_exposed_at: null });
+      // A product line and its replacement note can be owned side by side during a staged transition.
+      sqlite.exec(`INSERT INTO shop_list_lines (id, installation_id, retailer_product_id, kind, note_text, managed_qty, baseline_user_qty, last_written_qty, updated_at)
+        VALUES ('note', 'inst', '1', 'note', 'Kipfilet — 500 g', 1, 0, 1, 2)`);
+      expect(() => sqlite.exec(`INSERT INTO shop_list_lines (id, installation_id, retailer_product_id, kind, managed_qty, baseline_user_qty, last_written_qty, updated_at)
+        VALUES ('dup', 'inst', '1', 'product', 1, 0, 1, 2)`)).toThrow(/UNIQUE/);
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it('repairs databases that skipped later schema migrations because of out-of-order journal timestamps', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gms-migrate-'));
     tempDirs.push(tempDir);

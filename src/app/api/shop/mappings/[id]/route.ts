@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { confirmRetailerMapping, deleteRetailerMapping, getRetailerMappingById, setRetailerMappingRole } from '@/lib/shop/retailer-catalog';
+import { deleteRetailerMapping } from '@/lib/shop/retailer-catalog';
+import { updateRetailerMapping } from '@/lib/shop/mapping-save';
 import { readJson, ShopApiError, shopRoute } from '@/lib/shop/api-helpers';
 
 const patchSchema = z.object({
@@ -14,10 +15,7 @@ export async function PATCH(request: Request, context: Context) {
   return shopRoute('Update shop mapping', async () => {
     const { id } = await context.params;
     const body = patchSchema.parse(await readJson(request));
-    if (!getRetailerMappingById(id)) throw new ShopApiError(404, 'Mapping not found');
-    if (body.role) setRetailerMappingRole(id, body.role);
-    if (body.packageBaseAmount !== undefined) confirmRetailerMapping(id, body.packageBaseAmount);
-    return { mapping: getRetailerMappingById(id) };
+    return updateRetailerMapping(id, body);
   });
 }
 

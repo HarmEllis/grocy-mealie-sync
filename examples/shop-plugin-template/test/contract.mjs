@@ -115,3 +115,55 @@ test('list writes cannot restore authentication after a concurrent logout', asyn
     assert.equal(restarted.getManifest().authState, 'unauthenticated');
   } finally { await current.cleanup(); }
 });
+
+test('notes are advertised, never adopt an identical note and only remove the expected text', async () => {
+  const current = await fixture();
+  try {
+    assert.deepEqual(current.adapter.getManifest().features, ['list.notes']);
+    const note = { opId: 'synthetic-note-1', listId: 'demo-list', ops: [{ op: 'add_note', text: 'Chicken breast — 500 g' }] };
+    const added = pluginMethods['list.apply'].result.parse(await current.adapter.handle('list.apply', note));
+    assert.equal(added.results[0].status, 'applied');
+    const lineId = added.results[0].lineId;
+    const duplicate = await current.adapter.handle('list.apply', { ...note, opId: 'synthetic-note-2', ops: [{ op: 'add_note', text: ' chicken BREAST — 500 g ' }] });
+    assert.deepEqual([duplicate.results[0].status, duplicate.results[0].reason], ['conflict', 'note_exists']);
+    const wrongText = await current.adapter.handle('list.apply', { ...note, opId: 'synthetic-note-3', ops: [{ op: 'remove_note', lineId, expectedText: 'Something else' }] });
+    assert.equal(wrongText.results[0].status, 'conflict');
+    const removed = await current.adapter.handle('list.apply', { ...note, opId: 'synthetic-note-4', ops: [{ op: 'remove_note', lineId, expectedText: 'Chicken breast — 500 g' }] });
+    assert.equal(removed.results[0].status, 'applied');
+    assert.deepEqual(removed.list.lines, []);
+  } finally { await current.cleanup(); }
+});
+
+test('catalogue reports availability and a discontinued product is refused definitively', async () => {
+  const current = await fixture();
+  try {
+    const { products } = pluginMethods['catalog.get'].result.parse(await current.adapter.handle('catalog.get', { ids: ['demo-milk', 'demo-old-yoghurt', 'demo-apples'] }));
+    assert.deepEqual(products.map(product => [product.id, product.availability]), [['demo-milk', 'available'], ['demo-apples', undefined], ['demo-old-yoghurt', 'discontinued']]);
+    const result = await current.adapter.handle('list.apply', { opId: 'synthetic-old', listId: 'demo-list', ops: [{ op: 'add', retailerProductId: 'demo-old-yoghurt', quantity: 1 }] });
+    assert.deepEqual([result.results[0].status, result.results[0].reason], ['failed', 'product_discontinued']);
+  } finally { await current.cleanup(); }
+});
+
+test('older plugins stay valid: features and availability are optional and unknown values are ignored', () => {
+  const manifest = { pluginName: 'Old', pluginVersion: '1', providerId: 'old-shop', providerLabel: 'Old', accountKey: null, accountLabel: null, protocolVersions: [1], capabilities: ['list'], authState: 'unknown' };
+  assert.equal(pluginMethods['list.read'].result.safeParse({ listId: 'l', lines: [] }).success, true);
+  assert.equal(pluginMethods['catalog.get'].result.parse({ products: [{ id: 'x', name: 'X', measure: 'unit', availability: 'future-state' }] }).products[0].availability, undefined);
+  assert.equal(pluginMethods['list.apply'].result.parse({ opId: 'synthetic-op', results: [{ index: 0, status: 'failed', reason: 'future-reason' }], list: { listId: 'l', lines: [] } }).results[0].reason, undefined);
+  assert.doesNotThrow(() => JSON.stringify(manifest));
+});
+
+test('an interrupted write is settled only by complete retailer evidence', async () => {
+  const current = await fixture();
+  try {
+    const cache = new OperationCache(join(current.directory, 'operations'));
+    await assert.rejects(cache.run('demo-account', params, async () => { throw new Error('Synthetic interruption'); }));
+    let executed = 0;
+    const execute = async () => { executed++; return {}; };
+    await assert.rejects(cache.run('demo-account', params, execute, async () => null), error => error.outcome === 'unknown');
+    await assert.rejects(cache.run('demo-account', params, execute, async () => ({ opId: params.opId, results: [], list: { listId: 'demo-list', lines: [] } })), error => error.outcome === 'unknown');
+    const evidence = { opId: params.opId, results: [{ index: 0, status: 'applied', lineId: 'line-1' }], list: { listId: 'demo-list', lines: [] } };
+    assert.deepEqual(await cache.run('demo-account', params, execute, async () => evidence), evidence);
+    assert.deepEqual(await new OperationCache(join(current.directory, 'operations')).run('demo-account', params, execute), evidence);
+    assert.equal(executed, 0);
+  } finally { await current.cleanup(); }
+});

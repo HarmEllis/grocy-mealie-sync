@@ -1,18 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowRight, Check, LayoutDashboard, Link2, Loader2, Package, Receipt, RefreshCw, Search, TriangleAlert, Unlink, X } from 'lucide-react';
+import { LayoutDashboard, Loader2, Package, Receipt, RefreshCw, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AppBadge, AppInput, ProgressRing } from '@/components/redesign/primitives';
+import { AppBadge, AppInput } from '@/components/redesign/primitives';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ThemedSelect } from '@/components/shared/ThemedSelect';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
-import { Pagination } from '@/components/mapping-wizard/Pagination';
-import { buildPageWindow, DEFAULT_PAGE_SIZE } from '@/components/mapping-wizard/paging';
 import { apiJson } from './api';
+import { OwnProductsTab } from './OwnProductsTab';
 import type { mappingPreview } from '@/lib/shop/mapping-preview';
 import type { TargetOption } from '@/lib/shop/targets';
 import type { ShopOverview } from '@/lib/shop/overview';
@@ -24,6 +23,7 @@ const PAUSE_LABELS: Record<string, string> = {
   line_missing: 'The line disappeared',
   duplicate_lines: 'The product is on the list more than once',
   line_reused: 'The line now holds another product',
+  notes_unsupported: 'Product discontinued; this plugin cannot add a text item',
 };
 
 const REVIEW_LABELS: Record<string, string> = {
@@ -147,7 +147,7 @@ export function ShoppingDashboard() {
         </div>
         <p className="text-[11px] text-text-3 md:hidden">Swipe tabs to view all sections.</p>
         <TabsContent value="overview">{overview ? <OverviewTab overview={overview} reload={load} /> : null}</TabsContent>
-        <TabsContent value="products">{overview ? <ProductsTab overview={overview} /> : null}</TabsContent>
+        <TabsContent value="products">{overview ? <OwnProductsTab overview={overview} reloadOverview={load} /> : null}</TabsContent>
         <TabsContent value="receipts">{overview ? <ReceiptsTab overview={overview} reload={load} /> : null}</TabsContent>
         <TabsContent value="review">{overview ? <ReviewTab overview={overview} reload={load} /> : null}</TabsContent>
       </Tabs>
@@ -166,6 +166,7 @@ function OverviewTab({ overview, reload }: { overview: ShopOverview; reload: () 
             <li key={installation.id} className="flex flex-wrap items-center gap-2 px-3 py-3">
               <span className="font-semibold">{installation.name}</span>
               <AppBadge small tone={installation.connected ? 'success' : 'default'}>{installation.connected ? 'connected' : 'offline'}</AppBadge>
+              {installation.features?.includes('list.notes') ? <AppBadge small>text items</AppBadge> : null}
               {installation.settings.listSyncEnabled ? <AppBadge small>list sync</AppBadge> : null}
               {installation.settings.receiptsEnabled ? <AppBadge small>receipts</AppBadge> : null}
               {installation.pendingListApply ? <AppBadge small tone="warning">list write pending confirmation</AppBadge> : null}
@@ -184,21 +185,25 @@ function OverviewTab({ overview, reload }: { overview: ShopOverview; reload: () 
         )}
       </ShopSection>
 
+      {overview.lines.some(line => line.kind === 'note' && line.noteText && !line.pausedReason) ? <ShopSection title="Replacement text items" subtitle="A discontinued product is represented by one ingredient and quantity note. Checking or removing a note never fulfils Mealie demand; receipts determine purchases.">
+        <ul className="space-y-2 text-sm">{overview.lines.filter(line => line.kind === 'note' && line.noteText && !line.pausedReason).map(line => <li key={`${line.installationId}:${line.retailerProductId}`} className="rounded-md border bg-muted/20 p-3"><span className="font-semibold">{line.noteText}</span><p className="text-xs text-muted-foreground">{installationName(line.installationId)} · replaces {line.productName}</p></li>)}</ul>
+      </ShopSection> : null}
+
       <ShopSection title="Paused list lines" subtitle="gm-sync never guesses whose units disappeared. Tell it what happened.">
         {paused.length === 0 ? <p className="text-sm text-muted-foreground">No paused lines.</p> : (
           <ul className="space-y-2">
             {paused.map(line => (
-              <li key={`${line.installationId}:${line.retailerProductId}`} className="space-y-1 rounded-md border border-border bg-muted/20 p-3 text-sm">
-                <div><span className="font-semibold">{line.productName}</span> · {PAUSE_LABELS[line.pausedReason ?? ''] ?? line.pausedReason} · now {line.pausedObservedQty ?? 0}, last written {line.lastWrittenQty}</div>
+              <li key={`${line.installationId}:${line.kind}:${line.retailerProductId}`} className="space-y-1 rounded-md border border-border bg-muted/20 p-3 text-sm">
+                <div><span className="font-semibold">{line.kind === 'note' ? line.noteText ?? line.productName : line.productName}</span> · {PAUSE_LABELS[line.pausedReason ?? ''] ?? line.pausedReason} · now {line.pausedObservedQty ?? 0}, last written {line.lastWrittenQty}</div>
                 <div className="flex flex-wrap gap-2">
-                  {(['user_units_removed', 'readd', 'release'] as const).map(resolution => (
+                  {(line.kind === 'note' ? ['release'] as const : ['user_units_removed', 'readd', 'release'] as const).map(resolution => (
                     <Button
                       key={resolution}
                       size="sm"
                       variant="outline"
                       disabled={(line.pausedReason === 'duplicate_lines' || line.pausedReason === 'line_reused') && resolution !== 'release'}
                       onClick={async () => {
-                        if (await post('/api/shop/lines/resolve', { installationId: line.installationId, retailerProductId: line.retailerProductId, resolution }, 'Line updated')) await reload();
+                        if (await post('/api/shop/lines/resolve', { installationId: line.installationId, retailerProductId: line.retailerProductId, kind: line.kind, resolution }, 'Line updated')) await reload();
                       }}
                     >
                       {resolution === 'user_units_removed' ? 'Someone removed their own units' : resolution === 'readd' ? 'Add mine again' : 'Release this line'}
@@ -231,8 +236,6 @@ interface MappingRow {
 }
 
 interface ProductRow { providerId: string; externalId: string; name: string; packageAmount: number | null; packageUnit: string | null; measure: string }
-interface SuggestionRow { id: string; retailerProductId: string; targetKind: string; targetId: string; targetName: string; score: number }
-interface CatalogSearchRow { id: string; targetName: string; status: string; resultCount: number; lastError: string | null }
 
 function targetKey(target: TargetOption): string {
   return `${target.kind}:${target.id}`;
@@ -241,215 +244,6 @@ function targetKey(target: TargetOption): string {
 function targetLabel(target: TargetOption): string {
   const prefix = target.source === 'grocy_mealie' ? 'G+M' : target.kind === 'grocy_product' ? 'G' : 'M';
   return `(${prefix}) ${target.name}${target.baseUnitName ? ` · ${target.baseUnitName}` : ''}`;
-}
-
-function ProductsTab({ overview }: { overview: ShopOverview }) {
-  const providers = useMemo(() => [...new Set(overview.installations.map(installation => installation.providerId).filter((id): id is string => Boolean(id)))], [overview]);
-  const [providerId, setProviderId] = useState<string>('');
-  const [data, setData] = useState<{ mappings: MappingRow[]; products: ProductRow[]; suggestions: SuggestionRow[]; searches?: CatalogSearchRow[] } | null>(null);
-  const [query, setQuery] = useState('');
-  const [productQuery, setProductQuery] = useState('');
-  const [productFilter, setProductFilter] = useState<'all' | 'available' | 'mapped'>('all');
-  const [editing, setEditing] = useState<ProductRow | null>(null);
-  const [showAllSuggestions, setShowAllSuggestions] = useState(false);
-  const [offset, setOffset] = useState(0);
-  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
-  const activeProvider = providerId || providers[0] || '';
-  const connected = overview.installations.find(installation => installation.providerId === activeProvider && installation.connected);
-
-  const load = useCallback(async () => {
-    if (!activeProvider) return;
-    try {
-      setData(await apiJson(`/api/shop/mappings?providerId=${encodeURIComponent(activeProvider)}`));
-    } catch (error) {
-      toast.error('Could not load mappings', { description: (error as Error).message });
-    }
-  }, [activeProvider]);
-
-  useEffect(() => {
-    void load();
-    const interval = window.setInterval(load, 15_000);
-    return () => window.clearInterval(interval);
-  }, [load]);
-
-  useEffect(() => { setOffset(0); }, [productQuery, productFilter, activeProvider]);
-
-  if (!activeProvider) return <p className="text-sm text-muted-foreground">Connect a plugin first; mappings are kept per retailer.</p>;
-  const mappingByProduct = new Map((data?.mappings ?? []).map(mapping => [mapping.retailerProductId, mapping]));
-  const products = data?.products ?? [];
-  const mappedCount = products.filter(product => mappingByProduct.has(product.externalId)).length;
-  const normalizedQuery = productQuery.trim().toLocaleLowerCase();
-  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-  const visibleProducts = products.filter(product => {
-    const mapping = mappingByProduct.get(product.externalId);
-    if (productFilter === 'mapped' && !mapping) return false;
-    if (productFilter === 'available' && mapping) return false;
-    return !normalizedQuery || `${product.name} ${mapping?.targetName ?? ''}`.toLocaleLowerCase().includes(normalizedQuery);
-  }).sort((a, b) => collator.compare(a.name, b.name) || collator.compare(a.externalId, b.externalId));
-
-  const pageWindow = buildPageWindow(visibleProducts, offset, pageSize);
-
-  return (
-    <div className="min-w-0 space-y-4">
-      <div className="flex flex-wrap items-center gap-4">
-        <ProgressRing value={mappedCount} max={products.length} size={44} color={mappedCount < products.length ? '#fbbf24' : '#4ade80'} />
-        <div>
-          <p className="text-xs font-bold text-text-1">Retailer product mappings</p>
-          <p className="text-[11px] text-text-3">{mappedCount} mapped · {products.length - mappedCount} available to map</p>
-        </div>
-        {data?.suggestions.length ? <AppBadge tone="accent" small>{data.suggestions.length} suggestions</AppBadge> : null}
-      </div>
-      <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
-        {providers.length > 1 ? (
-          <ThemedSelect options={providers.map(id => ({ value: id, label: id }))} value={activeProvider} onChange={setProviderId} ariaLabel="Retailer" className="w-full sm:w-44" />
-        ) : <AppBadge>{activeProvider}</AppBadge>}
-        <form
-          className="flex w-full min-w-0 items-center gap-2 sm:w-auto"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            if (!connected || !query.trim()) return;
-            try {
-              await apiJson(`/api/plugins/installations/${connected.id}/catalog?query=${encodeURIComponent(query.trim())}`);
-              await load();
-            } catch (error) {
-              toast.error('Catalogue search failed', { description: (error as Error).message });
-            }
-          }}
-        >
-          <AppInput className="min-w-0 flex-1" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search the retailer catalogue" aria-label="Catalogue search" />
-          <Button size="sm" type="submit" disabled={!connected}><Search className="size-4" /> Search</Button>
-        </form>
-      </div>
-
-      {data?.searches?.length ? (
-        <ShopSection title="Shopping ingredients to map" subtitle="New Mealie ingredients are searched automatically. Choose a product below and confirm its package amount before it goes to the retailer list.">
-          <ul className="space-y-2 text-sm">
-            {data.searches.map(search => (
-              <li key={search.id} className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/20 p-3">
-                <div className="min-w-0 flex-1">
-                  <span className="font-semibold">{search.targetName}</span>{' · '}
-                  {search.status === 'pending' ? 'Waiting for the connected plugin to search' : search.status === 'error'
-                    ? search.lastError : search.resultCount ? `Found ${search.resultCount} products; review the suggestions or use Map below` : 'No products found; try a manual catalogue search'}
-                </div>
-                {search.status !== 'pending' ? (
-                  <Button className="ml-auto shrink-0" size="sm" variant="ghost" onClick={async () => {
-                    if (await post(`/api/shop/searches/${search.id}/retry`, {}, 'Catalogue search queued')) await load();
-                  }}>Search again</Button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </ShopSection>
-      ) : null}
-
-      {data?.suggestions.length ? (
-        <ShopSection className="rounded-xl border border-primary/30 bg-primary/10 p-3 shadow-[0_0_20px_color-mix(in_oklab,var(--accent)_20%,transparent)]" title="Suggestions" subtitle="Choose a retailer product for your ingredient, then confirm its package amount.">
-          <ul className="space-y-1 text-sm">
-            {(showAllSuggestions ? data.suggestions : data.suggestions.slice(0, 5)).map(suggestion => (
-              <li key={suggestion.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-background/40 px-3 py-2">
-                <span>{data.products.find(product => product.externalId === suggestion.retailerProductId)?.name ?? suggestion.retailerProductId}</span>
-                <ArrowRight className="size-3 shrink-0 text-text-3" /><span className="font-semibold text-primary">{suggestion.targetName}</span><AppBadge tone="accent" small>{Math.round(suggestion.score * 100)}%</AppBadge>
-                <div className="ml-auto flex shrink-0 justify-end gap-2">
-                  <Button size="sm" variant="outline" onClick={async () => { if (await post(`/api/shop/suggestions/${suggestion.id}`, { action: 'accept' }, 'Mapping created; confirm its package amount')) await load(); }}><Check className="size-3.5" /> Accept</Button>
-                  <Button size="sm" variant="ghost" onClick={async () => { if (await post(`/api/shop/suggestions/${suggestion.id}`, { action: 'reject' }, 'Suggestion rejected')) await load(); }}><X className="size-3.5" /> Reject</Button>
-                </div>
-              </li>
-            ))}
-          </ul>
-          {data.suggestions.length > 5 ? <Button size="sm" variant="ghost" onClick={() => setShowAllSuggestions(value => !value)}>{showAllSuggestions ? 'Show fewer suggestions' : `Show ${data.suggestions.length - 5} more suggestions`}</Button> : null}
-        </ShopSection>
-      ) : null}
-
-      <ShopSection title="Retailer products" subtitle="Automatic list and receipt processing only uses confirmed mappings.">
-        <div className="mb-4 flex flex-col gap-2 sm:flex-row">
-          <AppInput className="min-w-0 flex-1" aria-label="Filter retailer products" placeholder="Filter by product or mapped ingredient" value={productQuery} onChange={event => setProductQuery(event.target.value)} />
-          <ThemedSelect ariaLabel="Product mapping filter" value={productFilter} onChange={setProductFilter} className="w-full sm:w-64" options={[
-            { value: 'all', label: `All products (${products.length})` },
-            { value: 'available', label: `Available to map (${products.length - mappedCount})` },
-            { value: 'mapped', label: `Mapped (${mappedCount})` },
-          ]} />
-        </div>
-        {visibleProducts.length === 0 ? <p className="text-sm text-muted-foreground">No products match these filters.</p> : null}
-        <ShopTable headers={['Product', 'Package', 'Mapped to', 'Amount per package', 'Actions']}>
-            {pageWindow.rows.map((product) => {
-              const mapping = mappingByProduct.get(product.externalId);
-              return (
-                <TableRow key={product.externalId} className={mapping ? 'bg-success/5' : undefined} data-testid="retailer-product">
-                  <ShopCell label="Product"><span className="font-semibold">{product.name}</span></ShopCell>
-                  <ShopCell label="Package">{product.measure === 'weight' ? 'by weight (per kg)' : `${product.packageAmount ?? ''} ${product.packageUnit ?? ''}`}</ShopCell>
-                  <ShopCell label="Mapped to">
-                    {mapping ? <div className="space-y-1">
-                      <p>{mapping.targetName} ({mapping.targetKind === 'grocy_product' ? 'Grocy' : 'Mealie only'})</p>
-                      <AppBadge small tone={mapping.role === 'preferred' ? 'accent' : 'warning'}>{mapping.role === 'preferred' ? 'Preferred for list sync' : 'Alternative; not sent to list'}</AppBadge>
-                    </div> : '—'}
-                  </ShopCell>
-                  <ShopCell label="Amount per package">
-                    {mapping ? (
-                      <MappingAmount mapping={mapping} onSaved={load} />
-                    ) : null}
-                  </ShopCell>
-                  <ShopCell label="Actions"><div className="flex flex-wrap gap-2 md:justify-end">
-                    <Button size="sm" variant="outline" onClick={() => setEditing(product)}><Link2 className="size-3.5" />{mapping ? 'Change' : 'Map'}</Button>
-                    {mapping?.role === 'alternative' ? (
-                      <Button size="sm" variant="outline" onClick={async () => {
-                        try {
-                          await apiJson(`/api/shop/mappings/${mapping.id}`, { method: 'PATCH', body: JSON.stringify({ role: 'preferred' }) });
-                          toast.success('Preferred product selected for list sync');
-                          await load();
-                        } catch (error) {
-                          toast.error('Could not select the preferred product', { description: (error as Error).message });
-                        }
-                      }}>Use for list</Button>
-                    ) : null}
-                    {mapping ? (
-                      <Button size="sm" variant="ghost" onClick={async () => {
-                        try {
-                          await apiJson(`/api/shop/mappings/${mapping.id}`, { method: 'DELETE' });
-                          await load();
-                        } catch (error) {
-                          toast.error('Could not remove the mapping', { description: (error as Error).message });
-                        }
-                      }}><Unlink className="size-3.5" /> Remove</Button>
-                    ) : null}
-                  </div></ShopCell>
-                </TableRow>
-              );
-            })}
-        </ShopTable>
-        <Pagination themedPageSize window={pageWindow} onOffsetChange={setOffset} onPageSizeChange={size => { setPageSize(size); setOffset(0); }} itemLabel="retailer products" />
-      </ShopSection>
-
-      {editing ? <MappingEditor providerId={activeProvider} product={editing} mapping={mappingByProduct.get(editing.externalId) ?? null} onClose={() => { setEditing(null); void load(); }} /> : null}
-    </div>
-  );
-}
-
-function MappingAmount({ mapping, onSaved }: { mapping: MappingRow; onSaved: () => Promise<void> }) {
-  const [value, setValue] = useState(mapping.packageBaseAmount?.toString() ?? '');
-  return (
-    <form
-      className="flex flex-wrap items-center gap-2"
-      onSubmit={async (event) => {
-        event.preventDefault();
-        const amount = Number(value);
-        if (!(amount > 0)) {
-          toast.error('Enter a positive amount');
-          return;
-        }
-        try {
-          await apiJson(`/api/shop/mappings/${mapping.id}`, { method: 'PATCH', body: JSON.stringify({ packageBaseAmount: amount }) });
-          toast.success('Package amount confirmed');
-          await onSaved();
-        } catch (error) {
-          toast.error('Could not confirm', { description: (error as Error).message });
-        }
-      }}
-    >
-      <AppInput className="w-20 shrink-0" value={value} onChange={event => setValue(event.target.value)} inputMode="decimal" aria-label="Amount per package" />
-      <span className="text-xs text-muted-foreground">{mapping.packageBaseUnitName ?? 'units'}</span>
-      {mapping.confirmed ? <AppBadge small tone="success">confirmed</AppBadge> : <Button size="sm" type="submit" variant="outline">Confirm</Button>}
-    </form>
-  );
 }
 
 function MappingEditor({ providerId, product, mapping, onClose }: { providerId: string; product: ProductRow; mapping: MappingRow | null; onClose: () => void }) {
@@ -531,6 +325,8 @@ function MappingEditor({ providerId, product, mapping, onClose }: { providerId: 
           targetId: selected.id,
           targetName: selected.name,
           role,
+          expectedTargetKey: mapping ? `${mapping.targetKind}:${mapping.targetId}` : undefined,
+          reassign: Boolean(mapping && (mapping.targetKind !== selected.kind || mapping.targetId !== selected.id)),
           baseUnitId: baseUnit.id,
           baseUnitName: baseUnit.name,
           packageBaseAmount: parsed,
@@ -588,8 +384,9 @@ function MappingEditor({ providerId, product, mapping, onClose }: { providerId: 
             {preview.demandConversions?.some(item => !item.ok) ? <p>Some Mealie units cannot be converted or need review. <a className="text-primary underline" href="/conversions">Open Units &amp; Conversions</a></p> : null}
           </> : null}
         </div> : null}
+        {mapping && selected && (mapping.targetKind !== selected.kind || mapping.targetId !== selected.id) ? <p className="text-xs text-amber-600 dark:text-amber-400">Moving this mapping removes its link to {mapping.targetName}. Check the amount in the new target unit before saving.</p> : null}
         <div className="flex gap-2">
-          <Button size="sm" onClick={save} disabled={!selected || (selected.kind === 'grocy_product' && !preview)}>Save mapping</Button>
+          <Button size="sm" onClick={save} disabled={!selected || (selected.kind === 'grocy_product' && !preview)}>{mapping && selected && (mapping.targetKind !== selected.kind || mapping.targetId !== selected.id) ? 'Move mapping to this target' : 'Save mapping'}</Button>
           <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
         </div>
       </div>

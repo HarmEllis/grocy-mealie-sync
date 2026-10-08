@@ -26,7 +26,7 @@ import {
   type MealieReducePayload,
 } from './effect-runners';
 import { ensureEffect, listEffects, recoverInterruptedEffects, type EffectStatus, type LedgerTx, type ShopEffect } from './ledger';
-import { exportsActiveAt, listAllocations, listExportsForProduct } from './projection';
+import { exportsActiveAt, listAllocations, listExportsForProduct, listNoteExposedExports, noteExposedExportsActiveAt } from './projection';
 import {
   planReceipt,
   type PlannerDemand,
@@ -152,7 +152,7 @@ function ownReductionsSince(mealieItemId: string, since: Date): number {
   return total;
 }
 
-function lifecyclesForProducts(installationId: string, retailerProductIds: string[]): PlannerLifecycle[] {
+function lifecyclesForProducts(installationId: string, retailerProductIds: string[], targetOf: Map<string, string> = new Map()): PlannerLifecycle[] {
   const exportsByItem = new Map<string, Array<{ retailerProductId: string; exportCreatedAt: Date }>>();
   for (const retailerProductId of retailerProductIds) {
     const exports = listExportsForProduct(installationId, retailerProductId);
@@ -160,6 +160,18 @@ function lifecyclesForProducts(installationId: string, retailerProductIds: strin
     for (const allocation of listAllocations(exports.map(row => row.id))) {
       const entries = exportsByItem.get(allocation.mealieItemId) ?? [];
       entries.push({ retailerProductId, exportCreatedAt: createdById.get(allocation.exportId)! });
+      exportsByItem.set(allocation.mealieItemId, entries);
+    }
+  }
+  // A note exposed the target itself: rows behind it count as exported for
+  // every receipt product mapped to that target, from the moment the note appeared.
+  const noteExports = listNoteExposedExports(installationId);
+  const exposedAt = new Map(noteExports.map(row => [row.id, row.noteExposedAt!]));
+  for (const allocation of listAllocations(noteExports.map(row => row.id))) {
+    for (const retailerProductId of retailerProductIds) {
+      if (targetOf.get(retailerProductId) !== `${allocation.targetKind}:${allocation.targetId}`) continue;
+      const entries = exportsByItem.get(allocation.mealieItemId) ?? [];
+      entries.push({ retailerProductId, exportCreatedAt: exposedAt.get(allocation.exportId)! });
       exportsByItem.set(allocation.mealieItemId, entries);
     }
   }
@@ -224,9 +236,28 @@ export async function buildPlannerInput(
   }
 
   const retailerProductIds = [...new Set(lines.map(line => line.retailerProductId).filter((id): id is string => Boolean(id)))];
+  const targetOf = new Map(retailerProductIds.flatMap(id => {
+    const mapping = mappings.get(id);
+    return mapping ? [[id, `${mapping.targetKind}:${mapping.targetId}`] as const] : [];
+  }));
   const exportAllocations: PlannerExportAllocation[] = [];
+  const noteAllocations = listAllocations(noteExposedExportsActiveAt(installation.id, receipt.purchasedAt).map(row => row.id));
   for (const retailerProductId of retailerProductIds) {
     const active = exportsActiveAt(installation.id, retailerProductId, receipt.purchasedAt);
+    const own = new Set(active.map(row => row.id));
+    // Demand shown as a note counts as exported demand for any product mapped to its target.
+    for (const allocation of noteAllocations) {
+      if (own.has(allocation.exportId) || targetOf.get(retailerProductId) !== `${allocation.targetKind}:${allocation.targetId}`) continue;
+      exportAllocations.push({
+        exportId: allocation.exportId,
+        retailerProductId,
+        mealieItemId: allocation.mealieItemId,
+        revisionId: allocation.demandRevisionId,
+        targetKind: allocation.targetKind as TargetKind,
+        targetId: allocation.targetId,
+        baseAmount: allocation.baseAmount,
+      });
+    }
     for (const allocation of listAllocations(active.map(row => row.id))) {
       exportAllocations.push({
         exportId: allocation.exportId,
@@ -272,7 +303,7 @@ export async function buildPlannerInput(
     })),
     mappings,
     exportAllocations,
-    lifecycles: lifecyclesForProducts(installation.id, retailerProductIds),
+    lifecycles: lifecyclesForProducts(installation.id, retailerProductIds, targetOf),
     demand,
   };
 }

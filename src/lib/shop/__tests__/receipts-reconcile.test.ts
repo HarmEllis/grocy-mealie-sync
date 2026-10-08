@@ -469,3 +469,60 @@ describe('binding reset', () => {
     expect(recordHello(installation.id, hello({ accountKey: 'another-account' }))).toMatchObject({ ok: true });
   });
 });
+
+describe('receipts after a note replaced a discontinued product', () => {
+  function mapAlternative() {
+    upsertRetailerProducts('demo-shop', [{ id: 'milk-alt', name: 'Other milk 1 L', packageAmount: 1, packageUnit: 'l', measure: 'unit' }]);
+    upsertRetailerMapping({
+      providerId: 'demo-shop', retailerProductId: 'milk-alt', targetKind: 'grocy_product', targetId: '1', targetName: 'Milk',
+      role: 'alternative', baseUnitId: '10', baseUnitName: 'Liter', packageBaseAmount: 1, confirm: true,
+    });
+  }
+
+  async function checkedRowThenAlternativeReceipt(noteExposedAt: Date | null) {
+    const installation = setupInstallation();
+    mapMilk();
+    mapAlternative();
+    observeDemand('list', [row({ quantity: 2 })], new Date('2026-10-04T10:00:00Z'));
+    const revisionId = db.select().from(schema.demandRevisions).get()!.id;
+    exportRow(installation.id, revisionId, new Date('2026-10-04T10:00:00Z'), 2);
+    db.update(schema.shopExports).set({ noteExposedAt }).run();
+    const lifecycle = openCheckLifecycle({ id: 'row-milk', foodId: 'food-milk', quantity: 2 }, 1, new Date('2026-10-05T09:55:00Z'));
+    await bookCheckStock(lifecycle, 1, 2, 'Milk', { addStock: vi.fn(async () => [{ id: 5, transaction_id: 'tx-check' }]) });
+    setLifecycleStatus(lifecycle.id, 'completed');
+    await pullReceipts(installation, pullDeps([receipt({ lines: [{ ...receipt().lines[0], retailerProductId: 'milk-alt', description: 'Other milk' }] })]));
+    const items = { current: [] as MealieShoppingItem[] };
+    const run = runner(items);
+    await runShopReconcile(reconcileDeps(items, run));
+    return { run, lifecycle };
+  }
+
+  it('credits a manual check for a mapped alternative bought against the note', async () => {
+    const { run, lifecycle } = await checkedRowThenAlternativeReceipt(new Date('2026-10-04T10:01:00Z'));
+    expect(run.addStock).not.toHaveBeenCalled();
+    expect(db.select().from(schema.reconciliationLinks).all()).toEqual([expect.objectContaining({ kind: 'credit', lifecycleId: lifecycle.id, baseAmount: 2 })]);
+  });
+
+  it('does not treat product-only exports as covering an alternative', async () => {
+    const { run } = await checkedRowThenAlternativeReceipt(null);
+    expect(run.addStock).toHaveBeenCalledTimes(1);
+  });
+
+  it('fulfils open exported demand through the note for a mapped alternative', async () => {
+    const installation = setupInstallation();
+    mapMilk();
+    mapAlternative();
+    observeDemand('list', [row()], new Date('2026-10-04T10:00:00Z'));
+    const revisionId = db.select().from(schema.demandRevisions).get()!.id;
+    exportRow(installation.id, revisionId, new Date('2026-10-04T10:00:00Z'));
+    const exportId = db.select().from(schema.shopExports).get()!.id;
+    db.update(schema.shopExports).set({ noteExposedAt: new Date('2026-10-04T10:01:00Z') }).run();
+    await pullReceipts(installation, pullDeps([receipt({ lines: [{ ...receipt().lines[0], retailerProductId: 'milk-alt' }] })]));
+    const items = { current: [row()] };
+    const run = runner(items);
+    await runShopReconcile(reconcileDeps(items, run));
+    expect(run.addStock).toHaveBeenCalledWith(1, expect.objectContaining({ amount: 2 }));
+    expect(items.current).toEqual([expect.objectContaining({ quantity: 1 })]);
+    expect(db.select().from(schema.reconciliationLinks).all()).toEqual(expect.arrayContaining([expect.objectContaining({ exportId })]));
+  });
+});

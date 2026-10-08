@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'crypto';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { db } from '../db';
 import { shopExportAllocations, shopExports } from '../db/schema';
 import type { SubProductItem } from '../shopping-notes';
@@ -239,6 +239,26 @@ export function exportsActiveAt(installationId: string, retailerProductId: strin
     .where(and(eq(shopExports.installationId, installationId), eq(shopExports.retailerProductId, retailerProductId)))
     .all()
     .filter(row => row.createdAt.getTime() <= at.getTime() && (!row.supersededAt || row.supersededAt.getTime() > at.getTime()));
+}
+
+/**
+ * Exports shown as a free-text note before `at` and active at `at`. A note
+ * names the target, not a retailer product, so any product mapped to the
+ * same target fulfils it.
+ */
+export function noteExposedExportsActiveAt(installationId: string, at: Date): ShopExportRow[] {
+  return db.select().from(shopExports)
+    .where(and(eq(shopExports.installationId, installationId), isNotNull(shopExports.noteExposedAt)))
+    .all()
+    .filter(row => row.noteExposedAt!.getTime() <= at.getTime() && row.createdAt.getTime() <= at.getTime()
+      && (!row.supersededAt || row.supersededAt.getTime() > at.getTime()));
+}
+
+/** All note-exposed exports of an installation, for manual-check credit attribution. */
+export function listNoteExposedExports(installationId: string): ShopExportRow[] {
+  return db.select().from(shopExports)
+    .where(and(eq(shopExports.installationId, installationId), isNotNull(shopExports.noteExposedAt)))
+    .all();
 }
 
 export function listExportsForProduct(installationId: string, retailerProductId: string): ShopExportRow[] {

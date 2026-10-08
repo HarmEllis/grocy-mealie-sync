@@ -1,20 +1,25 @@
 import { z } from 'zod';
 import { getInstallation } from '@/lib/plugins/installations';
-import { getPluginGateway } from '@/lib/plugins/runtime';
 import { ShopApiError, shopRoute } from '@/lib/shop/api-helpers';
-import { upsertRetailerProducts } from '@/lib/shop/retailer-catalog';
+import { searchCatalog } from '@/lib/shop/catalog-service';
 
-/** Search the retailer catalogue through the plugin; results are remembered for mapping. */
+export const dynamic = 'force-dynamic';
+
+/**
+ * Search the retailer catalogue through the plugin. Live results are remembered
+ * for mapping and briefly cached; stored products matching the query follow
+ * them. When the plugin is unavailable the stored matches are returned with
+ * `status: "offline"`. `refresh=1` bypasses the short cache.
+ */
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   return shopRoute('Catalogue search', async () => {
     const { id } = await context.params;
-    const query = z.string().trim().min(1).max(200).parse(new URL(request.url).searchParams.get('query') ?? '');
-    const installation = getInstallation(id);
-    if (!installation?.providerId) throw new ShopApiError(404, 'Installation not found or never connected');
-    const gateway = getPluginGateway();
-    if (!gateway?.getSession(id)) throw new ShopApiError(503, 'The plugin is not connected');
-    const result = await gateway.call(id, 'catalog.search', { query });
-    upsertRetailerProducts(installation.providerId, result.products);
-    return { providerId: installation.providerId, products: result.products };
+    const searchParams = new URL(request.url).searchParams;
+    const query = z.string().trim().min(1).max(200).parse(searchParams.get('query') ?? '');
+    const refresh = ['1', 'true'].includes(searchParams.get('refresh') ?? '');
+    if (!getInstallation(id)?.providerId) throw new ShopApiError(404, 'Installation not found or never connected');
+    const result = await searchCatalog(id, query, { refresh });
+    if (!result) throw new ShopApiError(404, 'Installation not found or never connected');
+    return result;
   });
 }

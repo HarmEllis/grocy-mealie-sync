@@ -11,8 +11,14 @@ import type { ListOp, ListOpResult, ShopList } from '../plugins/protocol/v1';
  * editing whichever line happens to match first.
  */
 
+export type LineKind = 'product' | 'note';
+
 export interface LineRecord {
   retailerProductId: string;
+  /** `note`: the free-text note standing in for a discontinued retailer product. */
+  kind: LineKind;
+  /** Exact text of an owned note, or the note that is waiting for plugin support. */
+  noteText: string | null;
   lineId: string | null;
   managedQty: number;
   baselineUserQty: number;
@@ -23,29 +29,51 @@ export interface LineRecord {
   releasedExportId: string | null;
 }
 
-export type PauseReason = 'reduced_by_other' | 'line_missing' | 'duplicate_lines' | 'line_reused' | 'released';
+/**
+ * `notes_unsupported`: the product is discontinued, but the plugin cannot write
+ * a replacement note. Nothing is sent; the line waits for review or a plugin
+ * update. Only `release` resolves it by hand.
+ */
+export type PauseReason = 'reduced_by_other' | 'line_missing' | 'duplicate_lines' | 'line_reused' | 'released' | 'notes_unsupported';
 
 export interface DesiredLine {
   packages: number;
   exportId: string | null;
 }
 
+/** A free-text note that should stand in for a discontinued product's export. */
+export interface DesiredNote {
+  text: string;
+  exportId: string | null;
+}
+
 export interface PlannedOp {
   retailerProductId: string;
+  kind: LineKind;
   op: ListOp;
   /** Record state to commit once the plugin reports the op as applied. */
   onApplied: LineRecord | null;
+  /** Record state to commit on `conflict`; undefined keeps the record unchanged. */
+  onConflict?: LineRecord | null;
+}
+
+export interface RecordUpdate {
+  retailerProductId: string;
+  kind: LineKind;
+  record: LineRecord | null;
 }
 
 export interface ListSyncPlan {
   ops: PlannedOp[];
   /** Record changes that need no list write (baselines raised, pauses). */
-  immediate: Array<{ retailerProductId: string; record: LineRecord | null }>;
+  immediate: RecordUpdate[];
 }
 
-function emptyRecord(retailerProductId: string): LineRecord {
+function emptyRecord(retailerProductId: string, kind: LineKind = 'product'): LineRecord {
   return {
     retailerProductId,
+    kind,
+    noteText: null,
     lineId: null,
     managedQty: 0,
     baselineUserQty: 0,
@@ -56,6 +84,10 @@ function emptyRecord(retailerProductId: string): LineRecord {
   };
 }
 
+function productUpdate(retailerProductId: string, record: LineRecord | null): RecordUpdate {
+  return { retailerProductId, kind: 'product', record };
+}
+
 function linesForProduct(list: ShopList, retailerProductId: string) {
   return list.lines.filter(line => line.retailerProductId === retailerProductId);
 }
@@ -64,9 +96,7 @@ function linesForProduct(list: ShopList, retailerProductId: string) {
 function planFresh(plan: ListSyncPlan, list: ShopList, retailerProductId: string, wanted: number): void {
   const matches = linesForProduct(list, retailerProductId);
   if (matches.length > 1) {
-    plan.immediate.push({
-      retailerProductId,
-      record: {
+    plan.immediate.push({ retailerProductId, kind: 'product', record: {
         ...emptyRecord(retailerProductId),
         pausedReason: 'duplicate_lines',
         pausedObservedQty: matches.reduce((sum, line) => sum + line.quantity, 0),
@@ -80,6 +110,7 @@ function planFresh(plan: ListSyncPlan, list: ShopList, retailerProductId: string
     const target = existing.quantity + wanted;
     plan.ops.push({
       retailerProductId,
+      kind: 'product',
       op: { op: 'set', lineId: existing.lineId, quantity: target, expectedQuantity: existing.quantity },
       onApplied: { ...emptyRecord(retailerProductId), lineId: existing.lineId, managedQty: wanted, baselineUserQty: existing.quantity, lastWrittenQty: target },
     });
@@ -87,14 +118,29 @@ function planFresh(plan: ListSyncPlan, list: ShopList, retailerProductId: string
   }
   plan.ops.push({
     retailerProductId,
+    kind: 'product',
     op: { op: 'add', retailerProductId, quantity: wanted },
     onApplied: { ...emptyRecord(retailerProductId), managedQty: wanted, lastWrittenQty: wanted },
   });
 }
 
-export function planListSync(records: LineRecord[], desired: Map<string, DesiredLine>, list: ShopList): ListSyncPlan {
+export interface NotePlanOptions {
+  desiredNotes?: Map<string, DesiredNote>;
+  /** The plugin advertised the `list.notes` feature. */
+  notesSupported?: boolean;
+}
+
+export function planListSync(records: LineRecord[], desired: Map<string, DesiredLine>, list: ShopList, notes: NotePlanOptions = {}): ListSyncPlan {
   const plan: ListSyncPlan = { ops: [], immediate: [] };
-  const recordsByProduct = new Map(records.map(record => [record.retailerProductId, record]));
+  const noteRecords = records.filter(record => record.kind === 'note');
+  const productRecords = records.filter(record => record.kind !== 'note');
+  // Product -> note and note -> product are staged: the new representation is
+  // only added once the managed old one is gone in a confirmed read, so failed
+  // or uncertain writes can never leave two managed lines for one demand.
+  const managedProducts = new Set(productRecords.filter(record => record.pausedReason !== 'released' && !((desired.get(record.retailerProductId)?.packages ?? 0) === 0 && record.baselineUserQty === 0 && linesForProduct(list, record.retailerProductId).length === 0)).map(record => record.retailerProductId));
+  const ownedNotes = new Set(noteRecords.filter(record => record.lineId && !record.pausedReason).map(record => record.retailerProductId));
+  planNotes(plan, noteRecords, notes.desiredNotes ?? new Map(), list, Boolean(notes.notesSupported), managedProducts);
+  const recordsByProduct = new Map(productRecords.map(record => [record.retailerProductId, record]));
   const products = new Set([
     ...recordsByProduct.keys(),
     ...[...desired.entries()].filter(([, line]) => line.packages > 0).map(([id]) => id),
@@ -105,17 +151,22 @@ export function planListSync(records: LineRecord[], desired: Map<string, Desired
     const wanted = Math.max(0, Math.round(desiredLine?.packages ?? 0));
     const record = recordsByProduct.get(retailerProductId);
 
+    const replacedByNote = ownedNotes.has(retailerProductId);
     if (!record) {
-      if (wanted > 0) planFresh(plan, list, retailerProductId, wanted);
+      if (wanted > 0 && !replacedByNote) planFresh(plan, list, retailerProductId, wanted);
       continue;
     }
 
     if (record.pausedReason === 'released') {
       // A released line stays the user's until new demand produces a newer export.
-      if (wanted > 0 && desiredLine?.exportId && desiredLine.exportId !== record.releasedExportId) {
-        plan.immediate.push({ retailerProductId, record: null });
+      if (wanted > 0 && !replacedByNote && desiredLine?.exportId && desiredLine.exportId !== record.releasedExportId) {
+        plan.immediate.push({ retailerProductId, kind: 'product', record: null });
         planFresh(plan, list, retailerProductId, wanted);
       }
+      continue;
+    }
+    if (wanted === 0 && record.baselineUserQty === 0 && linesForProduct(list, retailerProductId).length === 0) {
+      plan.immediate.push({ retailerProductId, kind: 'product', record: null });
       continue;
     }
     if (record.pausedReason) continue;
@@ -124,33 +175,33 @@ export function planListSync(records: LineRecord[], desired: Map<string, Desired
     if (!record.lineId) {
       const matches = linesForProduct(list, retailerProductId);
       if (matches.length > 1) {
-        plan.immediate.push({ retailerProductId, record: { ...record, pausedReason: 'duplicate_lines', pausedObservedQty: matches.reduce((sum, candidate) => sum + candidate.quantity, 0) } });
+        plan.immediate.push({ retailerProductId, kind: 'product', record: { ...record, pausedReason: 'duplicate_lines', pausedObservedQty: matches.reduce((sum, candidate) => sum + candidate.quantity, 0) } });
         continue;
       }
       line = matches[0] ?? null;
     }
     if (line && line.retailerProductId !== retailerProductId) {
-      plan.immediate.push({ retailerProductId, record: { ...record, pausedReason: 'line_reused', pausedObservedQty: line.quantity } });
+      plan.immediate.push({ retailerProductId, kind: 'product', record: { ...record, pausedReason: 'line_reused', pausedObservedQty: line.quantity } });
       continue;
     }
 
     if (!line) {
       if (record.lastWrittenQty === 0 && record.baselineUserQty === 0) {
         if (wanted === 0) {
-          plan.immediate.push({ retailerProductId, record: null });
-        } else {
+          plan.immediate.push({ retailerProductId, kind: 'product', record: null });
+        } else if (!replacedByNote) {
           planFresh(plan, list, retailerProductId, wanted);
         }
         continue;
       }
-      plan.immediate.push({ retailerProductId, record: { ...record, pausedReason: 'line_missing', pausedObservedQty: 0 } });
+      plan.immediate.push({ retailerProductId, kind: 'product', record: { ...record, pausedReason: 'line_missing', pausedObservedQty: 0 } });
       continue;
     }
 
     let baseline = record.baselineUserQty;
     const observed = line.quantity;
     if (observed < record.lastWrittenQty) {
-      plan.immediate.push({ retailerProductId, record: { ...record, lineId: line.lineId, pausedReason: 'reduced_by_other', pausedObservedQty: observed } });
+      plan.immediate.push({ retailerProductId, kind: 'product', record: { ...record, lineId: line.lineId, pausedReason: 'reduced_by_other', pausedObservedQty: observed } });
       continue;
     }
     if (observed > record.lastWrittenQty) {
@@ -162,15 +213,16 @@ export function planListSync(records: LineRecord[], desired: Map<string, Desired
     if (target === observed) {
       if (wanted === 0 && baseline > 0) {
         // Only the user's own units remain: stop managing their line.
-        plan.immediate.push({ retailerProductId, record: null });
+        plan.immediate.push({ retailerProductId, kind: 'product', record: null });
       } else if (next.baselineUserQty !== record.baselineUserQty || next.lineId !== record.lineId || record.managedQty !== wanted || record.lastWrittenQty !== observed) {
-        plan.immediate.push({ retailerProductId, record: { ...next, managedQty: wanted } });
+        plan.immediate.push({ retailerProductId, kind: 'product', record: { ...next, managedQty: wanted } });
       }
       continue;
     }
     if (target === 0) {
       plan.ops.push({
         retailerProductId,
+        kind: 'product',
         op: { op: 'remove', lineId: line.lineId, expectedQuantity: observed },
         onApplied: null,
       });
@@ -178,11 +230,88 @@ export function planListSync(records: LineRecord[], desired: Map<string, Desired
     }
     plan.ops.push({
       retailerProductId,
+      kind: 'product',
       op: { op: 'set', lineId: line.lineId, quantity: target, expectedQuantity: observed },
       onApplied: wanted === 0 ? null : { ...next, managedQty: wanted, lastWrittenQty: target },
     });
   }
   return plan;
+}
+
+/** Notes are identified by their text, compared like retailers do: trimmed, case- and spacing-insensitive. */
+export function normalizeNoteText(text: string): string {
+  return text.normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function noteLines(list: ShopList) {
+  return list.lines.filter(line => line.retailerProductId === null);
+}
+
+/**
+ * Plan the free-text notes that stand in for discontinued products.
+ *
+ * gm-sync adds a note only when no note with the same text exists, and from
+ * then on owns exactly that line. A note someone else wrote, even with the
+ * same text, is never claimed or removed. When our note is removed or edited
+ * by someone else it is released: it is not added again until the demand
+ * changes. A note is replaced when the wanted text changes: removed in one
+ * sync, added in a later one.
+ */
+function planNotes(plan: ListSyncPlan, records: LineRecord[], desired: Map<string, DesiredNote>, list: ShopList, supported: boolean, managedProducts: Set<string>): void {
+  const recordsByProduct = new Map(records.map(record => [record.retailerProductId, record]));
+  const update = (retailerProductId: string, record: LineRecord | null) => plan.immediate.push({ retailerProductId, kind: 'note', record });
+  const textInUse = (text: string) => noteLines(list).some(line => normalizeNoteText(line.description) === normalizeNoteText(text));
+  const ownedRecord = (retailerProductId: string, text: string): LineRecord => ({
+    ...emptyRecord(retailerProductId, 'note'), noteText: text, managedQty: 1, lastWrittenQty: 1,
+  });
+  const addNote = (retailerProductId: string, text: string) => {
+    plan.ops.push({ retailerProductId, kind: 'note', op: { op: 'add_note', text }, onApplied: ownedRecord(retailerProductId, text) });
+  };
+
+  for (const retailerProductId of [...new Set([...recordsByProduct.keys(), ...desired.keys()])].sort()) {
+    const want = desired.get(retailerProductId);
+    const record = recordsByProduct.get(retailerProductId);
+    const owned = record && record.lineId && !record.pausedReason ? record : null;
+
+    if (!owned) {
+      if (record?.pausedReason === 'released' && want && (!want.exportId || want.exportId === record.releasedExportId)) continue;
+      if (!want) {
+        if (record) update(retailerProductId, null);
+        continue;
+      }
+      // Our product line must be retired first; its removal is planned in this same sync.
+      if (managedProducts.has(retailerProductId)) continue;
+      if (!supported) {
+        // Never fall back to a different product; surface the gap instead.
+        if (record?.pausedReason !== 'notes_unsupported' || record.noteText !== want.text) {
+          update(retailerProductId, { ...emptyRecord(retailerProductId, 'note'), noteText: want.text, pausedReason: 'notes_unsupported' });
+        }
+        continue;
+      }
+      if (record) update(retailerProductId, null);
+      // The same text already listed by someone else covers the demand; it is never adopted.
+      if (!textInUse(want.text)) addNote(retailerProductId, want.text);
+      continue;
+    }
+
+    const line = list.lines.find(candidate => candidate.lineId === owned.lineId);
+    if (!line || line.retailerProductId !== null || normalizeNoteText(line.description) !== normalizeNoteText(owned.noteText ?? '')) {
+      update(retailerProductId, { ...emptyRecord(retailerProductId, 'note'), pausedReason: 'released', releasedExportId: want?.exportId ?? null });
+      continue;
+    }
+    if (want && normalizeNoteText(want.text) === normalizeNoteText(owned.noteText ?? '')) continue;
+    if (!supported) continue; // Our note stays until the plugin can remove it again.
+    // A changed amount replaces the note in two syncs: remove now, add after a
+    // confirmed read shows it gone. A failed removal keeps ownership and blocks
+    // the add; a conflicting one releases the old note to the user instead.
+    plan.ops.push({
+      retailerProductId,
+      kind: 'note',
+      op: { op: 'remove_note', lineId: line.lineId, expectedText: owned.noteText! },
+      onApplied: null,
+      onConflict: want ? { ...emptyRecord(retailerProductId, 'note'), pausedReason: 'released', releasedExportId: want.exportId } : null,
+    });
+  }
 }
 
 /**
@@ -199,14 +328,23 @@ export function validateApplyResults(opCount: number, results: ListOpResult[]): 
   return true;
 }
 
-/** Commit planned record changes according to per-op plugin results. */
-export function recordsAfterApply(plan: ListSyncPlan, results: ListOpResult[]): Array<{ retailerProductId: string; record: LineRecord | null }> {
-  const updates: Array<{ retailerProductId: string; record: LineRecord | null }> = [];
+/** Commit planned record changes according to per-op plugin results, in op order. */
+export function recordsAfterApply(plan: ListSyncPlan, results: ListOpResult[]): RecordUpdate[] {
+  const updates: RecordUpdate[] = [];
   plan.ops.forEach((planned, index) => {
     const result = results.find(candidate => candidate.index === index);
+    const kind = planned.kind ?? 'product';
+    if (result?.status === 'conflict' && planned.onConflict !== undefined) {
+      updates.push({ retailerProductId: planned.retailerProductId, kind, record: planned.onConflict });
+      return;
+    }
     if (result?.status !== 'applied') return;
+    if (planned.op.op === 'add_note' && !result.lineId) {
+      // Without a line ID the note cannot be addressed later; leave it unowned instead of guessing.
+      return;
+    }
     const record = planned.onApplied ? { ...planned.onApplied, lineId: result.lineId ?? planned.onApplied.lineId } : null;
-    updates.push({ retailerProductId: planned.retailerProductId, record });
+    updates.push({ retailerProductId: planned.retailerProductId, kind, record });
   });
   return updates;
 }
@@ -221,6 +359,10 @@ export type PauseResolution = 'user_units_removed' | 'readd' | 'release';
  *   produces a newer export version than `currentExportId`.
  */
 export function resolvePausedLine(record: LineRecord, resolution: PauseResolution, currentExportId: string | null): LineRecord {
+  if (record.kind === 'note') {
+    // A waiting note has no units to explain; any decision releases it until the demand changes.
+    return { ...emptyRecord(record.retailerProductId, 'note'), pausedReason: 'released', releasedExportId: currentExportId };
+  }
   if (resolution === 'release') {
     return { ...emptyRecord(record.retailerProductId), pausedReason: 'released', releasedExportId: currentExportId };
   }
