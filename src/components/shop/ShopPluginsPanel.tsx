@@ -135,7 +135,7 @@ export function ShopPluginsPanel() {
         {' '}Disabling receipt processing or revoking a token stops new receipt plans; existing plans finish, and uncertain writes wait for review.
       </p>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
         <AppInput
           aria-label="Plugin installation name"
           placeholder="Name, for example Albert Heijn"
@@ -173,7 +173,7 @@ export function ShopPluginsPanel() {
       ) : (
         <ul className="space-y-3">
           {installations.map(installation => (
-            <li key={installation.id} className="space-y-3 rounded-lg border border-border p-3" data-testid="plugin-installation">
+            <li key={installation.id} className="space-y-3 rounded-md border border-border bg-muted/20 p-3" data-testid="plugin-installation">
               <div className="flex flex-wrap items-center gap-2">
                 <AppStatusDot status={installation.connected ? 'success' : 'idle'} pulse={installation.connected} />
                 <span className="font-semibold">{installation.name}</span>

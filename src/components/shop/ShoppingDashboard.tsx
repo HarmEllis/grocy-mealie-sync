@@ -1,12 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Loader2, RefreshCw, Search } from 'lucide-react';
+import { ArrowRight, Check, LayoutDashboard, Link2, Loader2, Package, Receipt, RefreshCw, Search, TriangleAlert, Unlink, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AppBadge, AppCardSection, AppInput, AppSelect } from '@/components/redesign/primitives';
+import { AppBadge, AppInput, AppSelect, ProgressRing } from '@/components/redesign/primitives';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Pagination } from '@/components/mapping-wizard/Pagination';
+import { buildPageWindow, DEFAULT_PAGE_SIZE } from '@/components/mapping-wizard/paging';
 import { apiJson } from './api';
 import type { ShopOverview } from '@/lib/shop/overview';
 
@@ -50,26 +53,37 @@ async function post(url: string, body: unknown, success: string): Promise<boolea
   }
 }
 
-// Keep one set of controls and form state when table rows become mobile cards.
+function ShopSection({ title, subtitle, children, className = '' }: { title: string; subtitle?: string; children: ReactNode; className?: string }) {
+  return (
+    <section className={`min-w-0 space-y-3 ${className}`}>
+      <div className="space-y-1">
+        <h2 className="text-sm font-bold text-text-1">{title}</h2>
+        {subtitle ? <p className="text-xs text-text-3">{subtitle}</p> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+// Use the Mapping table components, retaining one set of controls on mobile.
 function ShopTable({ headers, children }: { headers: string[]; children: ReactNode }) {
   return (
-    <div className="min-w-0 overflow-x-auto">
-      <table className="block w-full text-sm md:table [&_tbody]:block md:[&_tbody]:table-row-group [&_tr]:mb-3 [&_tr]:block [&_tr]:rounded-lg [&_tr]:border [&_tr]:border-border [&_tr]:p-3 md:[&_tr]:mb-0 md:[&_tr]:table-row md:[&_tr]:border-0 md:[&_tr]:p-0">
-        <thead className="hidden md:table-header-group">
-          <tr className="text-left text-xs text-muted-foreground">{headers.map((header, index) => <th key={index} scope="col" className="px-2 py-2">{header}</th>)}</tr>
-        </thead>
-        <tbody>{children}</tbody>
-      </table>
-    </div>
+    <Table containerClassName="min-w-0 rounded-md border md:rounded-md max-md:border-0"
+      className="block md:table md:min-w-[720px] [&_tbody]:block md:[&_tbody]:table-row-group [&_tbody>tr]:mb-3 [&_tbody>tr]:block [&_tbody>tr]:rounded-md [&_tbody>tr]:border [&_tbody>tr]:border-border [&_tbody>tr]:p-3 md:[&_tbody>tr]:mb-0 md:[&_tbody>tr]:table-row md:[&_tbody>tr]:rounded-none md:[&_tbody>tr]:border-0 md:[&_tbody>tr]:border-b md:[&_tbody>tr]:p-0">
+      <TableHeader className="hidden bg-muted/30 md:table-header-group">
+        <TableRow>{headers.map((header, index) => <TableHead key={index} scope="col">{header}</TableHead>)}</TableRow>
+      </TableHeader>
+      <TableBody>{children}</TableBody>
+    </Table>
   );
 }
 
 function ShopCell({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <td className="block min-w-0 break-words py-1.5 align-top md:table-cell md:px-2 md:py-3">
+    <TableCell className="block min-w-0 break-words py-1.5 align-top whitespace-normal md:table-cell md:p-2">
       <span className="mb-1 block text-xs font-medium text-muted-foreground md:hidden">{label}</span>
       {children}
-    </td>
+    </TableCell>
   );
 }
 
@@ -102,7 +116,7 @@ export function ShoppingDashboard() {
 
   return (
     <div className="min-w-0 space-y-4 break-words [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:min-h-10 [&_[data-slot=button]]:max-w-full [&_[data-slot=button]]:whitespace-normal md:[&_[data-slot=button]]:min-h-8">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
         <Button size="sm" variant="outline" onClick={load} disabled={loading}>
           {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />} Refresh
         </Button>
@@ -119,14 +133,15 @@ export function ShoppingDashboard() {
       ) : null}
 
       <Tabs value={tab} onValueChange={value => setTab(value as Tab)}>
-        <div className="min-w-0 overflow-x-auto pb-1">
-        <TabsList className="min-w-max max-md:h-10">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="products">Products</TabsTrigger>
-          <TabsTrigger value="receipts">Receipts</TabsTrigger>
-          <TabsTrigger value="review">Review{attention > 0 ? ` (${attention})` : ''}</TabsTrigger>
-        </TabsList>
+        <div className="-mx-2 overflow-x-auto overflow-y-hidden border-b border-border px-2 pb-0.5">
+          <TabsList variant="line" className="h-10 min-w-max gap-0 bg-transparent p-0 md:h-8">
+            <TabsTrigger value="overview" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"><LayoutDashboard className="size-3.5" /> Overview</TabsTrigger>
+            <TabsTrigger value="products" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"><Package className="size-3.5" /> Products</TabsTrigger>
+            <TabsTrigger value="receipts" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"><Receipt className="size-3.5" /> Receipts</TabsTrigger>
+            <TabsTrigger value="review" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"><TriangleAlert className="size-3.5" /> Review{attention > 0 ? ` (${attention})` : ''}</TabsTrigger>
+          </TabsList>
         </div>
+        <p className="text-[11px] text-text-3 md:hidden">Swipe tabs to view all sections.</p>
         <TabsContent value="overview">{overview ? <OverviewTab overview={overview} reload={load} /> : null}</TabsContent>
         <TabsContent value="products">{overview ? <ProductsTab overview={overview} /> : null}</TabsContent>
         <TabsContent value="receipts">{overview ? <ReceiptsTab overview={overview} reload={load} /> : null}</TabsContent>
@@ -141,10 +156,10 @@ function OverviewTab({ overview, reload }: { overview: ShopOverview; reload: () 
   const paused = overview.lines.filter(line => line.pausedReason && line.pausedReason !== 'released');
   return (
     <div className="space-y-4">
-      <AppCardSection title="Plugins">
-        <ul className="space-y-1 text-sm">
+      <ShopSection title="Plugins">
+        <ul className="divide-y divide-border rounded-md border bg-muted/20 text-sm">
           {overview.installations.map(installation => (
-            <li key={installation.id} className="flex flex-wrap items-center gap-2">
+            <li key={installation.id} className="flex flex-wrap items-center gap-2 px-3 py-3">
               <span className="font-semibold">{installation.name}</span>
               <AppBadge small tone={installation.connected ? 'success' : 'default'}>{installation.connected ? 'connected' : 'offline'}</AppBadge>
               {installation.settings.listSyncEnabled ? <AppBadge small>list sync</AppBadge> : null}
@@ -153,23 +168,23 @@ function OverviewTab({ overview, reload }: { overview: ShopOverview; reload: () 
             </li>
           ))}
         </ul>
-      </AppCardSection>
+      </ShopSection>
 
-      <AppCardSection title="On the shared list" subtitle="Packages gm-sync currently wants on each retailer list. Your own additions are kept.">
+      <ShopSection title="On the shared list" subtitle="Packages gm-sync currently wants on each retailer list. Your own additions are kept.">
         {overview.exports.length === 0 ? <p className="text-sm text-muted-foreground">Nothing exported.</p> : (
           <ShopTable headers={['Plugin', 'Product', 'Packages', 'Since']}>
               {overview.exports.map(row => (
-                <tr key={row.id}><ShopCell label="Plugin">{installationName(row.installationId)}</ShopCell><ShopCell label="Product">{row.productName}</ShopCell><ShopCell label="Packages">{row.packages}</ShopCell><ShopCell label="Since">{when(row.createdAt)}</ShopCell></tr>
+                <TableRow key={row.id}><ShopCell label="Plugin">{installationName(row.installationId)}</ShopCell><ShopCell label="Product">{row.productName}</ShopCell><ShopCell label="Packages">{row.packages}</ShopCell><ShopCell label="Since">{when(row.createdAt)}</ShopCell></TableRow>
               ))}
           </ShopTable>
         )}
-      </AppCardSection>
+      </ShopSection>
 
-      <AppCardSection title="Paused list lines" subtitle="gm-sync never guesses whose units disappeared. Tell it what happened.">
+      <ShopSection title="Paused list lines" subtitle="gm-sync never guesses whose units disappeared. Tell it what happened.">
         {paused.length === 0 ? <p className="text-sm text-muted-foreground">No paused lines.</p> : (
           <ul className="space-y-2">
             {paused.map(line => (
-              <li key={`${line.installationId}:${line.retailerProductId}`} className="space-y-1 rounded border border-border p-2 text-sm">
+              <li key={`${line.installationId}:${line.retailerProductId}`} className="space-y-1 rounded-md border border-border bg-muted/20 p-3 text-sm">
                 <div><span className="font-semibold">{line.productName}</span> · {PAUSE_LABELS[line.pausedReason ?? ''] ?? line.pausedReason} · now {line.pausedObservedQty ?? 0}, last written {line.lastWrittenQty}</div>
                 <div className="flex flex-wrap gap-2">
                   {(['user_units_removed', 'readd', 'release'] as const).map(resolution => (
@@ -190,7 +205,7 @@ function OverviewTab({ overview, reload }: { overview: ShopOverview; reload: () 
             ))}
           </ul>
         )}
-      </AppCardSection>
+      </ShopSection>
     </div>
   );
 }
@@ -201,9 +216,11 @@ interface MappingRow {
   retailerProductId: string;
   retailerProductName: string;
   targetKind: string;
+  targetId: string;
   targetName: string;
   role: string;
   packageBaseAmount: number | null;
+  packageBaseUnitId: string | null;
   packageBaseUnitName: string | null;
   packageSource: string | null;
   confirmed: boolean;
@@ -222,6 +239,9 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
   const [productQuery, setProductQuery] = useState('');
   const [productFilter, setProductFilter] = useState<'all' | 'available' | 'mapped'>('all');
   const [editing, setEditing] = useState<ProductRow | null>(null);
+  const [showAllSuggestions, setShowAllSuggestions] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const activeProvider = providerId || providers[0] || '';
   const connected = overview.installations.find(installation => installation.providerId === activeProvider && installation.connected);
 
@@ -240,6 +260,8 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
     return () => window.clearInterval(interval);
   }, [load]);
 
+  useEffect(() => { setOffset(0); }, [productQuery, productFilter, activeProvider]);
+
   if (!activeProvider) return <p className="text-sm text-muted-foreground">Connect a plugin first; mappings are kept per retailer.</p>;
   const mappingByProduct = new Map((data?.mappings ?? []).map(mapping => [mapping.retailerProductId, mapping]));
   const products = data?.products ?? [];
@@ -253,9 +275,19 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
     return !normalizedQuery || `${product.name} ${mapping?.targetName ?? ''}`.toLocaleLowerCase().includes(normalizedQuery);
   }).sort((a, b) => collator.compare(a.name, b.name) || collator.compare(a.externalId, b.externalId));
 
+  const pageWindow = buildPageWindow(visibleProducts, offset, pageSize);
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="min-w-0 space-y-4">
+      <div className="flex flex-wrap items-center gap-4">
+        <ProgressRing value={mappedCount} max={products.length} size={44} color={mappedCount < products.length ? '#fbbf24' : '#4ade80'} />
+        <div>
+          <p className="text-xs font-bold text-text-1">Retailer product mappings</p>
+          <p className="text-[11px] text-text-3">{mappedCount} mapped · {products.length - mappedCount} available to map</p>
+        </div>
+        {data?.suggestions.length ? <AppBadge tone="accent" small>{data.suggestions.length} suggestions</AppBadge> : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
         {providers.length > 1 ? (
           <AppSelect value={activeProvider} onChange={event => setProviderId(event.target.value)} aria-label="Retailer">
             {providers.map(id => <option key={id} value={id}>{id}</option>)}
@@ -280,10 +312,10 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
       </div>
 
       {data?.searches?.length ? (
-        <AppCardSection title="Shopping ingredients to map" subtitle="New Mealie ingredients are searched automatically. Choose a product below and confirm its package amount before it goes to the retailer list.">
+        <ShopSection title="Shopping ingredients to map" subtitle="New Mealie ingredients are searched automatically. Choose a product below and confirm its package amount before it goes to the retailer list.">
           <ul className="space-y-2 text-sm">
             {data.searches.map(search => (
-              <li key={search.id} className="rounded border border-border p-2">
+              <li key={search.id} className="rounded-md border border-border bg-muted/20 p-3">
                 <span className="font-semibold">{search.targetName}</span>{' · '}
                 {search.status === 'pending' ? 'Waiting for the connected plugin to search' : search.status === 'error'
                   ? search.lastError : search.resultCount ? `Found ${search.resultCount} products; review the suggestions or use Map below` : 'No products found; try a manual catalogue search'}
@@ -295,25 +327,26 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
               </li>
             ))}
           </ul>
-        </AppCardSection>
+        </ShopSection>
       ) : null}
 
       {data?.suggestions.length ? (
-        <AppCardSection title="Suggestions" subtitle="Each suggestion is decided once and never shown again.">
+        <ShopSection className="rounded-xl border border-primary/30 bg-primary/10 p-3 shadow-[0_0_20px_color-mix(in_oklab,var(--accent)_20%,transparent)]" title="Suggestions" subtitle="Choose a retailer product for your ingredient, then confirm its package amount.">
           <ul className="space-y-1 text-sm">
-            {data.suggestions.map(suggestion => (
-              <li key={suggestion.id} className="flex flex-wrap items-center gap-2">
+            {(showAllSuggestions ? data.suggestions : data.suggestions.slice(0, 5)).map(suggestion => (
+              <li key={suggestion.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-background/40 px-3 py-2">
                 <span>{data.products.find(product => product.externalId === suggestion.retailerProductId)?.name ?? suggestion.retailerProductId}</span>
-                <span className="text-muted-foreground">→ {suggestion.targetName} ({Math.round(suggestion.score * 100)}%)</span>
-                <Button size="sm" variant="outline" onClick={async () => { if (await post(`/api/shop/suggestions/${suggestion.id}`, { action: 'accept' }, 'Mapping created; confirm its package amount')) await load(); }}>Accept</Button>
-                <Button size="sm" variant="ghost" onClick={async () => { if (await post(`/api/shop/suggestions/${suggestion.id}`, { action: 'reject' }, 'Suggestion rejected')) await load(); }}>Reject</Button>
+                <ArrowRight className="size-3 shrink-0 text-text-3" /><span className="font-semibold text-primary">{suggestion.targetName}</span><AppBadge tone="accent" small>{Math.round(suggestion.score * 100)}%</AppBadge>
+                <Button size="sm" variant="outline" onClick={async () => { if (await post(`/api/shop/suggestions/${suggestion.id}`, { action: 'accept' }, 'Mapping created; confirm its package amount')) await load(); }}><Check className="size-3.5" /> Accept</Button>
+                <Button size="sm" variant="ghost" onClick={async () => { if (await post(`/api/shop/suggestions/${suggestion.id}`, { action: 'reject' }, 'Suggestion rejected')) await load(); }}><X className="size-3.5" /> Reject</Button>
               </li>
             ))}
           </ul>
-        </AppCardSection>
+          {data.suggestions.length > 5 ? <Button size="sm" variant="ghost" onClick={() => setShowAllSuggestions(value => !value)}>{showAllSuggestions ? 'Show fewer suggestions' : `Show ${data.suggestions.length - 5} more suggestions`}</Button> : null}
+        </ShopSection>
       ) : null}
 
-      <AppCardSection title="Retailer products" subtitle="Automatic list and receipt processing only uses confirmed mappings.">
+      <ShopSection title="Retailer products" subtitle="Automatic list and receipt processing only uses confirmed mappings.">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row">
           <AppInput className="min-w-0 flex-1" aria-label="Filter retailer products" placeholder="Filter by product or mapped ingredient" value={productQuery} onChange={event => setProductQuery(event.target.value)} />
           <AppSelect aria-label="Product mapping filter" value={productFilter} onChange={event => setProductFilter(event.target.value as typeof productFilter)}>
@@ -324,10 +357,10 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
         </div>
         {visibleProducts.length === 0 ? <p className="text-sm text-muted-foreground">No products match these filters.</p> : null}
         <ShopTable headers={['Product', 'Package', 'Mapped to', 'Amount per package', 'Actions']}>
-            {visibleProducts.map((product) => {
+            {pageWindow.rows.map((product) => {
               const mapping = mappingByProduct.get(product.externalId);
               return (
-                <tr key={product.externalId} data-testid="retailer-product">
+                <TableRow key={product.externalId} className={mapping ? 'bg-success/5' : undefined} data-testid="retailer-product">
                   <ShopCell label="Product"><span className="font-semibold">{product.name}</span></ShopCell>
                   <ShopCell label="Package">{product.measure === 'weight' ? 'by weight (per kg)' : `${product.packageAmount ?? ''} ${product.packageUnit ?? ''}`}</ShopCell>
                   <ShopCell label="Mapped to">
@@ -342,7 +375,7 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
                     ) : null}
                   </ShopCell>
                   <ShopCell label="Actions"><div className="flex flex-wrap gap-2 md:justify-end">
-                    <Button size="sm" variant="outline" onClick={() => setEditing(product)}>{mapping ? 'Change' : 'Map'}</Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditing(product)}><Link2 className="size-3.5" />{mapping ? 'Change' : 'Map'}</Button>
                     {mapping?.role === 'alternative' ? (
                       <Button size="sm" variant="outline" onClick={async () => {
                         try {
@@ -362,16 +395,17 @@ function ProductsTab({ overview }: { overview: ShopOverview }) {
                         } catch (error) {
                           toast.error('Could not remove the mapping', { description: (error as Error).message });
                         }
-                      }}>Remove</Button>
+                      }}><Unlink className="size-3.5" /> Remove</Button>
                     ) : null}
                   </div></ShopCell>
-                </tr>
+                </TableRow>
               );
             })}
         </ShopTable>
-      </AppCardSection>
+        <Pagination window={pageWindow} onOffsetChange={setOffset} onPageSizeChange={size => { setPageSize(size); setOffset(0); }} itemLabel="retailer products" />
+      </ShopSection>
 
-      {editing ? <MappingEditor providerId={activeProvider} product={editing} onClose={() => { setEditing(null); void load(); }} /> : null}
+      {editing ? <MappingEditor providerId={activeProvider} product={editing} mapping={mappingByProduct.get(editing.externalId) ?? null} onClose={() => { setEditing(null); void load(); }} /> : null}
     </div>
   );
 }
@@ -404,14 +438,17 @@ function MappingAmount({ mapping, onSaved }: { mapping: MappingRow; onSaved: () 
   );
 }
 
-function MappingEditor({ providerId, product, onClose }: { providerId: string; product: ProductRow; onClose: () => void }) {
-  const [query, setQuery] = useState(product.name);
+function MappingEditor({ providerId, product, mapping, onClose }: { providerId: string; product: ProductRow; mapping: MappingRow | null; onClose: () => void }) {
+  const [query, setQuery] = useState(mapping?.targetName ?? product.name);
   const [targets, setTargets] = useState<TargetOption[]>([]);
   const [mealieUnits, setMealieUnits] = useState<Array<{ id: string; name: string }>>([]);
-  const [selected, setSelected] = useState<TargetOption | null>(null);
-  const [mealieUnitId, setMealieUnitId] = useState('');
-  const [role, setRole] = useState<'preferred' | 'alternative'>('preferred');
-  const [amount, setAmount] = useState('');
+  const [selected, setSelected] = useState<TargetOption | null>(mapping && mapping.targetId ? {
+    kind: mapping.targetKind as TargetOption['kind'], id: mapping.targetId, name: mapping.targetName,
+    baseUnitId: mapping.packageBaseUnitId, baseUnitName: mapping.packageBaseUnitName,
+  } : null);
+  const [mealieUnitId, setMealieUnitId] = useState(mapping?.targetKind === 'mealie_food' ? mapping.packageBaseUnitId ?? '' : '');
+  const [role, setRole] = useState<'preferred' | 'alternative'>(mapping?.role === 'alternative' ? 'alternative' : 'preferred');
+  const [amount, setAmount] = useState(mapping?.packageBaseAmount?.toString() ?? '');
 
   async function search() {
     try {
@@ -477,6 +514,7 @@ function MappingEditor({ providerId, product, onClose }: { providerId: string; p
           onChange={event => setSelected(targets.find(target => `${target.kind}:${target.id}` === event.target.value) ?? null)}
         >
           <option value="">Choose a target…</option>
+          {selected && !targets.some(target => target.kind === selected.kind && target.id === selected.id) ? <option value={`${selected.kind}:${selected.id}`}>{selected.name}</option> : null}
           {targets.map(target => (
             <option key={`${target.kind}:${target.id}`} value={`${target.kind}:${target.id}`}>
               {target.kind === 'grocy_product' ? `Grocy: ${target.name} (${target.baseUnitName ?? 'stock unit'})` : `Mealie only: ${target.name}`}
@@ -517,11 +555,11 @@ function ReceiptsTab({ overview, reload }: { overview: ShopOverview; reload: () 
       </Button>
       {overview.receipts.length === 0 ? <p className="text-sm text-muted-foreground">No receipts stored yet.</p> : null}
       {overview.receipts.map(receipt => (
-        <AppCardSection key={receipt.id} title={`${when(receipt.purchasedAt)} ${receipt.storeLabel ?? ''}`} subtitle={`Status: ${receipt.status.replaceAll('_', ' ')}${receipt.totalCents !== null ? ` · total ${money(receipt.totalCents)}` : ''}`}>
+        <ShopSection key={receipt.id} title={`${when(receipt.purchasedAt)} ${receipt.storeLabel ?? ''}`} subtitle={`Status: ${receipt.status.replaceAll('_', ' ')}${receipt.totalCents !== null ? ` · total ${money(receipt.totalCents)}` : ''}`}>
           {receipt.lines.length === 0 ? <p className="text-xs text-muted-foreground">Bought before receipt processing was enabled; kept as a header only.</p> : (
             <ShopTable headers={['Line', 'Qty', 'Amount', 'Status', 'Attribution']}>
                 {receipt.lines.map(line => (
-                  <tr key={line.id}>
+                  <TableRow key={line.id}>
                     <ShopCell label="Line">{line.description}</ShopCell>
                     <ShopCell label="Qty">{line.quantity} {line.unit}</ShopCell>
                     <ShopCell label="Amount">{money(line.amountCents)}</ShopCell>
@@ -529,11 +567,11 @@ function ReceiptsTab({ overview, reload }: { overview: ShopOverview; reload: () 
                     <ShopCell label="Attribution"><span className="text-xs text-muted-foreground">
                       {line.links.map(link => `${link.kind} ${Math.round(link.baseAmount * 1000) / 1000}`).join(', ')}
                     </span></ShopCell>
-                  </tr>
+                  </TableRow>
                 ))}
             </ShopTable>
           )}
-        </AppCardSection>
+        </ShopSection>
       ))}
     </div>
   );
@@ -542,27 +580,27 @@ function ReceiptsTab({ overview, reload }: { overview: ShopOverview; reload: () 
 function ReviewTab({ overview, reload }: { overview: ShopOverview; reload: () => Promise<void> }) {
   return (
     <div className="space-y-4">
-      <AppCardSection title="Receipt lines to review" subtitle="Nothing here was booked. Map the product, confirm a one-off substitution, or dismiss the line.">
+      <ShopSection title="Receipt lines to review" subtitle="Nothing here was booked. Map the product, confirm a one-off substitution, or dismiss the line.">
         {overview.review.length === 0 ? <p className="text-sm text-muted-foreground">Nothing to review.</p> : (
           <ul className="space-y-3">
             {overview.review.map(line => <ReviewLine key={line.id} line={line} overview={overview} reload={reload} />)}
           </ul>
         )}
-      </AppCardSection>
+      </ShopSection>
 
-      <AppCardSection title="Stock discrepancies" subtitle="A manual check booked something that differs from what the receipt shows.">
+      <ShopSection title="Stock discrepancies" subtitle="A manual check booked something that differs from what the receipt shows.">
         {overview.discrepancies.length === 0 ? <p className="text-sm text-muted-foreground">No open discrepancies.</p> : (
           <ul className="space-y-3">
             {overview.discrepancies.map(discrepancy => <DiscrepancyItem key={discrepancy.id} discrepancy={discrepancy} reload={reload} />)}
           </ul>
         )}
-      </AppCardSection>
+      </ShopSection>
 
-      <AppCardSection title="Writes needing a decision" subtitle="These writes have an unknown outcome or failed. They are never retried automatically.">
+      <ShopSection title="Writes needing a decision" subtitle="These writes have an unknown outcome or failed. They are never retried automatically.">
         {overview.effects.length === 0 ? <p className="text-sm text-muted-foreground">All writes are settled.</p> : (
           <ul className="space-y-2">
             {overview.effects.map(effect => (
-              <li key={effect.id} className="space-y-1 rounded border border-border p-2 text-sm" data-testid="uncertain-effect">
+              <li key={effect.id} className="space-y-1 rounded-md border border-border bg-muted/20 p-3 text-sm" data-testid="uncertain-effect">
                 <div>
                   <span className="font-semibold">{String((effect.payload as { label?: string }).label ?? effect.kind)}</span>{' '}
                   <AppBadge small tone={effect.status === 'unknown' ? 'warning' : 'error'}>{effect.status.replace('_', ' ')}</AppBadge>{' '}
@@ -583,7 +621,7 @@ function ReviewTab({ overview, reload }: { overview: ShopOverview; reload: () =>
             ))}
           </ul>
         )}
-      </AppCardSection>
+      </ShopSection>
     </div>
   );
 }
@@ -611,7 +649,7 @@ function ReviewLine({ line, overview, reload }: { line: ShopOverview['review'][n
   const selectedProduct = targets.find(target => target.id === productId);
 
   return (
-    <li className="space-y-2 rounded border border-border p-2 text-sm" data-testid="review-line">
+    <li className="space-y-2 rounded-md border border-border bg-muted/20 p-3 text-sm" data-testid="review-line">
       <div>
         <span className="font-semibold">{line.description}</span> · {line.quantity} {line.unit} {line.amountCents !== null ? `· ${money(line.amountCents)}` : ''} ·{' '}
         <span className="text-muted-foreground">{REVIEW_LABELS[line.reviewReason ?? ''] ?? line.reviewReason}</span>
@@ -690,7 +728,7 @@ function DiscrepancyItem({ discrepancy, reload }: { discrepancy: ShopOverview['d
   const productId = evidence.productId ?? evidence.bookings?.[0]?.productId;
   if (discrepancy.kind === 'check_after_receipt') {
     return (
-      <li className="space-y-2 rounded border border-border p-2 text-sm" data-testid="discrepancy">
+      <li className="space-y-2 rounded-md border border-border bg-muted/20 p-3 text-sm" data-testid="discrepancy">
         <div className="font-semibold">A shopping row was checked off while a receipt was already fulfilling it. Nothing was booked for the check yet.</div>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" onClick={async () => {
@@ -704,7 +742,7 @@ function DiscrepancyItem({ discrepancy, reload }: { discrepancy: ShopOverview['d
     );
   }
   return (
-    <li className="space-y-2 rounded border border-border p-2 text-sm" data-testid="discrepancy">
+    <li className="space-y-2 rounded-md border border-border bg-muted/20 p-3 text-sm" data-testid="discrepancy">
       <div className="font-semibold">
         {discrepancy.kind === 'over_booked_manual_check'
           ? `A manual check booked ${evidence.bookedAmount}, the receipt shows ${evidence.receiptAmount}.`

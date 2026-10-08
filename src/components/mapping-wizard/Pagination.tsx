@@ -29,7 +29,7 @@ export function Pagination({
         Showing {describePageRange(window)} {itemLabel}
       </span>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
           Per page
           <NativeSelect

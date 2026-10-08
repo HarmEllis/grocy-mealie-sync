@@ -155,11 +155,13 @@ try {
   const mobileProduct = { providerId: 'synthetic-shop', externalId: '123', name: 'Synthetic cherry tomatoes with a deliberately long product name', packageAmount: 250, packageUnit: 'g', measure: 'unit' };
   let mobileRole = 'alternative';
   let confirmedAmount = null;
+  let extraProducts = [];
+  let extraSuggestions = [];
   await page.unroute('**/api/shop/mappings?*');
   await page.route('**/api/shop/mappings?*', route => route.fulfill({ json: {
-    products: [mobileProduct, { ...mobileProduct, externalId: '456', name: 'Aubergine' }], suggestions: [], searches: [],
+    products: [mobileProduct, { ...mobileProduct, externalId: '456', name: 'Aubergine' }, ...extraProducts], suggestions: extraSuggestions, searches: [],
     mappings: [{ id: 'mobile-mapping', providerId: 'synthetic-shop', retailerProductId: '123', retailerProductName: mobileProduct.name,
-      targetKind: 'grocy_product', targetName: 'Cherry tomaten', role: mobileRole, packageBaseAmount: confirmedAmount,
+      targetKind: 'grocy_product', targetId: '79', packageBaseUnitId: '11', targetName: 'Cherry tomaten', role: mobileRole, packageBaseAmount: confirmedAmount,
       packageBaseUnitName: 'Doos', confirmed: confirmedAmount !== null }],
   } }));
   await page.route('**/api/shop/mappings/mobile-mapping', route => {
@@ -189,6 +191,7 @@ try {
     for (const tab of ['Overview', 'Products', 'Receipts', 'Review']) {
       await page.getByRole('tab', { name: new RegExp(`^${tab}`) }).click();
       await assertNoPageOverflow(`${width}px ${tab}`);
+      if (width === 390) await page.screenshot({ path: `/tmp/gms-shop-${tab.toLowerCase()}-mobile.png`, fullPage: true });
     }
     await page.getByRole('tab', { name: 'Products', exact: true }).click();
     const rows = page.getByTestId('retailer-product');
@@ -206,13 +209,29 @@ try {
     const row = rows.first();
     await row.waitFor();
     assert.equal(await row.evaluate(node => getComputedStyle(node).display), width < 768 ? 'block' : 'table-row');
+    if (width === 390 || width === 1280) await page.screenshot({ path: `/tmp/gms-shop-products-${width}.png`, fullPage: true });
     await row.getByRole('button', { name: 'Change', exact: true }).click();
     await page.getByRole('dialog').waitFor();
+    assert.equal(await page.getByLabel('Role', { exact: true }).inputValue(), 'alternative', 'editing preserves the current role');
+    assert.equal(await page.getByLabel('Target', { exact: true }).inputValue(), 'grocy_product:79', 'editing preserves the current target');
     await page.getByLabel('Target', { exact: true }).selectOption('grocy_product:79');
     await assertNoPageOverflow(`${width}px mapping editor`);
     if (width === 390) await page.screenshot({ path: '/tmp/gms-shop-mobile.png', fullPage: true });
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   }
+  // Reuse the Mapping pager and reset it when filters narrow the result set.
+  extraProducts = Array.from({ length: 60 }, (_, index) => ({ ...mobileProduct, externalId: `extra-${index}`, name: `Available product ${String(index).padStart(2, '0')}` }));
+  await page.getByRole('tab', { name: 'Overview', exact: true }).click();
+  await page.getByRole('tab', { name: 'Products', exact: true }).click();
+  await page.getByLabel('Filter retailer products').fill('');
+  await page.getByLabel('Product mapping filter').selectOption('all');
+  await page.getByText('Showing 1-50 of 62 retailer products').waitFor();
+  assert.equal(await page.getByTestId('retailer-product').count(), 50);
+  await page.getByRole('button', { name: 'Next page of retailer products' }).click();
+  await page.getByText('Showing 51-62 of 62 retailer products').waitFor();
+  assert.equal(await page.getByTestId('retailer-product').count(), 12);
+  await page.getByLabel('Filter retailer products').fill('Cherry tomaten');
+  await page.getByText('Showing 1-1 of 1 retailer products').waitFor();
   await page.setViewportSize({ width: 360, height: 900 });
   await page.getByTestId('retailer-product').getByLabel('Amount per package').fill('1');
   await page.getByTestId('retailer-product').getByRole('button', { name: 'Confirm', exact: true }).click();
@@ -223,6 +242,16 @@ try {
   assert.equal(mobileRole, 'preferred', 'changing role keeps the confirmed package amount');
   assert.equal(confirmedAmount, 1);
   await page.setViewportSize({ width: 1280, height: 1000 });
+  extraSuggestions = Array.from({ length: 7 }, (_, index) => ({ id: `proposal-${index}`, retailerProductId: '456', targetKind: 'grocy_product', targetId: String(index), targetName: `Suggested ingredient ${index}`, score: 0.9 }));
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.getByRole('tab', { name: 'Products', exact: true }).click();
+  await page.getByRole('button', { name: 'Show 2 more suggestions' }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Accept', exact: true }).count(), 5);
+  await page.getByRole('button', { name: 'Show 2 more suggestions' }).click();
+  assert.equal(await page.getByRole('button', { name: 'Accept', exact: true }).count(), 7);
+  await page.getByRole('button', { name: 'Show fewer suggestions' }).click();
+  assert.equal(await page.getByRole('button', { name: 'Accept', exact: true }).count(), 5);
+  await page.screenshot({ path: '/tmp/gms-shop-suggestions-desktop.png', fullPage: true });
   await page.unroute('**/api/shop/mappings/mobile-mapping');
   await page.unroute('**/api/shop/targets?*');
   await page.unroute('**/api/shop/overview');
@@ -249,7 +278,7 @@ try {
   await page.getByText('No shop plugins yet.').waitFor({ timeout: 30_000 });
 
   assert.deepEqual(pageErrors, [], 'no client-side errors');
-  console.log('Shop UI: token issuing, hiding, rotation, revocation and Shopping tabs passed.');
+  console.log('Shop UI: plugin setup, mobile dialogs, responsive tabs, filters, sorting, pagination, suggestions and mapping actions passed.');
 } catch (error) {
   console.error(error);
   console.error('----- server output (last 6000 characters) -----');
