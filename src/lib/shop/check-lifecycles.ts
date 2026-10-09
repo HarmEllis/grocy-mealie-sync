@@ -19,6 +19,7 @@ import {
   defaultEffectRunnerDeps,
   runGrocyAddEffect,
   verifyGrocyAddEffect,
+  type CheckConversion,
   type EffectRunnerDeps,
   type GrocyAddPayload,
 } from './effect-runners';
@@ -122,12 +123,17 @@ export function checkEffectKey(lifecycleId: string, grocyProductId: number): str
   return `check:${lifecycleId}:grocy_add:${grocyProductId}`;
 }
 
-export type CheckBookingResult = 'applied' | 'already_applied';
+/** Current payload version of check bookings; version 2 amounts are converted to the stock unit. */
+export const CHECK_PAYLOAD_VERSION = 2;
+
+/** `cancelled`: the booking was dropped without writing anything; nothing may be reported as booked. */
+export type CheckBookingResult = 'applied' | 'already_applied' | 'cancelled';
 
 /**
  * Book stock for a checked row through the ledger.
  * Throws the original error when the write definitely failed (safe to retry),
  * and `UncertainWriteError` when the outcome is unknown (never retried).
+ * A retry of the same lifecycle and product re-uses the first persisted amount.
  */
 export async function bookCheckStock(
   lifecycle: Pick<CheckLifecycleRow, 'id'>,
@@ -135,6 +141,7 @@ export async function bookCheckStock(
   amount: number,
   label: string,
   deps: Partial<EffectRunnerDeps> = {},
+  conversion?: CheckConversion,
 ): Promise<CheckBookingResult> {
   const runnerDeps: EffectRunnerDeps = { ...defaultEffectRunnerDeps, ...deps };
   const effect = ensureEffect<GrocyAddPayload>({
@@ -142,13 +149,15 @@ export async function bookCheckStock(
     kind: 'grocy_add',
     sourceKind: 'check',
     sourceRef: lifecycle.id,
-    payload: { productId, amount, label },
+    payload: { productId, amount, label, v: CHECK_PAYLOAD_VERSION, ...(conversion ? { conversion } : {}) },
   });
   if (effect.status === 'applied') return 'already_applied';
   if (effect.status === 'unknown' || effect.status === 'in_flight') {
     throw new UncertainWriteError(effect.id, `Earlier booking of "${label}" has an unknown outcome and needs review.`, productId);
   }
-  if (effect.status === 'cancelled' || effect.status === 'superseded') return 'already_applied';
+  if (effect.status === 'cancelled') return 'cancelled';
+  // A receipt booked this purchase instead; the stock is in Grocy.
+  if (effect.status === 'superseded') return 'already_applied';
 
   let failure: unknown = null;
   const capturingDeps: EffectRunnerDeps = {
@@ -218,6 +227,10 @@ export async function reconcileCheckLifecycles(
         // The user decided the booking did not happen: process the row again.
         setLifecycleStatus(lifecycle.id, 'retry', now);
         result.retryRequested.push(lifecycle.mealieItemId);
+      } else if (statuses.includes('cancelled')) {
+        // Settled, but not everything was booked: the row is not synced. Applied
+        // bookings keep the lifecycle completed so receipts still credit them.
+        setLifecycleStatus(lifecycle.id, statuses.includes('applied') ? 'completed' : 'skipped', now);
       } else {
         setLifecycleStatus(lifecycle.id, 'completed', now);
         result.completedItemIds.push(lifecycle.mealieItemId);
@@ -272,6 +285,9 @@ export interface LifecycleBooking {
   amount: number;
   status: string;
   transactionId: string | null;
+  label: string | null;
+  version: number | null;
+  conversion: CheckConversion | null;
 }
 
 export function getLifecycleBookings(lifecycleId: string): LifecycleBooking[] {
@@ -283,8 +299,38 @@ export function getLifecycleBookings(lifecycleId: string): LifecycleBooking[] {
         amount: effect.payload.amount,
         status: effect.status,
         transactionId: effect.externalRef,
+        label: effect.payload.label ?? null,
+        version: typeof effect.payload.v === 'number' ? effect.payload.v : null,
+        conversion: effect.payload.conversion ?? null,
       };
     });
+}
+
+/**
+ * Retire the open lifecycle of a normal (single-product) checked row whose
+ * only bookings predate unit conversion and never reached Grocy. Their amount
+ * may be in recipe units ("400" for 400 g), and lifecycles store no unit to
+ * prove otherwise, so they are cancelled instead of retried; the next booking
+ * starts a fresh, converted lifecycle. Lifecycles with any applied, uncertain
+ * or current-version booking are left alone, and so are lifecycles with a
+ * review: a decision made for them must keep applying. Never call this for
+ * sub-product rows: their amounts are stock amounts and they may be partially
+ * applied.
+ */
+export function retireLegacyCheckLifecycle(mealieItemId: string, now = new Date()): LifecycleBooking[] {
+  const open = findOpenLifecycle(mealieItemId);
+  if (!open) return [];
+  if (db.select().from(discrepancies).where(eq(discrepancies.lifecycleId, open.id)).get()) return [];
+  const bookings = getLifecycleBookings(open.id);
+  if (bookings.length === 0) return [];
+  const retryable = bookings.every(booking => booking.version === null && (booking.status === 'planned' || booking.status === 'not_applied'));
+  if (!retryable) return [];
+  for (const booking of bookings) {
+    completeEffect(booking.effectId, { status: 'cancelled', fromStatuses: ['planned', 'not_applied'] }, undefined, now);
+  }
+  db.update(checkLifecycles).set({ status: 'cancelled', closedReason: 'legacy_amount', closedAt: now, updatedAt: now })
+    .where(eq(checkLifecycles.id, open.id)).run();
+  return bookings;
 }
 
 export function getLifecycle(id: string): CheckLifecycleRow | null {

@@ -25,7 +25,7 @@ Bi-directional sync service between [Grocy](https://grocy.info/) (inventory mana
 1. **Product & unit sync** — Matches products and units between Grocy and Mealie by name. Can create missing items in Grocy when auto-create is enabled (off by default).
 2. **Grocy → Mealie** — When stock drops below minimum in Grocy, the item is added to your Mealie shopping list. Optionally, the app can keep checking that those below-min items still exist as unchecked Mealie list items and recreate them if needed.
 3. **Grocy → Mealie possession sync** — For mapped products, Mealie's `In possession` flag can be kept in sync with Grocy stock. You can choose whether any stock above `0` counts, or only stock strictly above `min_stock_amount`.
-4. **Mealie → Grocy** — Checking off a mapped item adds Grocy stock and removes it from Grocy's shopping list. By default, only products with a minimum stock greater than zero are restocked.
+4. **Mealie → Grocy** — Checking off a mapped item adds Grocy stock and removes it from Grocy's shopping list. The row's amount is converted to the Grocy stock unit first, so "400 g chickpeas" books one 400 g can. By default, only products with a minimum stock greater than zero are restocked.
 5. **Retailer shopping lists & receipts** — Optional external shop plugins send open Mealie demand to a retailer list and reconcile digital receipts with Grocy and Mealie.
 6. **Barcode scanner** — The companion [grocy-mealie-scanner](https://github.com/HarmEllis/grocy-mealie-scanner) uses this app's device API for purchases, consumption, opening stock and shopping-list requests.
 
@@ -418,8 +418,13 @@ For the default unit, the dropdown only shows units that were synced from Mealie
 ### Grocy → Mealie (stock below minimum)
 - Polls Grocy's volatile stock endpoint for `missing_products`
 - Newly missing products are added to the configured Mealie shopping list
-- The Mealie shopping-list unit is derived from the current Grocy purchase unit (`qu_id_purchase`) through the stored unit mapping
-- If the item already exists (unchecked) on the list, the quantity is updated instead of creating a duplicate
+- The missing amount is a Grocy stock amount, so the row is labelled with the Mealie unit mapped to the Grocy stock unit (`qu_id_stock`); without such a mapping the row has no unit and shows a count
+- If an unchecked row for the product already exists in that same unit and did not come from a recipe, its quantity is updated instead of creating a duplicate. Recipe rows and rows in another unit (such as "400 g") are never changed; the sync adds its own row next to them
+
+### Mealie → Grocy (checked items)
+- A checked row is booked in the Grocy stock unit. Rows in the stock unit are booked as they are; other units are converted through the app's unit mappings and Grocy's unit conversions, including one intermediate step (`1 kg` → `1000 g` → `1 bag` with a `1 bag = 1000 g` product conversion)
+- A row without a unit counts in the stock unit when the product is bought and stocked in the same unit, or when the stock unit counts pieces
+- When the amount cannot be converted exactly (no conversion, an empty unit for a product bought in another unit, or the purchase unit of a product stocked in a different unit), nothing is booked and the history shows a warning. Add the stock manually, or add a conversion and uncheck and re-check the row
 - When `ENSURE_LOW_STOCK_ON_MEALIE_LIST` is enabled, each poll also checks that every mapped below-min product still has an unchecked Mealie list item and recreates it if needed
 - The manual `POST /api/sync/grocy-to-mealie/ensure` endpoint runs that full presence check immediately, even if the setting is disabled
 

@@ -31,6 +31,18 @@ export interface GrocyAddPayload {
   price?: number;
   shoppingLocationId?: number;
   label?: string;
+  /** Check bookings: payload format version; absent on bookings from before unit conversion. */
+  v?: number;
+  /** Check bookings: how the Mealie row was converted into the stock amount. */
+  conversion?: CheckConversion;
+}
+
+/** Provenance of a converted check-off amount. */
+export interface CheckConversion {
+  mealieQuantity: number;
+  mealieUnitId: string | null;
+  mealieUnitName: string | null;
+  factor: number;
 }
 
 export interface GrocyConsumePayload {
