@@ -201,10 +201,16 @@ grocy-mealie-sync only touches lines it created or adopted. When it adopts a
 line that already existed, the existing quantity is the household's baseline
 and is never removed. Units added by others raise the baseline. Because
 quantities alone cannot tell whose units disappeared, any unexplained
-reduction, missing line, duplicate line or reused line **pauses** that line.
+reduction, duplicate line or reused line **pauses** that line.
 The *Shopping* page then asks what happened: someone removed their own units,
 add ours again, or release the line. A released line stays untouched until
 new demand produces a newer export.
+
+If a managed product line is deleted in the retailer app, the next sync
+restores the packages still needed by Mealie. Deleted household quantities
+are not restored. Existing “line disappeared” pauses recover automatically.
+To stop sending a product, remove it from Mealie or update your stock so it
+is no longer needed. Missing lines with no remaining demand are forgotten.
 
 Demand is summed per retailer product in the base unit before rounding to
 whole packages, so one package can serve several shopping rows. Every export

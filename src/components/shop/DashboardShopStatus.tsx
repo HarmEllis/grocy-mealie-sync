@@ -26,9 +26,13 @@ export function DashboardShopStatus({ initialStatus = null, timeZone, locale, de
   const unavailable = shared.unavailable || Boolean(shared.status && !shared.status.shop);
 
   if (!status) return details ? <p className="text-sm text-text-3">{unavailable ? 'Status unavailable' : 'Loading sync status…'}</p> : null;
-  if (!details && !status.receipts.length && !status.lastJob) return null;
+  if (!details && !status.receipts.length) return null;
   const date = (value: string | null) => formatDateTime(value, { fallback: 'Never', timeZone, locale });
   const countdown = (value: string | null) => formatRunCountdown(value, now, unavailable, 'Due / waiting for worker');
+  const lastReceiptCheck = status.receipts.reduce<string | null>((latest, receipt) => {
+    if (!receipt.lastCheckedAt) return latest;
+    return !latest || Date.parse(receipt.lastCheckedAt) > Date.parse(latest) ? receipt.lastCheckedAt : latest;
+  }, null);
   const nextReceiptCheck = status.receipts.reduce<string | null>((earliest, receipt) => {
     if (!receipt.nextCheckAt) return earliest;
     return !earliest || Date.parse(receipt.nextCheckAt) < Date.parse(earliest) ? receipt.nextCheckAt : earliest;
@@ -36,8 +40,8 @@ export function DashboardShopStatus({ initialStatus = null, timeZone, locale, de
 
   const summary = <>
     <div>
-      <p className="text-[11px] font-bold tracking-wider text-text-3 uppercase">Last shopping job</p>
-      <p className="font-mono text-sm font-semibold text-text-1">{date(status.lastJob?.finishedAt ?? null)}{details && status.lastJob ? ` · ${status.lastJob.status}` : ''}</p>
+      <p title="Latest receipt fetch attempt, including failed checks" className="text-[11px] font-bold tracking-wider text-text-3 uppercase">Last receipt fetch</p>
+      <p className="font-mono text-sm font-semibold text-text-1">{date(lastReceiptCheck)}</p>
     </div>
     <div>
       <p className="text-[11px] font-bold tracking-wider text-text-3 uppercase">Next receipt fetch</p>
@@ -54,6 +58,10 @@ export function DashboardShopStatus({ initialStatus = null, timeZone, locale, de
     </div>
     <div className="mt-3 flex flex-wrap gap-6 text-sm">
       {summary}
+      <div>
+        <p className="text-[11px] font-bold tracking-wider text-text-3 uppercase">Last shopping job</p>
+        <p className="font-mono text-sm font-semibold text-text-1">{date(status.lastJob?.finishedAt ?? null)}{status.lastJob ? ` · ${status.lastJob.status}` : ''}</p>
+      </div>
     </div>
     <div className="mt-3 space-y-3">
       {!status.receipts.length ? <p className="text-sm text-text-3">No shop plugins installed.</p> : null}

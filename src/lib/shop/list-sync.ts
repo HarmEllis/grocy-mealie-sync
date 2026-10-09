@@ -211,9 +211,9 @@ async function sendApply(installationId: string, pending: PendingApply, deps: Li
       log.info(`[Shop] ${message}`);
       events.push(activityEvent({ source: 'App', target: 'App', category: 'shopping', productName,
         entityRef: `retailer:${installation?.providerId}:${planned.retailerProductId}`, message,
-        reason: op.op === 'add_note' || op.op === 'remove_note'
+        reason: planned.auditReason ?? (op.op === 'add_note' || op.op === 'remove_note'
           ? 'The retailer no longer sells this product, so the shared list carries a note instead.'
-          : 'The plugin confirmed this shopping list operation.',
+          : 'The plugin confirmed this shopping list operation.'),
         details: { installationId, retailerProductId: planned.retailerProductId, operation: op.op, quantity, managedQuantity: planned.onApplied?.managedQty ?? 0 },
       }));
     }

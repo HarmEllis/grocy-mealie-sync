@@ -4,8 +4,9 @@ import type { ListOp, ListOpResult, ShopList } from '../plugins/protocol/v1';
  * Pure planning of shared shopping list writes.
  *
  * gm-sync only touches lines it has an ownership record for. Quantities alone
- * cannot tell whose units disappeared, so any unexplained reduction pauses all
- * destructive operations (and re-adds) for that line until the user decides.
+ * cannot tell whose units disappeared from a reduced line, so unexplained
+ * reductions pause that line until the user decides. Missing product lines
+ * are restored from current Mealie demand, without restoring household units.
  * Units added by others are always kept. Duplicate lines for one product, or a
  * remembered line that now holds another product, also pause instead of
  * editing whichever line happens to match first.
@@ -34,6 +35,7 @@ export interface LineRecord {
  * a replacement note. Nothing is sent; the line waits for review or a plugin
  * update. Only `release` resolves it by hand.
  */
+// `line_missing` is legacy state; missing product lines now recover automatically.
 export type PauseReason = 'reduced_by_other' | 'line_missing' | 'duplicate_lines' | 'line_reused' | 'released' | 'notes_unsupported';
 
 export interface DesiredLine {
@@ -51,6 +53,8 @@ export interface PlannedOp {
   retailerProductId: string;
   kind: LineKind;
   op: ListOp;
+  /** Explanation retained across retries for the confirmed history event. */
+  auditReason?: string;
   /** Record state to commit once the plugin reports the op as applied. */
   onApplied: LineRecord | null;
   /** Record state to commit on `conflict`; undefined keeps the record unchanged. */
@@ -93,7 +97,7 @@ function linesForProduct(list: ShopList, retailerProductId: string) {
 }
 
 /** Plan adopting or adding a product that has no (active) ownership record. */
-function planFresh(plan: ListSyncPlan, list: ShopList, retailerProductId: string, wanted: number): void {
+function planFresh(plan: ListSyncPlan, list: ShopList, retailerProductId: string, wanted: number, auditReason?: string): void {
   const matches = linesForProduct(list, retailerProductId);
   if (matches.length > 1) {
     plan.immediate.push({ retailerProductId, kind: 'product', record: {
@@ -112,6 +116,7 @@ function planFresh(plan: ListSyncPlan, list: ShopList, retailerProductId: string
       retailerProductId,
       kind: 'product',
       op: { op: 'set', lineId: existing.lineId, quantity: target, expectedQuantity: existing.quantity },
+      auditReason,
       onApplied: { ...emptyRecord(retailerProductId), lineId: existing.lineId, managedQty: wanted, baselineUserQty: existing.quantity, lastWrittenQty: target },
     });
     return;
@@ -120,6 +125,7 @@ function planFresh(plan: ListSyncPlan, list: ShopList, retailerProductId: string
     retailerProductId,
     kind: 'product',
     op: { op: 'add', retailerProductId, quantity: wanted },
+    auditReason,
     onApplied: { ...emptyRecord(retailerProductId), managedQty: wanted, lastWrittenQty: wanted },
   });
 }
@@ -169,7 +175,8 @@ export function planListSync(records: LineRecord[], desired: Map<string, Desired
       plan.immediate.push({ retailerProductId, kind: 'product', record: null });
       continue;
     }
-    if (record.pausedReason) continue;
+    // Older versions paused missing lines. Reconcile these from current demand too.
+    if (record.pausedReason && record.pausedReason !== 'line_missing') continue;
 
     let line = record.lineId ? list.lines.find(candidate => candidate.lineId === record.lineId) ?? null : null;
     if (!record.lineId) {
@@ -186,15 +193,13 @@ export function planListSync(records: LineRecord[], desired: Map<string, Desired
     }
 
     if (!line) {
-      if (record.lastWrittenQty === 0 && record.baselineUserQty === 0) {
-        if (wanted === 0) {
-          plan.immediate.push({ retailerProductId, kind: 'product', record: null });
-        } else if (!replacedByNote) {
-          planFresh(plan, list, retailerProductId, wanted);
-        }
-        continue;
+      if (wanted === 0) {
+        plan.immediate.push({ retailerProductId, kind: 'product', record: null });
+      } else if (!replacedByNote) {
+        // The retailer list is a projection of Mealie demand. A deletion there
+        // does not cancel it; adopt any replacement line using a fresh baseline.
+        planFresh(plan, list, retailerProductId, wanted, 'The managed product line disappeared from the retailer list. It was restored because Mealie still needs it.');
       }
-      plan.immediate.push({ retailerProductId, kind: 'product', record: { ...record, pausedReason: 'line_missing', pausedObservedQty: 0 } });
       continue;
     }
 
@@ -208,13 +213,13 @@ export function planListSync(records: LineRecord[], desired: Map<string, Desired
       baseline += observed - record.lastWrittenQty;
     }
     const target = baseline + wanted;
-    const next: LineRecord = { ...record, lineId: line.lineId, baselineUserQty: baseline, lastWrittenQty: observed };
+    const next: LineRecord = { ...record, lineId: line.lineId, baselineUserQty: baseline, lastWrittenQty: observed, pausedReason: null, pausedObservedQty: null };
 
     if (target === observed) {
       if (wanted === 0 && baseline > 0) {
         // Only the user's own units remain: stop managing their line.
         plan.immediate.push({ retailerProductId, kind: 'product', record: null });
-      } else if (next.baselineUserQty !== record.baselineUserQty || next.lineId !== record.lineId || record.managedQty !== wanted || record.lastWrittenQty !== observed) {
+      } else if (record.pausedReason || next.baselineUserQty !== record.baselineUserQty || next.lineId !== record.lineId || record.managedQty !== wanted || record.lastWrittenQty !== observed) {
         plan.immediate.push({ retailerProductId, kind: 'product', record: { ...next, managedQty: wanted } });
       }
       continue;

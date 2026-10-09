@@ -179,11 +179,38 @@ describe('shared list ownership', () => {
     expect(plan.ops[0].onApplied).toBeNull();
   });
 
-  it('pauses on any unexplained reduction or missing line', () => {
+  it('pauses on unexplained reductions of existing lines', () => {
     expect(planListSync([record({})], want(2), list([{ lineId: 'l1', retailerProductId: 'milk', description: '', quantity: 1 }])).immediate)
       .toEqual([{ retailerProductId: 'milk', kind: 'product', record: expect.objectContaining({ pausedReason: 'reduced_by_other', pausedObservedQty: 1 }) }]);
-    expect(planListSync([record({})], want(2), list([])).immediate)
-      .toEqual([{ retailerProductId: 'milk', kind: 'product', record: expect.objectContaining({ pausedReason: 'line_missing' }) }]);
+  });
+
+  it.each([null, 'line_missing'] as const)('restores missing products from current demand with pause %s', pausedReason => {
+    const plan = planListSync([record({ baselineUserQty: 3, lastWrittenQty: 5, pausedReason })], want(1), list([]));
+    expect(plan.immediate).toEqual([]);
+    expect(plan.ops.map(op => op.op)).toEqual([{ op: 'add', retailerProductId: 'milk', quantity: 1 }]);
+    expect(plan.ops[0].onApplied).toMatchObject({ managedQty: 1, baselineUserQty: 0, lastWrittenQty: 1, pausedReason: null });
+  });
+
+  it('forgets a missing line when Mealie no longer needs it, including its former household baseline', () => {
+    const plan = planListSync([record({ baselineUserQty: 3, lastWrittenQty: 5, pausedReason: 'line_missing' })], want(0), list([]));
+    expect(plan).toEqual({ ops: [], immediate: [{ retailerProductId: 'milk', kind: 'product', record: null }] });
+  });
+
+  it('adopts a replacement line with a fresh household baseline rather than duplicating it', () => {
+    const plan = planListSync([record({ baselineUserQty: 3, lastWrittenQty: 5 })], want(2), list([
+      { lineId: 'replacement', retailerProductId: 'milk', description: 'Milk', quantity: 1 },
+    ]));
+    expect(plan.ops.map(op => op.op)).toEqual([{ op: 'set', lineId: 'replacement', quantity: 3, expectedQuantity: 1 }]);
+    expect(plan.ops[0].onApplied).toMatchObject({ lineId: 'replacement', baselineUserQty: 1, managedQty: 2 });
+  });
+
+  it('still pauses if a disappeared line was replaced by duplicate lines', () => {
+    const plan = planListSync([record({ pausedReason: 'line_missing' })], want(2), list([
+      { lineId: 'replacement-a', retailerProductId: 'milk', description: 'Milk', quantity: 1 },
+      { lineId: 'replacement-b', retailerProductId: 'milk', description: 'Milk', quantity: 1 },
+    ]));
+    expect(plan.ops).toEqual([]);
+    expect(plan.immediate[0].record).toMatchObject({ pausedReason: 'duplicate_lines' });
   });
 
   it('pauses instead of editing duplicate or reused lines', () => {
@@ -316,6 +343,40 @@ describe('list sync', () => {
     await syncInstallationList(installation.id, { ...shop, now: () => new Date() });
     expect(shop.state.list.lines).toEqual([expect.objectContaining({ quantity: 3 })]);
     expect(db.select().from(shopListLines).all()).toEqual([]);
+  });
+
+  it.each([false, true])('restores deleted lines and clears legacy pauses (%s) only after a confirmed write', async legacyPause => {
+    const { installation } = createInstallation('Demo');
+    const shop = fakeShop({ listId: 'demo-list', lines: [
+      { lineId: 'household', retailerProductId: 'milk', description: 'Milk', quantity: 3 },
+    ] });
+    const deps = { ...shop, now: () => new Date() };
+    exportMilk(installation.id, 2);
+    await syncInstallationList(installation.id, deps);
+    expect(shop.state.list.lines[0].quantity).toBe(5);
+    shop.state.list.lines = [];
+    if (legacyPause) db.update(shopListLines).set({ pausedReason: 'line_missing', pausedObservedQty: 0 }).run();
+    exportMilk(installation.id, 1);
+    const failed = async (params: ListApplyParams): Promise<ListApplyResult> => ({
+      opId: params.opId, list: shop.state.list, results: [{ index: 0, status: 'failed', message: 'Try again' }],
+    });
+    expect(await syncInstallationList(installation.id, { ...deps, applyList: failed })).toMatchObject({ failed: 1, applied: 0 });
+    expect(db.select().from(shopListLines).all()[0]).toMatchObject({ managedQty: 2, baselineUserQty: 3, pausedReason: legacyPause ? 'line_missing' : null });
+    expect(await syncInstallationList(installation.id, deps)).toMatchObject({ status: 'ok', applied: 1, paused: 0 });
+    expect(shop.state.list.lines).toEqual([expect.objectContaining({ quantity: 1 })]);
+    expect(db.select().from(shopListLines).all()[0]).toMatchObject({ managedQty: 1, baselineUserQty: 0, pausedReason: null });
+    expect(db.select().from(historyEvents).all()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ reason: 'The managed product line disappeared from the retailer list. It was restored because Mealie still needs it.' }),
+    ]));
+    const calls = shop.applyList.mock.calls.length;
+    await syncInstallationList(installation.id, deps);
+    expect(shop.applyList).toHaveBeenCalledTimes(calls);
+    shop.state.list.lines = [];
+    persistExports(installation.id, 'demo-shop', []);
+    await syncInstallationList(installation.id, deps);
+    expect(shop.state.list.lines).toEqual([]);
+    expect(db.select().from(shopListLines).all()).toEqual([]);
+    expect(shop.applyList).toHaveBeenCalledTimes(calls);
   });
 
   it('re-sends the same opId after an unknown outcome and never applies twice', async () => {
