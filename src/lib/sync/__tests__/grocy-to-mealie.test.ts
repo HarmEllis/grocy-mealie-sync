@@ -1344,6 +1344,23 @@ describe('pollGrocyForMissingStock', () => {
       );
     });
 
+    it('keeps the previous parent deficit when the parent shortage cannot be written', async () => {
+      mockedGetGrocyEntities.mockImplementation((async (entity: string) => entity === 'quantity_units'
+        ? [{ id: 14, name: 'kilogram' }, { id: 9, name: 'zak' }]
+        : [
+          { id: 101, name: 'Flour', qu_id_stock: 14, qu_id_purchase: 9, parent_product_id: null, min_stock_amount: 2 },
+          { id: 104, name: 'Wheat flour', qu_id_stock: 14, qu_id_purchase: 9, parent_product_id: 101, min_stock_amount: 0 },
+        ]) as any);
+      mockedGetVolatileStock.mockResolvedValue({ missing_products: [] });
+      mockedGetCurrentStock.mockResolvedValue([{ product_id: 101, amount: 0 }] as any);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedCreate).not.toHaveBeenCalled();
+      const saved = mockedSaveSyncState.mock.calls.at(-1)![0];
+      expect(saved.grocyParentOwnStockDeficit).toEqual({});
+    });
+
     it('applies cross-poll delta using previous grocyParentOwnStockDeficit', async () => {
       // Previous poll stored a deficit of 2 for parent 101; now own stock rose to 1 → deficit 1
       mockedGetSyncState.mockResolvedValue(

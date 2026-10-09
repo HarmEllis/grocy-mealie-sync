@@ -468,11 +468,21 @@ export async function pollGrocyForMissingStock(
       state.grocyEffectiveParentByOriginalId = syncSubProducts
         ? Object.fromEntries(parentByProductId)
         : {};
-      state.grocyParentOwnStockDeficit = !syncParentOwnStock
+      const previousParentDeficit: Record<string, number> = state.grocyParentOwnStockDeficit ?? {};
+      const nextParentDeficit: Record<string, number> = !syncParentOwnStock
         ? {}
         : parentOwnStockCheckFailed
-          ? state.grocyParentOwnStockDeficit
+          ? previousParentDeficit
           : Object.fromEntries(parentOwnStockCurrentDeficit);
+      // A skipped parent keeps its previous own-stock deficit too, so it is retried.
+      if (syncParentOwnStock && !parentOwnStockCheckFailed) {
+        for (const id of skippedEffectiveIds) {
+          const key = String(id);
+          if (key in previousParentDeficit) nextParentDeficit[key] = previousParentDeficit[key];
+          else delete nextParentDeficit[key];
+        }
+      }
+      state.grocyParentOwnStockDeficit = nextParentDeficit;
     } else {
       log.warn('[Grocy→Mealie] No shopping list configured — skipping low-stock sync');
     }
