@@ -45,6 +45,10 @@ interface SearchableSelectProps<T extends string | number> {
   onChange: (value: T | null) => void;
   placeholder?: string;
   searchPlaceholder?: string;
+  /** Server-backed search skips local filtering of the fetched results. */
+  onSearchChange?: (query: string) => void;
+  /** Load remote options only when the user opens this control. */
+  onOpenChange?: (open: boolean) => void;
   ariaLabel?: string;
   className?: string;
   controlClassName?: string;
@@ -77,6 +81,8 @@ export function SearchableSelect<T extends string | number>({
   onChange,
   placeholder = 'Search...',
   searchPlaceholder,
+  onSearchChange,
+  onOpenChange,
   ariaLabel,
   className,
   controlClassName,
@@ -128,8 +134,8 @@ export function SearchableSelect<T extends string | number>({
   );
 
   const openOptions = useMemo<ReadonlyArray<Option<T>>>(
-    () => (open ? filterOptions({ options, query, limit, isValueExcluded, pinned: pinnedOption }) : NO_OPTIONS),
-    [open, options, query, limit, isValueExcluded, pinnedOption],
+    () => (open ? filterOptions({ options, query: onSearchChange ? '' : query, limit, isValueExcluded, pinned: pinnedOption }) : NO_OPTIONS),
+    [open, options, query, limit, isValueExcluded, pinnedOption, onSearchChange],
   );
 
   const listOptions = open ? openOptions : closedOptions;
@@ -165,12 +171,13 @@ export function SearchableSelect<T extends string | number>({
         open={open}
         onOpenChange={nextOpen => {
           setOpen(nextOpen);
+          onOpenChange?.(nextOpen);
           if (!nextOpen) {
             setQuery('');
           }
         }}
         inputValue={inputValue}
-        onInputValueChange={nextValue => setQuery(nextValue)}
+        onInputValueChange={(nextValue, details) => { setQuery(nextValue); if (details.reason === 'input-change') onSearchChange?.(nextValue); }}
         openOnInputClick
         autoHighlight
         highlightItemOnHover
@@ -198,6 +205,7 @@ export function SearchableSelect<T extends string | number>({
             )}
             onFocus={() => {
               if (!disabled) {
+                if (!open) onOpenChange?.(true);
                 setOpen(true);
                 setQuery('');
               }
@@ -218,7 +226,7 @@ export function SearchableSelect<T extends string | number>({
 
         <Combobox.Portal>
           <Combobox.Positioner sideOffset={4} className="z-[60]">
-            <Combobox.Popup className="overflow-auto rounded-md border border-input bg-popover shadow-md max-h-[200px] min-w-[var(--anchor-width)]">
+            <Combobox.Popup className="overflow-auto rounded-md border border-input bg-popover shadow-md max-h-[200px] min-w-[var(--anchor-width)] max-w-[calc(100vw-2rem)]">
               <Combobox.Empty className="px-2 py-1.5 text-sm text-muted-foreground">
                 No results
               </Combobox.Empty>
@@ -230,7 +238,7 @@ export function SearchableSelect<T extends string | number>({
                     index={index}
                     value={item}
                     className={cn(
-                      'cursor-pointer px-2 py-1.5 text-sm transition-colors outline-none',
+                      'cursor-pointer break-words whitespace-normal px-2 py-1.5 text-sm transition-colors outline-none',
                       'data-[highlighted]:bg-accent data-[selected]:bg-success/10',
                     )}
                   >

@@ -45,6 +45,10 @@ vi.mock('../../settings', () => ({
   resolveSyncParentOwnStock: vi.fn().mockResolvedValue(false),
 }));
 
+vi.mock('../../shop/low-stock-accounting', () => ({
+  loadLowStockAdjustments: vi.fn(() => ({ accounted: [], frozenProductIds: new Set() })),
+}));
+
 vi.mock('../state', () => ({
   getSyncState: vi.fn(),
   saveSyncState: vi.fn(),

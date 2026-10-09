@@ -1,15 +1,15 @@
 {
   "name": "grocy-mealie-sync",
-  "version": "1.18.0",
+  "version": "1.19.0-rc.10",
   "description": "",
   "main": "index.js",
   "directories": {
     "doc": "docs"
   },
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "node server.mjs --dev",
     "build": "next build --turbopack",
-    "start": "next start",
+    "start": "node server.mjs",
     "compose-dev:update": "node scripts/update-compose-dev.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
@@ -17,9 +17,12 @@
     "docs:screenshot": "node scripts/docs-screenshot.mjs",
     "openapi:refresh": "node scripts/update-openapi.mjs",
     "test:playwright": "node scripts/test-playwright.mjs",
-    "typecheck": "next typegen && tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit && tsc --noEmit -p examples/shop-plugin-template",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "plugins:sync-protocol": "node scripts/sync-plugin-protocol.mjs",
+    "test:plugin-e2e": "node scripts/test-plugin-e2e.mjs",
+    "test:plugin-template": "npm --prefix examples/shop-plugin-template test && npm --prefix examples/shop-plugin-template run test:release"
   },
   "keywords": [],
   "author": "",
@@ -47,6 +50,7 @@
     "tailwind-merge": "^3.5.0",
     "tw-animate-css": "^1.4.0",
     "undici": "^8.4.2",
+    "ws": "^8.22.0",
     "zod": "^4.4.1"
   },
   "devDependencies": {
@@ -55,6 +59,7 @@
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.2",
     "drizzle-kit": "^0.31.10",
     "openapi-typescript-codegen": "^0.30.0",
     "playwright": "^1.59.1",

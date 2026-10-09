@@ -290,8 +290,8 @@
   }
 }
 
-@media (max-width: 700px) {
+@media (width < 64rem) {
   .main-content {
-    padding-bottom: 76px;
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom));
   }
 }

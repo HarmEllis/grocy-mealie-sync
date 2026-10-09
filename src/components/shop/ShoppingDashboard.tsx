@@ -1,0 +1,677 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { LayoutDashboard, Loader2, Package, Receipt, RefreshCw, TriangleAlert } from 'lucide-react';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { AppBadge, AppInput } from '@/components/redesign/primitives';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { ThemedSelect } from '@/components/shared/ThemedSelect';
+import { SearchableSelect } from '@/components/shared/SearchableSelect';
+import { apiJson } from './api';
+import { OwnProductsTab } from './OwnProductsTab';
+import { DashboardShopStatus } from './DashboardShopStatus';
+import type { mappingPreview } from '@/lib/shop/mapping-preview';
+import type { TargetOption } from '@/lib/shop/targets';
+import type { ShopOverview } from '@/lib/shop/overview';
+import { needsProjectionAttention, PROJECTION_LABELS } from '@/lib/shop/projection-reasons';
+
+type Tab = 'overview' | 'products' | 'receipts' | 'review' | 'diagnostics';
+
+const PAUSE_LABELS: Record<string, string> = {
+  reduced_by_other: 'Someone reduced this line',
+  line_missing: 'The line disappeared',
+  duplicate_lines: 'The product is on the list more than once',
+  line_reused: 'The line now holds another product',
+  notes_unsupported: 'Product discontinued; this plugin cannot add a text item',
+};
+
+const REVIEW_LABELS: Record<string, string> = {
+  unknown_product: 'The retailer did not identify the product',
+  mapping_missing: 'No product mapping yet',
+  mapping_unconfirmed: 'The package amount is not confirmed',
+  invalid_quantity: 'Return or correction',
+  unit_mismatch: 'The receipt unit does not fit the mapping',
+  mapping_unit_changed: 'The product unit changed; confirm the mapping again',
+  ambiguous_credit: 'Several manual checks could match',
+};
+
+function money(cents: number | null | undefined): string {
+  return typeof cents === 'number' ? (cents / 100).toFixed(2) : '';
+}
+
+function when(value: string | null | undefined): string {
+  if (!value) return '';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
+}
+
+async function post(url: string, body: unknown, success: string): Promise<boolean> {
+  try {
+    await apiJson(url, { method: 'POST', body: JSON.stringify(body) });
+    toast.success(success);
+    return true;
+  } catch (error) {
+    toast.error('Action failed', { description: (error as Error).message });
+    return false;
+  }
+}
+
+function ShopSection({ title, subtitle, children, className = '' }: { title: string; subtitle?: string; children: ReactNode; className?: string }) {
+  return (
+    <section className={`min-w-0 space-y-3 ${className}`}>
+      <div className="space-y-1">
+        <h2 className="text-sm font-bold text-text-1">{title}</h2>
+        {subtitle ? <p className="text-xs text-text-3">{subtitle}</p> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+// Use the Mapping table components, retaining one set of controls on mobile.
+function ShopTable({ headers, children }: { headers: string[]; children: ReactNode }) {
+  return (
+    <Table containerClassName="min-w-0 rounded-md border md:rounded-md max-md:border-0"
+      className="block md:table md:min-w-[720px] [&_tbody]:block md:[&_tbody]:table-row-group [&_tbody>tr]:mb-3 [&_tbody>tr]:block [&_tbody>tr]:rounded-md [&_tbody>tr]:border [&_tbody>tr]:border-border [&_tbody>tr]:p-3 md:[&_tbody>tr]:mb-0 md:[&_tbody>tr]:table-row md:[&_tbody>tr]:rounded-none md:[&_tbody>tr]:border-0 md:[&_tbody>tr]:border-b md:[&_tbody>tr]:p-0">
+      <TableHeader className="hidden bg-muted/30 md:table-header-group">
+        <TableRow>{headers.map((header, index) => <TableHead key={index} scope="col">{header}</TableHead>)}</TableRow>
+      </TableHeader>
+      <TableBody>{children}</TableBody>
+    </Table>
+  );
+}
+
+function ShopCell({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <TableCell className="block min-w-0 break-words py-1.5 align-top whitespace-normal md:table-cell md:p-2">
+      <span className="mb-1 block text-xs font-medium text-muted-foreground md:hidden">{label}</span>
+      {children}
+    </TableCell>
+  );
+}
+
+export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone?: string | null; locale?: string | null }) {
+  const [overview, setOverview] = useState<ShopOverview | null>(null);
+  const [tab, setTab] = useState<Tab>('overview');
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await apiJson<ShopOverview>('/api/shop/overview');
+      if (!Array.isArray(data?.installations)) throw new Error('Unexpected response');
+      setOverview(data);
+    } catch (error) {
+      toast.error('Could not load shopping data', { description: (error as Error).message });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+    const interval = window.setInterval(load, 30_000);
+    return () => window.clearInterval(interval);
+  }, [load]);
+
+  const attention = (overview?.review.length ?? 0) + (overview?.projectionReview?.filter(row => needsProjectionAttention(row.reason)).length ?? 0) + (overview?.discrepancies.length ?? 0) + (overview?.effects.length ?? 0)
+    + (overview?.lines.filter(line => line.pausedReason && line.pausedReason !== 'released').length ?? 0);
+
+  return (
+    <div className="min-w-0 space-y-4 break-words [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:min-h-10 [&_[data-slot=button]]:max-w-full [&_[data-slot=button]]:whitespace-normal md:[&_[data-slot=button]]:min-h-8">
+      <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
+        <Button size="sm" variant="outline" onClick={load} disabled={loading}>
+          {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />} Refresh
+        </Button>
+        <Button size="sm" variant="outline" onClick={async () => { if (await post('/api/shop/run', {}, 'Shop sync requested')) void load(); }}>
+          Sync lists now
+        </Button>
+        {attention > 0 ? <AppBadge tone="warning">{attention} item(s) need attention</AppBadge> : null}
+      </div>
+
+      {overview && overview.installations.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No shop plugins are installed. Add one under Settings → Shop plugins. Without plugins the regular sync is unchanged.
+        </p>
+      ) : null}
+
+      <Tabs value={tab} onValueChange={value => setTab(value as Tab)}>
+        <div className="-mx-2 overflow-x-auto overflow-y-hidden border-b border-border px-2 pb-0.5">
+          <TabsList variant="line" className="h-10 min-w-max gap-0 bg-transparent p-0 md:h-8">
+            <TabsTrigger value="overview" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"><LayoutDashboard className="size-3.5" /> Overview</TabsTrigger>
+            <TabsTrigger value="products" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"><Package className="size-3.5" /> Products</TabsTrigger>
+            <TabsTrigger value="receipts" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"><Receipt className="size-3.5" /> Receipts</TabsTrigger>
+            <TabsTrigger value="review" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"><TriangleAlert className="size-3.5" /> Review{attention > 0 ? ` (${attention})` : ''}</TabsTrigger>
+            <TabsTrigger value="diagnostics" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"><RefreshCw className="size-3.5" /> Diagnostics</TabsTrigger>
+          </TabsList>
+        </div>
+        <p className="text-[11px] text-text-3 md:hidden">Swipe tabs to view all sections.</p>
+        <TabsContent value="overview">{overview ? <OverviewTab overview={overview} reload={load} /> : null}</TabsContent>
+        <TabsContent value="products">{overview ? <OwnProductsTab overview={overview} reloadOverview={load} /> : null}</TabsContent>
+        <TabsContent value="receipts">{overview ? <ReceiptsTab overview={overview} reload={load} /> : null}</TabsContent>
+        <TabsContent value="review">{overview ? <ReviewTab overview={overview} reload={load} /> : null}</TabsContent>
+        <TabsContent value="diagnostics">
+          <div className="space-y-4">
+            <DashboardShopStatus details timeZone={timeZone} locale={locale} />
+            {overview ? <ShopSection title="List cleanup" subtitle="When open demand disappears, gm-sync removes its managed quantity. Quantities added by the household remain.">
+              <ul className="space-y-2">{overview.lines.map(line => <li key={`${line.installationId}:${line.kind}:${line.retailerProductId}`} className="rounded-md border border-border p-3 text-sm">
+                <p className="font-semibold">{line.productName} · {overview.installations.find(installation => installation.id === line.installationId)?.name}</p>
+                <p className="text-text-2">Managed: {line.managedQty} · Household: {line.baselineUserQty} · Desired: {line.kind === 'note' ? 'Not applicable (replacement note)' : overview.exports.find(row => row.installationId === line.installationId && row.retailerProductId === line.retailerProductId)?.packages ?? 0}{line.pausedReason ? ` · ${PAUSE_LABELS[line.pausedReason] ?? line.pausedReason}` : ''}</p>
+              </li>)}</ul>
+            </ShopSection> : null}
+          </div>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function ProjectionReviewSection({ overview }: { overview: ShopOverview }) {
+  const installationName = (id: string) => overview.installations.find(installation => installation.id === id)?.name ?? id;
+  return (
+    <ShopSection title="Not sent to retailer" subtitle="Reasons from the latest shopping projection. Fix the mapping or unit; the next sync retries automatically.">
+      {(overview.projectionReview ?? []).length === 0 ? <p className="text-sm text-muted-foreground">No blocked shopping rows reported.</p> : <ul className="space-y-2">
+        {overview.projectionReview.map((row, index) => <li key={`${row.installationId}:${row.revisionId}:${index}`} className="rounded-md border border-border p-3 text-sm">
+          <p className="font-semibold">{row.label} · {installationName(row.installationId)}</p>
+          <p className="mt-1 text-text-2">{PROJECTION_LABELS[row.reason]}</p>
+        </li>)}
+      </ul>}
+    </ShopSection>
+  );
+}
+
+function OverviewTab({ overview, reload }: { overview: ShopOverview; reload: () => Promise<void> }) {
+  const installationName = (id: string) => overview.installations.find(installation => installation.id === id)?.name ?? id;
+  const paused = overview.lines.filter(line => line.pausedReason && line.pausedReason !== 'released');
+  return (
+    <div className="space-y-4">
+      <ShopSection title="Plugins">
+        <ul className="divide-y divide-border rounded-md border bg-muted/20 text-sm">
+          {overview.installations.map(installation => (
+            <li key={installation.id} className="flex flex-wrap items-center gap-2 px-3 py-3">
+              <span className="font-semibold">{installation.name}</span>
+              <AppBadge small tone={installation.connected ? 'success' : 'default'}>{installation.connected ? 'connected' : 'offline'}</AppBadge>
+              {installation.features?.includes('list.notes') ? <AppBadge small>text items</AppBadge> : null}
+              {installation.settings.listSyncEnabled ? <AppBadge small>list sync</AppBadge> : null}
+              {installation.settings.receiptsEnabled ? <AppBadge small>receipts</AppBadge> : null}
+              {installation.pendingListApply ? <AppBadge small tone="warning">list write pending confirmation</AppBadge> : null}
+            </li>
+          ))}
+        </ul>
+      </ShopSection>
+
+      <ProjectionReviewSection overview={overview} />
+
+      <ShopSection title="On the shared list" subtitle="Packages gm-sync currently wants on each retailer list. Your own additions are kept.">
+        {overview.exports.length === 0 ? <p className="text-sm text-muted-foreground">Nothing exported.</p> : (
+          <ShopTable headers={['Plugin', 'Product', 'Packages', 'Since']}>
+              {overview.exports.map(row => (
+                <TableRow key={row.id}><ShopCell label="Plugin">{installationName(row.installationId)}</ShopCell><ShopCell label="Product">{row.productName}</ShopCell><ShopCell label="Packages">{row.packages}</ShopCell><ShopCell label="Since">{when(row.createdAt)}</ShopCell></TableRow>
+              ))}
+          </ShopTable>
+        )}
+      </ShopSection>
+
+      {overview.lines.some(line => line.kind === 'note' && line.noteText && !line.pausedReason) ? <ShopSection title="Replacement text items" subtitle="A discontinued product is represented by one ingredient and quantity note. Checking or removing a note never fulfils Mealie demand; receipts determine purchases.">
+        <ul className="space-y-2 text-sm">{overview.lines.filter(line => line.kind === 'note' && line.noteText && !line.pausedReason).map(line => <li key={`${line.installationId}:${line.retailerProductId}`} className="rounded-md border bg-muted/20 p-3"><span className="font-semibold">{line.noteText}</span><p className="text-xs text-muted-foreground">{installationName(line.installationId)} · replaces {line.productName}</p></li>)}</ul>
+      </ShopSection> : null}
+
+      <ShopSection title="Paused list lines" subtitle="gm-sync never guesses whose units disappeared. Tell it what happened.">
+        {paused.length === 0 ? <p className="text-sm text-muted-foreground">No paused lines.</p> : (
+          <ul className="space-y-2">
+            {paused.map(line => (
+              <li key={`${line.installationId}:${line.kind}:${line.retailerProductId}`} className="space-y-1 rounded-md border border-border bg-muted/20 p-3 text-sm">
+                <div><span className="font-semibold">{line.kind === 'note' ? line.noteText ?? line.productName : line.productName}</span> · {PAUSE_LABELS[line.pausedReason ?? ''] ?? line.pausedReason} · now {line.pausedObservedQty ?? 0}, last written {line.lastWrittenQty}</div>
+                <div className="flex flex-wrap gap-2">
+                  {(line.kind === 'note' ? ['release'] as const : ['user_units_removed', 'readd', 'release'] as const).map(resolution => (
+                    <Button
+                      key={resolution}
+                      size="sm"
+                      variant="outline"
+                      disabled={(line.pausedReason === 'duplicate_lines' || line.pausedReason === 'line_reused') && resolution !== 'release'}
+                      onClick={async () => {
+                        if (await post('/api/shop/lines/resolve', { installationId: line.installationId, retailerProductId: line.retailerProductId, kind: line.kind, resolution }, 'Line updated')) await reload();
+                      }}
+                    >
+                      {resolution === 'user_units_removed' ? 'Someone removed their own units' : resolution === 'readd' ? 'Add mine again' : 'Release this line'}
+                    </Button>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </ShopSection>
+    </div>
+  );
+}
+
+interface MappingRow {
+  id: string;
+  providerId: string;
+  retailerProductId: string;
+  retailerProductName: string;
+  targetKind: string;
+  targetId: string;
+  targetName: string;
+  role: string;
+  packageBaseAmount: number | null;
+  packageBaseUnitId: string | null;
+  packageBaseUnitName: string | null;
+  packageSource: string | null;
+  confirmed: boolean;
+}
+
+interface ProductRow { providerId: string; externalId: string; name: string; packageAmount: number | null; packageUnit: string | null; measure: string }
+
+function targetKey(target: TargetOption): string {
+  return `${target.kind}:${target.id}`;
+}
+
+function targetLabel(target: TargetOption): string {
+  const prefix = target.source === 'grocy_mealie' ? 'G+M' : target.kind === 'grocy_product' ? 'G' : 'M';
+  return `(${prefix}) ${target.name}${target.baseUnitName ? ` · ${target.baseUnitName}` : ''}`;
+}
+
+function MappingEditor({ providerId, product, mapping, onClose }: { providerId: string; product: ProductRow; mapping: MappingRow | null; onClose: () => void }) {
+  const [query, setQuery] = useState('');
+  const dialogTitleRef = useRef<HTMLHeadingElement | null>(null);
+  const requestSequence = useRef(0);
+  const [preview, setPreview] = useState<Awaited<ReturnType<typeof mappingPreview>> | null>(null);
+  const [previewAttempt, setPreviewAttempt] = useState(0);
+  const [previewError, setPreviewError] = useState(false);
+  const [targets, setTargets] = useState<TargetOption[]>([]);
+  const [unitsLoaded, setUnitsLoaded] = useState(false);
+  const [unitsError, setUnitsError] = useState(false);
+  const [mealieUnits, setMealieUnits] = useState<Array<{ id: string; name: string }>>([]);
+  const [selected, setSelected] = useState<TargetOption | null>(mapping && mapping.targetId ? {
+    kind: mapping.targetKind as TargetOption['kind'], id: mapping.targetId, name: mapping.targetName,
+    baseUnitId: mapping.packageBaseUnitId, baseUnitName: mapping.packageBaseUnitName,
+  } : null);
+  const [mealieUnitId, setMealieUnitId] = useState(mapping?.targetKind === 'mealie_food' ? mapping.packageBaseUnitId ?? '' : '');
+  const [role, setRole] = useState<'preferred' | 'alternative'>(mapping?.role === 'alternative' ? 'alternative' : 'preferred');
+  const [amount, setAmount] = useState(mapping?.packageBaseAmount?.toString() ?? '');
+
+  useEffect(() => {
+    const sequence = ++requestSequence.current;
+    setUnitsLoaded(false);
+    setUnitsError(false);
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await apiJson<{ targets: TargetOption[]; mealieUnits: Array<{ id: string; name: string }> }>(`/api/shop/targets?query=${encodeURIComponent(query)}&suggestFor=${encodeURIComponent(product.name.slice(0, 200))}`);
+        if (sequence !== requestSequence.current) return;
+        setTargets(result.targets);
+        setSelected(current => {
+          const found = current && result.targets.find(target => targetKey(target) === targetKey(current));
+          return current && found ? { ...current, source: found.source, linkedFoods: found.linkedFoods } : current;
+        });
+        setMealieUnits(result.mealieUnits);
+        setUnitsLoaded(true);
+      } catch {
+        if (sequence === requestSequence.current) setUnitsError(true);
+      }
+    }, 250);
+    return () => { window.clearTimeout(timer); requestSequence.current++; };
+  }, [query, product.name]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPreview(null);
+    setPreviewError(false);
+    if (selected) void apiJson<Awaited<ReturnType<typeof mappingPreview>>>('/api/shop/mappings/preview', {
+      method: 'POST', body: JSON.stringify({ providerId, retailerProductId: product.externalId, targetKind: selected.kind, targetId: selected.id, baseUnitId: mealieUnitId || null }),
+    }).then(result => {
+      if (cancelled) return;
+      setPreview(result);
+    }).catch(() => { if (!cancelled) setPreviewError(true); });
+    return () => { cancelled = true; };
+  }, [selected?.kind, selected?.id, mealieUnitId, providerId, product.externalId, previewAttempt]);
+
+  async function save() {
+    if (!selected) return;
+    if (selected.kind === 'grocy_product' && preview && selected.baseUnitId !== preview.baseUnitId) { toast.error('The Grocy stock unit changed; select the target again and confirm its package amount'); return; }
+    if (selected.kind === 'mealie_food' && mealieUnitId && (!unitsLoaded || !mealieUnits.some(unit => unit.id === mealieUnitId))) {
+      toast.error(unitsError ? 'Mealie units could not be loaded; try searching again' : unitsLoaded ? 'This Mealie unit is no longer available; choose another unit' : 'Wait for Mealie units to load before saving');
+      return;
+    }
+    const baseUnit = selected.kind === 'grocy_product'
+      ? { id: selected.baseUnitId, name: selected.baseUnitName }
+      : { id: mealieUnitId || null, name: mealieUnits.find(unit => unit.id === mealieUnitId)?.name ?? null };
+    const parsed = amount.trim() ? Number(amount) : null;
+    if (parsed !== null && !(parsed > 0)) {
+      toast.error('Enter a positive amount or leave it empty to derive it');
+      return;
+    }
+    try {
+      await apiJson('/api/shop/mappings', {
+        method: 'POST',
+        body: JSON.stringify({
+          providerId,
+          retailerProductId: product.externalId,
+          targetKind: selected.kind,
+          targetId: selected.id,
+          targetName: selected.name,
+          role,
+          expectedTargetKey: mapping ? `${mapping.targetKind}:${mapping.targetId}` : undefined,
+          reassign: Boolean(mapping && (mapping.targetKind !== selected.kind || mapping.targetId !== selected.id)),
+          baseUnitId: baseUnit.id,
+          baseUnitName: baseUnit.name,
+          packageBaseAmount: parsed,
+          confirm: parsed !== null,
+        }),
+      });
+      toast.success(parsed !== null ? 'Mapping saved and confirmed' : 'Mapping saved; confirm the derived amount');
+      onClose();
+    } catch (error) {
+      toast.error('Could not save the mapping', { description: (error as Error).message });
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
+      <DialogContent initialFocus={dialogTitleRef} className="max-h-[calc(100dvh-2rem)] overflow-y-auto break-words sm:max-w-xl [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:min-h-10 [&_[data-slot=button]]:whitespace-normal">
+        <DialogHeader>
+          <DialogTitle ref={dialogTitleRef} tabIndex={-1}>Map {product.name}</DialogTitle>
+          <DialogDescription>Pick a Grocy product, or a Mealie food when the item is not tracked in Grocy.</DialogDescription>
+        </DialogHeader>
+      <div className="space-y-3 text-sm">
+        {!query ? <p className="text-xs text-muted-foreground">Suggestions based on {product.name}. Type to search all targets.</p> : null}
+        <p className="text-xs text-muted-foreground">(G+M) Grocy + Mealie linked, recommended · (G) Grocy only · (M) Mealie only</p>
+        <SearchableSelect
+          className="w-full" ariaLabel="Target" placeholder="Search a Grocy product or Mealie ingredient…" onSearchChange={setQuery}
+          value={selected ? targetKey(selected) : null}
+          onChange={value => { const next = value === null ? null : targets.find(target => targetKey(target) === value) ?? selected; if (next && (!selected || targetKey(next) !== targetKey(selected) || next.baseUnitId !== selected.baseUnitId)) setAmount(''); setSelected(next); }}
+          extraOption={selected ? { value: targetKey(selected), label: targetLabel(selected) } : null}
+          options={targets.map(target => ({ value: targetKey(target), label: targetLabel(target) }))}
+        />
+        {!unitsLoaded && !unitsError ? <p className="text-xs text-muted-foreground" role="status">Searching targets…</p> : null}
+        {unitsError ? <p className="text-xs text-destructive" role="alert">Targets could not be loaded. Change the search to retry.</p> : null}
+        {selected?.linkedFoods?.length ? <p className="text-xs text-muted-foreground">Linked to Mealie: {selected.linkedFoods.map(food => food.name).join(', ')}.</p> : null}
+        {selected?.kind === 'mealie_food' ? (
+          <div className="space-y-1">
+            <SearchableSelect className="w-full" ariaLabel="Mealie unit" placeholder="Count (no unit)" extraOption={mealieUnitId && mapping?.packageBaseUnitId === mealieUnitId ? { value: mealieUnitId, label: mapping.packageBaseUnitName ?? mealieUnitId } : null} value={mealieUnitId} onChange={value => { if (value !== mealieUnitId) setAmount(''); setMealieUnitId(value ?? ''); }} clearable={false} options={[{ value: '', label: 'Count (no unit)' }, ...mealieUnits.map(unit => ({ value: unit.id, label: unit.name }))]} />
+            {unitsError ? <p role="alert" className="text-xs text-destructive">Mealie units could not be loaded; try searching again.</p>
+              : unitsLoaded && mealieUnitId && !mealieUnits.some(unit => unit.id === mealieUnitId) ? <p role="alert" className="text-xs text-destructive">This Mealie unit is no longer available; choose another unit.</p> : null}
+          </div>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          <ThemedSelect className="w-full sm:w-56" ariaLabel="Role" value={role} onChange={setRole} options={[{ value: 'preferred', label: 'Preferred product' }, { value: 'alternative', label: 'Remembered alternative' }]} />
+          <AppInput className="w-28" value={amount} onChange={event => setAmount(event.target.value)} placeholder="Amount" inputMode="decimal" aria-label="Amount per package" />
+          <span className="text-xs text-muted-foreground">
+            {product.measure === 'weight' ? 'per kg' : 'per package'} in {selected?.kind === 'grocy_product' ? selected.baseUnitName ?? 'the stock unit' : 'the chosen unit'}
+          </span>
+        </div>
+        {selected ? <div className="space-y-1 rounded-md border bg-muted/30 p-3 text-xs">
+          <p>1 {product.measure === 'weight' ? 'kg bought' : 'retailer package'} = {amount || '?'} {selected.kind === 'grocy_product' ? selected.baseUnitName ?? 'stock units' : mealieUnits.find(unit => unit.id === mealieUnitId)?.name ?? (mealieUnitId ? mapping?.packageBaseUnitName ?? 'units' : 'items')} in {selected.kind === 'grocy_product' ? 'Grocy' : 'Mealie'}.</p>
+          {preview?.derivation ? <div className="space-y-1"><p>Suggested from catalogue: {preview.derivation.explanation}. Check before saving.</p><Button size="sm" variant="outline" onClick={() => setAmount(String(preview.derivation!.amount))}>Use suggested amount</Button></div> : <p>Enter and confirm the amount from the package or retailer catalogue.</p>}
+          {previewError ? <div><p role="alert">Unit preview could not be loaded; check your unit configuration.</p><Button size="sm" variant="outline" onClick={() => setPreviewAttempt(current => current + 1)}>Retry unit preview</Button></div> : null}
+          {selected.kind === 'grocy_product' && preview ? <>
+            <p>{preview.conversions.filter(item => item.ok).length} Mealie unit conversion(s) available.</p>
+            {preview.demandConversions?.map(item => <p key={item.mealieItemId}>{item.mealieUnitName}: {item.ok ? `converts to ${item.amount} ${preview.baseUnitName}` : `Needs configuration or review (${item.reason})`}</p>)}
+            {preview.demandConversions?.some(item => !item.ok) ? <p>Some Mealie units cannot be converted or need review. <a className="text-primary underline" href="/conversions">Open Units &amp; Conversions</a></p> : null}
+          </> : null}
+        </div> : null}
+        {mapping && selected && (mapping.targetKind !== selected.kind || mapping.targetId !== selected.id) ? <p className="text-xs text-amber-600 dark:text-amber-400">Moving this mapping removes its link to {mapping.targetName}. Check the amount in the new target unit before saving.</p> : null}
+        <div className="flex gap-2">
+          <Button size="sm" onClick={save} disabled={!selected || (selected.kind === 'grocy_product' && !preview)}>{mapping && selected && (mapping.targetKind !== selected.kind || mapping.targetId !== selected.id) ? 'Move mapping to this target' : 'Save mapping'}</Button>
+          <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
+        </div>
+      </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ReceiptsTab({ overview, reload }: { overview: ShopOverview; reload: () => Promise<void> }) {
+  const [installationId, setInstallationId] = useState(overview.installations[0]?.id ?? '');
+  const [historyLimit, setHistoryLimit] = useState<5 | 10>(5);
+  const [fetching, setFetching] = useState(false);
+  const [editing, setEditing] = useState<{ providerId: string; product: ProductRow; mapping: MappingRow | null } | null>(null);
+  return (
+    <div className="space-y-3">
+      <Button size="sm" variant="outline" onClick={async () => { if (await post('/api/shop/receipts/pull', {}, 'Receipt pull requested')) window.setTimeout(() => void reload(), 3000); }}>
+        Pull receipts now
+      </Button>
+      <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-3">
+        <ThemedSelect ariaLabel="Receipt retailer" value={installationId} onChange={setInstallationId} options={overview.installations.map(item => ({ value: item.id, label: item.name }))} className="w-full sm:w-56" />
+        <ThemedSelect ariaLabel="Historical receipt count" value={historyLimit} onChange={setHistoryLimit} options={[{ value: 5, label: 'Latest 5 receipts' }, { value: 10, label: 'Latest 10 receipts' }]} className="w-full sm:w-48" />
+        <Button size="sm" variant="outline" disabled={!installationId || fetching} onClick={async () => {
+          setFetching(true);
+          try {
+            const result = await apiJson<{ imported: number; activeSkipped: number; catalogueWarning: string | null }>('/api/shop/receipts/history', { method: 'POST', body: JSON.stringify({ installationId, limit: historyLimit }) });
+            toast.success(`${result.imported} receipt(s) loaded for setup`, { description: result.activeSkipped ? `${result.activeSkipped} recent purchase(s) remain for normal processing. Use Pull receipts now to retrieve them.` : undefined });
+            if (result.catalogueWarning) toast.warning(result.catalogueWarning);
+            await reload();
+          } catch (error) { toast.error('Could not load receipts', { description: (error as Error).message }); }
+          finally { setFetching(false); }
+        }}>{fetching ? 'Loading receipts…' : 'Load receipts for setup'}</Button>
+        <p className="w-full text-xs text-muted-foreground">Reference-only receipts help configure mappings. They never book stock or check off shopping items, even after processing is enabled.</p>
+      </div>
+      {editing ? <MappingEditor {...editing} onClose={() => { setEditing(null); void reload(); }} /> : null}
+      {overview.receipts.length === 0 ? <p className="text-sm text-muted-foreground">No receipts stored yet.</p> : null}
+      {overview.receipts.map(receipt => (
+        <ShopSection key={receipt.id} title={`${when(receipt.purchasedAt)} ${receipt.storeLabel ?? ''}`} subtitle={`Status: ${receipt.referenceOnly ? 'Reference only, setup' : receipt.status.replaceAll('_', ' ')}${receipt.totalCents !== null ? ` · total ${money(receipt.totalCents)}` : ''}`}>
+          {receipt.lines.length === 0 ? <p className="text-xs text-muted-foreground">Bought before receipt processing was enabled; kept as a header only.</p> : (
+            <ShopTable headers={['Line', 'Qty', 'Amount', 'Status', 'Attribution']}>
+                {receipt.lines.map(line => (
+                  <TableRow key={line.id}>
+                    <ShopCell label="Line">
+                      <p>{line.description}</p>
+                      {line.mapping ? <p className="text-xs text-muted-foreground">Mapped to {line.mapping.targetName} · {line.mapping.packageBaseAmount ?? '?'} {line.mapping.packageBaseUnitName ?? 'units'} per package</p> : null}
+                      {line.retailerProductId && receipt.providerId ? <Button size="sm" variant="outline" onClick={async () => {
+                        try {
+                          const data = await apiJson<{ products: ProductRow[]; mappings: MappingRow[] }>(`/api/shop/mappings?providerId=${encodeURIComponent(receipt.providerId)}`);
+                          const product = data.products.find(item => item.externalId === line.retailerProductId);
+                          if (!product) throw new Error('Receipt product is unavailable');
+                          setEditing({ providerId: receipt.providerId, product, mapping: data.mappings.find(item => item.retailerProductId === line.retailerProductId) ?? null });
+                        } catch (error) { toast.error('Could not open mapping', { description: (error as Error).message }); }
+                      }}>{line.mapping ? 'Change mapping' : 'Map product'}</Button> : null}
+                    </ShopCell>
+                    <ShopCell label="Qty">{line.quantity} {line.unit}</ShopCell>
+                    <ShopCell label="Amount">{money(line.amountCents)}</ShopCell>
+                    <ShopCell label="Status">{line.status}{line.reviewReason ? ` (${REVIEW_LABELS[line.reviewReason] ?? line.reviewReason})` : ''}</ShopCell>
+                    <ShopCell label="Attribution"><span className="text-xs text-muted-foreground">
+                      {line.links.map(link => `${link.kind} ${Math.round(link.baseAmount * 1000) / 1000}`).join(', ')}
+                    </span></ShopCell>
+                  </TableRow>
+                ))}
+            </ShopTable>
+          )}
+        </ShopSection>
+      ))}
+    </div>
+  );
+}
+
+function ReviewTab({ overview, reload }: { overview: ShopOverview; reload: () => Promise<void> }) {
+  return (
+    <div className="space-y-4">
+      <ProjectionReviewSection overview={overview} />
+      <ShopSection title="Receipt lines to review" subtitle="Nothing here was booked. Map the product, confirm a one-off substitution, or dismiss the line.">
+        {overview.review.length === 0 ? <p className="text-sm text-muted-foreground">Nothing to review.</p> : (
+          <ul className="space-y-3">
+            {overview.review.map(line => <ReviewLine key={line.id} line={line} overview={overview} reload={reload} />)}
+          </ul>
+        )}
+      </ShopSection>
+
+      <ShopSection title="Stock discrepancies" subtitle="A manual check booked something that differs from what the receipt shows.">
+        {overview.discrepancies.length === 0 ? <p className="text-sm text-muted-foreground">No open discrepancies.</p> : (
+          <ul className="space-y-3">
+            {overview.discrepancies.map(discrepancy => <DiscrepancyItem key={discrepancy.id} discrepancy={discrepancy} reload={reload} />)}
+          </ul>
+        )}
+      </ShopSection>
+
+      <ShopSection title="Writes needing a decision" subtitle="These writes have an unknown outcome or failed. They are never retried automatically.">
+        {overview.effects.length === 0 ? <p className="text-sm text-muted-foreground">All writes are settled.</p> : (
+          <ul className="space-y-2">
+            {overview.effects.map(effect => (
+              <li key={effect.id} className="space-y-1 rounded-md border border-border bg-muted/20 p-3 text-sm" data-testid="uncertain-effect">
+                <div>
+                  <span className="font-semibold">{String((effect.payload as { label?: string }).label ?? effect.kind)}</span>{' '}
+                  <AppBadge small tone={effect.status === 'unknown' ? 'warning' : 'error'}>{effect.status.replace('_', ' ')}</AppBadge>{' '}
+                  <span className="text-xs text-muted-foreground">{effect.kind} · {effect.sourceKind} · attempts {effect.attempts}</span>
+                </div>
+                {effect.error ? <div className="text-xs text-muted-foreground">Last error: {effect.error}</div> : null}
+                {effect.evidence ? <pre className="overflow-x-auto rounded bg-bg-3/60 p-1 text-[11px]">{JSON.stringify(effect.evidence, null, 1)}</pre> : null}
+                <div className="flex flex-wrap gap-2">
+                  {effect.status === 'unknown' ? (
+                    <>
+                      <Button size="sm" variant="outline" onClick={async () => { if (await post(`/api/shop/effects/${effect.id}`, { action: 'booked_elsewhere' }, 'Marked as done')) await reload(); }}>It happened</Button>
+                      <Button size="sm" variant="outline" onClick={async () => { if (await post(`/api/shop/effects/${effect.id}`, { action: 'not_booked_retry' }, 'Will retry once')) await reload(); }}>It did not happen, retry</Button>
+                    </>
+                  ) : null}
+                  <Button size="sm" variant="ghost" onClick={async () => { if (await post(`/api/shop/effects/${effect.id}`, { action: 'skip' }, 'Skipped')) await reload(); }}>Skip</Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </ShopSection>
+    </div>
+  );
+}
+
+function ReviewLine({ line, overview, reload }: { line: ShopOverview['review'][number]; overview: ShopOverview; reload: () => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [targets, setTargets] = useState<TargetOption[]>([]);
+  const [productId, setProductId] = useState('');
+  const [stockAmount, setStockAmount] = useState('');
+  const [rows, setRows] = useState<string[]>([]);
+  const [checks, setChecks] = useState<string[]>([]);
+  const [remember, setRemember] = useState(false);
+  const [fulfilOnly, setFulfilOnly] = useState(false);
+
+  async function loadTargets() {
+    try {
+      const result = await apiJson<{ targets: TargetOption[] }>(`/api/shop/targets?query=${encodeURIComponent(line.description)}`);
+      setTargets(result.targets.filter(target => target.kind === 'grocy_product'));
+    } catch (error) {
+      toast.error('Search failed', { description: (error as Error).message });
+    }
+  }
+
+  const toggle = (list: string[], value: string) => (list.includes(value) ? list.filter(entry => entry !== value) : [...list, value]);
+  const selectedProduct = targets.find(target => target.id === productId);
+
+  return (
+    <li className="space-y-2 rounded-md border border-border bg-muted/20 p-3 text-sm" data-testid="review-line">
+      <div>
+        <span className="font-semibold">{line.description}</span> · {line.quantity} {line.unit} {line.amountCents !== null ? `· ${money(line.amountCents)}` : ''} ·{' '}
+        <span className="text-muted-foreground">{REVIEW_LABELS[line.reviewReason ?? ''] ?? line.reviewReason}</span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="outline" onClick={() => { setOpen(!open); if (!open) void loadTargets(); }}>One-off substitution</Button>
+        <Button size="sm" variant="outline" onClick={async () => { if (await post(`/api/shop/review/${line.id}`, { action: 'requeue' }, 'Line will be processed again')) await reload(); }}>Process again (after mapping)</Button>
+        <Button size="sm" variant="ghost" onClick={async () => { if (await post(`/api/shop/review/${line.id}`, { action: 'dismiss' }, 'Line dismissed')) await reload(); }}>Dismiss</Button>
+      </div>
+      {open ? (
+        <div className="space-y-2 rounded bg-bg-3/40 p-2">
+          <label className="flex items-center gap-2"><input type="checkbox" checked={fulfilOnly} onChange={event => setFulfilOnly(event.target.checked)} /> Fulfil demand only, book nothing in Grocy</label>
+          {!fulfilOnly ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <SearchableSelect className="w-full sm:w-64" ariaLabel="Product actually bought" placeholder="Grocy product actually bought…" value={productId || null} onChange={value => setProductId(value ?? '')} options={targets.map(target => ({ value: target.id, label: `${target.name} (${target.baseUnitName ?? 'stock unit'})` }))} />
+              <AppInput className="w-28" value={stockAmount} onChange={event => setStockAmount(event.target.value)} placeholder="Stock amount" inputMode="decimal" aria-label="Stock amount" />
+              <label className="flex items-center gap-1"><input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} /> Remember as alternative</label>
+            </div>
+          ) : null}
+          <div>
+            <p className="text-xs text-muted-foreground">Open shopping rows this purchase fulfils (they are removed):</p>
+            {overview.openDemand.map(row => (
+              <label key={row.mealieItemId} className="mr-3 inline-flex items-center gap-1">
+                <input type="checkbox" checked={rows.includes(row.mealieItemId)} onChange={() => setRows(toggle(rows, row.mealieItemId))} /> {row.label} ({row.quantity})
+              </label>
+            ))}
+          </div>
+          {overview.recentChecks.length > 0 ? (
+            <div>
+              <p className="text-xs text-muted-foreground">Rows you already checked off for this purchase (their original booking is flagged for review):</p>
+              {overview.recentChecks.slice(0, 15).map(check => (
+                <label key={check.id} className="mr-3 inline-flex items-center gap-1">
+                  <input type="checkbox" checked={checks.includes(check.id)} onChange={() => setChecks(toggle(checks, check.id))} /> product #{check.grocyProductId} · {when(check.checkedObservedAt)}
+                </label>
+              ))}
+            </div>
+          ) : null}
+          <Button
+            size="sm"
+            disabled={!fulfilOnly && (!productId || !(Number(stockAmount) > 0))}
+            onClick={async () => {
+              const body = {
+                action: 'substitute',
+                bookGrocyProductId: fulfilOnly ? null : Number(productId),
+                bookGrocyProductName: fulfilOnly ? undefined : selectedProduct?.name,
+                stockAmount: fulfilOnly ? null : Number(stockAmount),
+                mealieItemIds: rows,
+                lifecycleIds: checks,
+                rememberAsAlternative: !fulfilOnly && remember,
+              };
+              if (await post(`/api/shop/review/${line.id}`, body, 'Substitution confirmed')) await reload();
+            }}
+          >
+            Confirm substitution
+          </Button>
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+function DiscrepancyItem({ discrepancy, reload }: { discrepancy: ShopOverview['discrepancies'][number]; reload: () => Promise<void> }) {
+  const evidence = (discrepancy.evidence ?? {}) as {
+    bookedAmount?: number;
+    receiptAmount?: number;
+    productId?: number;
+    bookings?: Array<{ productId: number; amount: number; transactionId: string | null }>;
+    receiptLine?: { description?: string };
+  };
+  const [amount, setAmount] = useState(
+    evidence.bookedAmount !== undefined && evidence.receiptAmount !== undefined ? String(Math.max(0, evidence.bookedAmount - evidence.receiptAmount)) : '',
+  );
+  const productId = evidence.productId ?? evidence.bookings?.[0]?.productId;
+  if (discrepancy.kind === 'check_after_receipt') {
+    return (
+      <li className="space-y-2 rounded-md border border-border bg-muted/20 p-3 text-sm" data-testid="discrepancy">
+        <div className="font-semibold">A shopping row was checked off while a receipt was already fulfilling it. Nothing was booked for the check yet.</div>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={async () => {
+            if (await post(`/api/shop/discrepancies/${discrepancy.id}`, { action: 'skip_check' }, 'The receipt covers it; the check books nothing')) await reload();
+          }}>The receipt covers it</Button>
+          <Button size="sm" variant="outline" onClick={async () => {
+            if (await post(`/api/shop/discrepancies/${discrepancy.id}`, { action: 'book_check' }, 'The check will be booked as an extra purchase')) await reload();
+          }}>It was an additional purchase, book it</Button>
+        </div>
+      </li>
+    );
+  }
+  return (
+    <li className="space-y-2 rounded-md border border-border bg-muted/20 p-3 text-sm" data-testid="discrepancy">
+      <div className="font-semibold">
+        {discrepancy.kind === 'over_booked_manual_check'
+          ? `A manual check booked ${evidence.bookedAmount}, the receipt shows ${evidence.receiptAmount}.`
+          : `A substitute was bought, but the original product was already booked${evidence.receiptLine?.description ? ` (${evidence.receiptLine.description})` : ''}.`}
+      </div>
+      <pre className="overflow-x-auto rounded bg-bg-3/60 p-1 text-[11px]">{JSON.stringify(evidence.bookings ?? [], null, 1)}</pre>
+      <div className="flex flex-wrap items-center gap-2">
+        {(evidence.bookings ?? []).filter(booking => booking.transactionId).map(booking => (
+          <Button key={booking.transactionId} size="sm" variant="outline" onClick={async () => {
+            if (await post(`/api/shop/discrepancies/${discrepancy.id}`, { action: 'undo_transaction', transactionId: booking.transactionId }, 'Booking undone')) await reload();
+          }}>Undo booking {booking.transactionId}</Button>
+        ))}
+        {productId ? (
+          <>
+            <AppInput className="w-20" value={amount} onChange={event => setAmount(event.target.value)} inputMode="decimal" aria-label="Amount to consume" />
+            <Button size="sm" variant="outline" disabled={!(Number(amount) > 0)} onClick={async () => {
+              if (await post(`/api/shop/discrepancies/${discrepancy.id}`, { action: 'consume_difference', productId, amount: Number(amount) }, 'Difference consumed')) await reload();
+            }}>Consume difference</Button>
+          </>
+        ) : null}
+        <Button size="sm" variant="ghost" onClick={async () => { if (await post(`/api/shop/discrepancies/${discrepancy.id}`, { action: 'keep_stock' }, 'Stock kept as is')) await reload(); }}>Keep stock as is</Button>
+      </div>
+    </li>
+  );
+}

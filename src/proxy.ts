@@ -233,6 +233,7 @@ export const config = {
     // Match protected UI routes
     '/',
     '/conversions/:path*',
+    '/shopping/:path*',
     '/mapping/:path*',
     '/history/:path*',
     '/settings/:path*',

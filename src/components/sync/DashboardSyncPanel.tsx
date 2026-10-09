@@ -50,6 +50,19 @@ const STEP_ACTIONS = [
   },
 ] as const;
 
+const SHOP_ACTIONS = [
+  {
+    label: 'Sync shop lists',
+    subtitle: 'Send changes to retailer lists',
+    endpoint: '/api/shop/run',
+  },
+  {
+    label: 'Fetch receipts',
+    subtitle: 'Check connected retailers now',
+    endpoint: '/api/shop/receipts/pull',
+  },
+] as const;
+
 const STEP_TRACKER = [
   { id: 'products', icon: '📦', endpoints: ['/api/sync/products'] },
   { id: 'ensure', icon: '✅', endpoints: ['/api/sync/grocy-to-mealie', '/api/sync/grocy-to-mealie/ensure'] },
@@ -62,9 +75,11 @@ const UI_SYNC_TRIGGER_HEADERS = {
 };
 
 async function runSyncRequest(endpoint: string, label: string): Promise<boolean> {
+  const isShopRequest = endpoint.startsWith('/api/shop/');
   const response = await fetch(endpoint, {
     method: 'POST',
-    headers: UI_SYNC_TRIGGER_HEADERS,
+    headers: isShopRequest ? { ...UI_SYNC_TRIGGER_HEADERS, 'Content-Type': 'application/json' } : UI_SYNC_TRIGGER_HEADERS,
+    ...(isShopRequest ? { body: '{}' } : {}),
   });
 
   let body: SyncActionResponse | null = null;
@@ -103,11 +118,13 @@ async function runSyncRequest(endpoint: string, label: string): Promise<boolean>
     return true;
   }
 
-  toast.success(`${label} completed`, body?.summary ? { description: body.message } : undefined);
+  toast.success(`${label} ${isShopRequest ? 'requested' : 'completed'}`, isShopRequest
+    ? { description: 'Runs in the background for connected, enabled shop plugins.' }
+    : body?.summary ? { description: body.message } : undefined);
   return true;
 }
 
-export function DashboardSyncPanel() {
+export function DashboardSyncPanel({ hasShopInstallations = false }: { hasShopInstallations?: boolean }) {
   const [runningKey, setRunningKey] = useState<string | null>(null);
   const [activeStep, setActiveStep] = useState<string | null>(null);
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
@@ -227,8 +244,9 @@ export function DashboardSyncPanel() {
       <div className="border-t border-white/10" />
 
       <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
-        {STEP_ACTIONS.map(action => {
+        {[...STEP_ACTIONS, ...(hasShopInstallations ? SHOP_ACTIONS : [])].map(action => {
           const isRunning = runningKey === action.endpoint;
+          const isShopAction = action.endpoint.startsWith('/api/shop/');
 
           return (
             <AppButton
@@ -243,14 +261,16 @@ export function DashboardSyncPanel() {
               disabled={runningKey !== null}
             >
               {isRunning ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : null}
-              <span className="flex flex-col leading-tight">
+              <span className="flex min-w-0 flex-col whitespace-normal leading-tight">
                 <span className="text-[13px] font-semibold text-text-1">{action.label}</span>
                 <span className="text-[10px] font-normal text-text-2">{action.subtitle}</span>
+                {isShopAction ? <span className="mt-1 text-[10px] font-normal text-text-3">Separate action · excluded from Full sync</span> : null}
               </span>
             </AppButton>
           );
         })}
       </div>
+      {hasShopInstallations ? <p className="text-xs text-text-3">Shop actions run separately in the background and are excluded from Full sync. Fetched receipts are processed during the next scheduled sync. Check Shopping → Diagnostics for progress and errors.</p> : null}
     </div>
   );
 }

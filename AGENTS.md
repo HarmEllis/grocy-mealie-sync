@@ -23,6 +23,8 @@ When asked to prepare or create a new release tag, complete all of the steps bel
    - add or update the bottom comparison link so the new version compares `<previous-tag>...v<x.y.z>`
 3. Bump the app version in `package.json` to the new release version. Keep `package-lock.json` in sync as well, including its top-level `version` and the root package entry at `packages[""].version` when those mirrored fields change.
 4. Generate a fresh docs screenshot with `npm run docs:screenshot` and include the updated `docs/images/app-dashboard.png` in the release changes.
+   - When app authentication is enabled, configure `AUTH_SECRET` so the screenshot script can sign in. The script must verify that the dashboard is visible and fail without saving if it encounters the app lock/login screen.
+   - Open and visually inspect the generated image before committing: it must show the loaded dashboard, not the app lock/login screen, loading placeholders, or an error page. Fix any issue and regenerate before continuing release prep.
 5. Verify Drizzle migration completeness before tagging:
    - run `npm run db:generate`
    - if it generates new files or updates under `drizzle/`, review them, keep the generated migration artifacts, and do not tag until there are no missing schema migrations left to generate

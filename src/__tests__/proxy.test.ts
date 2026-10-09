@@ -6,6 +6,7 @@ const ORIGINAL_ENV = { ...process.env };
 const PROTECTED_UI_PATHS = [
   '/',
   '/conversions',
+  '/shopping',
   '/mapping',
   '/history',
   '/history/run-123',

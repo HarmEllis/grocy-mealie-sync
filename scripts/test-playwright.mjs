@@ -11,6 +11,7 @@ const tests = [
   'test-mapping-wizard-refresh.mjs',
   'test-mapped-products-mobile.mjs',
   'test-settings-dark-selects.mjs',
+  'test-shop-ui.mjs',
 ];
 
 async function runTest(scriptName) {

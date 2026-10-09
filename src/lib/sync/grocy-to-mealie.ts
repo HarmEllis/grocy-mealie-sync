@@ -12,7 +12,8 @@ import {
   resolveSyncParentOwnStock,
 } from '../settings';
 import { syncMealieInPossessionFromGrocy, type MealieInPossessionSyncResult } from './mealie-in-possession';
-import { getSyncState, saveSyncState } from './state';
+import { getSyncState, saveSyncState, saveSyncStateConsumingRestocks } from './state';
+import { loadLowStockAdjustments, type LowStockAdjustments } from '../shop/low-stock-accounting';
 import { fetchAllMealieShoppingItems } from './helpers';
 import { eq } from 'drizzle-orm';
 import type { HistoryEventInput } from '../history-store';
@@ -103,6 +104,14 @@ export async function pollGrocyForMissingStock(
   try {
     const state = await getSyncState();
     const currentAmounts: Record<number, number> = {};
+    // Receipt restocks accounted for in this poll; consumed atomically with the snapshot.
+    const consumedRestockIds: string[] = [];
+    let lowStockAdjustments: LowStockAdjustments = { accounted: [], frozenProductIds: new Set() };
+    try {
+      lowStockAdjustments = loadLowStockAdjustments();
+    } catch (error) {
+      log.warn('[Grocy→Mealie] Could not load shop booking adjustments:', error);
+    }
     if (shoppingListId) {
       const ensureAllPresent = options.ensureAllPresent ?? await resolveEnsureLowStockOnMealieList();
       const logUnmappedPresenceCheckProducts = options.logUnmappedPresenceCheckProducts ?? false;
@@ -262,9 +271,29 @@ export async function pollGrocyForMissingStock(
       }
       state.grocySkippedRestockAmounts = {};
 
+      // Purchases booked from receipts already reduced the Mealie list. Subtract them
+      // from the previous shortage so this poll does not reduce the list a second
+      // time, while unrelated stock changes in the same interval still produce deltas.
+      // Products with a booking of unknown outcome are frozen until it is settled.
+      const effectiveIdOf = (productId: number) => (syncSubProducts ? (parentByProductId.get(productId) ?? productId) : productId);
+      const frozenEffectiveIds = new Set([...lowStockAdjustments.frozenProductIds].map(effectiveIdOf));
+      const accountedByEffective = new Map<number, number>();
+      for (const restock of lowStockAdjustments.accounted) {
+        const effectiveId = effectiveIdOf(restock.grocyProductId);
+        if (frozenEffectiveIds.has(effectiveId)) continue;
+        accountedByEffective.set(effectiveId, (accountedByEffective.get(effectiveId) ?? 0) + restock.stockAmount);
+        consumedRestockIds.push(restock.effectId);
+      }
+      for (const [effectiveId, accounted] of accountedByEffective) {
+        const previous = effectivePreviousMap.get(effectiveId);
+        if (previous === undefined) continue;
+        effectivePreviousMap.set(effectiveId, previous - Math.min(accounted, previous));
+      }
+      const notFrozen = (effectiveId: number) => !frozenEffectiveIds.has(effectiveId);
+
       // 1. Newly missing → add to Mealie
       const newlyMissing = [...effectiveCurrentMap.values()].filter(
-        e => !effectivePreviousMap.has(e.effectiveId),
+        e => !effectivePreviousMap.has(e.effectiveId) && notFrozen(e.effectiveId),
       );
       let newlyAdded = 0;
       for (const entry of newlyMissing) {
@@ -286,7 +315,7 @@ export async function pollGrocyForMissingStock(
 
       // 2. Still missing, amount changed → adjust by delta
       const amountChanged = [...effectiveCurrentMap.values()].filter(
-        e => effectivePreviousMap.has(e.effectiveId) && effectivePreviousMap.get(e.effectiveId) !== e.amount_missing,
+        e => effectivePreviousMap.has(e.effectiveId) && effectivePreviousMap.get(e.effectiveId) !== e.amount_missing && notFrozen(e.effectiveId),
       );
       let adjusted = 0;
       for (const entry of amountChanged) {
@@ -311,7 +340,7 @@ export async function pollGrocyForMissingStock(
       // 2b. Still missing, amount unchanged → optionally recreate if removed from Mealie
       const unchangedMissing = ensureAllPresent
         ? [...effectiveCurrentMap.values()].filter(
-            e => effectivePreviousMap.has(e.effectiveId) && effectivePreviousMap.get(e.effectiveId) === e.amount_missing,
+            e => effectivePreviousMap.has(e.effectiveId) && effectivePreviousMap.get(e.effectiveId) === e.amount_missing && notFrozen(e.effectiveId),
           )
         : [];
       let unmappedPresenceCheckProducts = 0;
@@ -338,7 +367,7 @@ export async function pollGrocyForMissingStock(
 
       // 3. No longer missing → subtract Grocy's contribution
       const noLongerMissing = [...effectivePreviousMap.keys()].filter(
-        id => !effectiveCurrentMap.has(id),
+        id => !effectiveCurrentMap.has(id) && notFrozen(id),
       );
       let restocked = 0;
       let skippedSyncRestocked = 0;
@@ -356,6 +385,8 @@ export async function pollGrocyForMissingStock(
           continue;
         }
         const prevAmount = effectivePreviousMap.get(effectiveId) ?? 0;
+        // A receipt booking already accounted for the whole previous shortage.
+        if (prevAmount <= 0) continue;
         const result = await adjustMealieShoppingItem(
           effectiveId,
           -prevAmount,
@@ -393,6 +424,17 @@ export async function pollGrocyForMissingStock(
         }
       }
 
+      // Frozen products keep their previous snapshot until the booking outcome is known.
+      if (frozenEffectiveIds.size > 0) {
+        for (const id of Object.keys(currentAmounts).map(Number)) {
+          if (frozenEffectiveIds.has(effectiveIdOf(id))) delete currentAmounts[id];
+        }
+        for (const [origId, amount] of Object.entries(previousAmounts)) {
+          const effectiveId = syncSubProducts ? (prevEffectiveParents[Number(origId)] ?? Number(origId)) : Number(origId);
+          if (frozenEffectiveIds.has(effectiveId)) currentAmounts[Number(origId)] = amount;
+        }
+      }
+
       // Save snapshot of child→parent and parent own-stock deficits for next poll
       state.grocyEffectiveParentByOriginalId = syncSubProducts
         ? Object.fromEntries(parentByProductId)
@@ -417,7 +459,11 @@ export async function pollGrocyForMissingStock(
     state.syncRestockedProducts = {};
     state.grocyBelowMinStock = currentAmounts;
     state.lastGrocyPoll = new Date();
-    await saveSyncState(state);
+    if (consumedRestockIds.length > 0) {
+      await saveSyncStateConsumingRestocks(state, consumedRestockIds);
+    } else {
+      await saveSyncState(state);
+    }
 
     // Unmapped low-stock products are a backlog, not a failure: they are a normal
     // steady state (a catalogue can carry hundreds), and counting them as 'partial'

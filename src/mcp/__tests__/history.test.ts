@@ -91,6 +91,8 @@ describe('MCP history access', () => {
 
       expect(tools.tools.map(tool => tool.name)).toEqual(expect.arrayContaining([
         'history.list_runs',
+        'history.list_activity',
+        'history.status',
         'history.get_run',
       ]));
       expect(resources.resources.map(resource => resource.uri)).toEqual(expect.arrayContaining([

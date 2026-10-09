@@ -2,6 +2,7 @@ import { SettingsForm } from '@/components/settings/SettingsForm';
 import { SyncRecoveryControls } from '@/components/sync/SyncRecoveryControls';
 import { AppCardSection } from '@/components/redesign/primitives';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { ShopPluginsPanel } from '@/components/shop/ShopPluginsPanel';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +17,15 @@ export default function SettingsPage() {
       >
         <SettingsForm />
       </AppCardSection>
+
+      <div id="shop-plugins">
+        <AppCardSection
+          title="Shop plugins"
+          subtitle="Connect external shop plugins, manage their tokens and retailer sign-in."
+        >
+          <ShopPluginsPanel />
+        </AppCardSection>
+      </div>
 
       <div id="lock-recovery">
         <AppCardSection

@@ -77,6 +77,12 @@ function formatConflictKindBreakdown(conflicts: Array<Pick<MappingConflictRecord
 
 export function formatHistoryActionLabel(action: HistoryRunAction): string {
   switch (action) {
+    case 'shop_list_sync':
+      return 'Retailer shopping list sync';
+    case 'shop_receipt_pull':
+      return 'Retailer receipt check';
+    case 'shop_catalog_search':
+      return 'Retailer product suggestions';
     case 'scheduler_cycle':
       return 'Scheduler cycle';
     case 'product_sync':
@@ -204,6 +210,10 @@ export function formatSchedulerStepNameLabel(stepName: SchedulerStepName): strin
       return 'Conflict check';
     case 'shopping_cleanup':
       return 'Shopping cleanup';
+    case 'shop_demand':
+      return 'Shop demand';
+    case 'shop_reconcile':
+      return 'Shop receipts';
   }
 }
 

@@ -4,5 +4,10 @@ node_modules
 .octo
 .claude
 .claude-octopus
+.aws
+.codex
+.co-develop
+.env*
 data
 *.md
+examples

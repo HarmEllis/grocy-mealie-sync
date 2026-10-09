@@ -34,6 +34,25 @@ vi.mock('../../grocy/types', () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Check lifecycle ledger: bookings pass straight through to the mocked Grocy
+// wrapper here; the ledger itself is covered by shop/__tests__.
+// ---------------------------------------------------------------------------
+vi.mock('../../shop/check-lifecycles', async () => {
+  const grocy = await import('../../grocy/types');
+  return {
+    openCheckLifecycle: vi.fn(() => ({ id: 'lifecycle-1' })),
+    guardReceiptFulfillment: vi.fn(),
+    setLifecycleStatus: vi.fn(),
+    handleUncheckedItem: vi.fn(),
+    reconcileCheckLifecycles: vi.fn(async () => ({ verifiedApplied: 0, stillUnknown: 0, retryRequested: [], closed: 0 })),
+    bookCheckStock: vi.fn(async (_lifecycle: unknown, productId: number, amount: number) => {
+      await grocy.addProductStock(productId, amount);
+      return 'applied';
+    }),
+  };
+});
+
+// ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
 vi.mock('../../settings', () => ({

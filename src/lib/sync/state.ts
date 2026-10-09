@@ -2,6 +2,7 @@ import { db } from '../db';
 import { syncState } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { log } from '../logger';
+import { consumeAccountedRestocks } from '../shop/low-stock-accounting';
 
 export interface SyncStateData {
   lastGrocyPoll: Date | null;
@@ -89,8 +90,8 @@ export async function getSyncState(): Promise<SyncStateData> {
   };
 }
 
-export async function saveSyncState(state: SyncStateData) {
-  const stateData = JSON.stringify({
+function serializeSyncState(state: SyncStateData): string {
+  return JSON.stringify({
     lastGrocyPoll: state.lastGrocyPoll?.toISOString() || null,
     lastMealiePoll: state.lastMealiePoll?.toISOString() || null,
     grocyBelowMinStock: state.grocyBelowMinStock,
@@ -105,6 +106,10 @@ export async function saveSyncState(state: SyncStateData) {
     grocyParentOwnStockDeficit: state.grocyParentOwnStockDeficit,
     grocySkippedRestockAmounts: state.grocySkippedRestockAmounts,
   });
+}
+
+export async function saveSyncState(state: SyncStateData) {
+  const stateData = serializeSyncState(state);
 
   await db.insert(syncState)
     .values({ id: STATE_ID, stateData })
@@ -112,4 +117,19 @@ export async function saveSyncState(state: SyncStateData) {
       target: syncState.id,
       set: { stateData },
     });
+}
+
+/**
+ * Save the low-stock snapshot and mark the receipt restocks it accounted for
+ * as consumed in one transaction, so a crash can never apply them twice.
+ */
+export async function saveSyncStateConsumingRestocks(state: SyncStateData, effectIds: string[]) {
+  const stateData = serializeSyncState(state);
+  db.transaction((tx) => {
+    tx.insert(syncState)
+      .values({ id: STATE_ID, stateData })
+      .onConflictDoUpdate({ target: syncState.id, set: { stateData } })
+      .run();
+    consumeAccountedRestocks(tx, effectIds);
+  });
 }

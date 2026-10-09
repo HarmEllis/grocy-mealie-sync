@@ -66,6 +66,14 @@ vi.mock('../mealie-to-grocy', () => ({
   pollMealieForCheckedItems: mockState.pollMealieForCheckedItems,
 }));
 
+vi.mock('../../shop/worker', () => ({
+  isShopFeatureActive: vi.fn(() => false),
+  runShopDemandStep: vi.fn(),
+  runShopReconcileStep: vi.fn(),
+  startShopWorker: vi.fn(),
+  stopShopWorker: vi.fn(),
+}));
+
 vi.mock('../mutex', () => ({
   acquireSyncLock: mockState.acquireSyncLock,
   releaseSyncLock: mockState.releaseSyncLock,

@@ -1,3 +1,4 @@
+import { listInstallations } from '@/lib/plugins/installations';
 import Link from 'next/link';
 import { Link2 } from 'lucide-react';
 import { count } from 'drizzle-orm';
@@ -11,11 +12,14 @@ import { config } from '@/lib/config';
 import { formatDateTime } from '@/lib/date-time';
 import { cn } from '@/lib/utils';
 import { getSyncState } from '@/lib/sync/state';
-import { getNextCleanupRun, getSchedulerRuntimeState, type SchedulerRuntimeStatus } from '@/lib/sync/scheduler';
+import { getNextCleanupRun, getNextPollRun, getSchedulerRuntimeState, type SchedulerRuntimeStatus } from '@/lib/sync/scheduler';
 import { getHistoryFeatureState, listHistoryRuns } from '@/lib/history-store';
 import { formatHistoryActionLabel } from '@/lib/history-events';
 import type { HistoryRunRecord } from '@/lib/history-store';
 import { DashboardSyncPanel } from '@/components/sync/DashboardSyncPanel';
+import { NextRunCountdown } from '@/components/sync/NextRunCountdown';
+import { DashboardShopStatus } from '@/components/shop/DashboardShopStatus';
+import { getSafeShopDashboardStatus } from '@/lib/shop/status';
 
 interface DashboardStatus {
   lastGrocyPoll: string | Date | null;
@@ -112,29 +116,6 @@ function runDuration(run: HistoryRunRecord): string {
   return `${Math.round(durationMs / 1000)}s`;
 }
 
-function formatNextRunIn(lastPoll: string | Date | null, schedulerStatus: SchedulerRuntimeStatus | null): string {
-  if (schedulerStatus === 'passive_startup_lock') {
-    return '-';
-  }
-
-  if (!lastPoll) {
-    return 'Unknown';
-  }
-
-  const lastPollTime = new Date(lastPoll);
-  if (Number.isNaN(lastPollTime.getTime())) {
-    return 'Unknown';
-  }
-
-  const nextRunAt = lastPollTime.getTime() + (config.pollIntervalSeconds * 1000);
-  const remainingMs = Math.max(0, nextRunAt - Date.now());
-  const totalSeconds = Math.floor(remainingMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-}
-
 export const dynamic = 'force-dynamic';
 
 export default async function Home() {
@@ -143,11 +124,6 @@ export default async function Home() {
   const historyState = getHistoryFeatureState();
   const recentRuns = historyState.enabled ? await listHistoryRuns(4) : [];
   const runHealth = summariseRunHealth(recentRuns);
-  const mostRecentPoll = status
-    ? [status.lastGrocyPoll, status.lastMealiePoll]
-      .filter((value): value is string | Date => Boolean(value))
-      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null
-    : null;
   const unmappedProductsHeadline = status?.unmappedMealieFoodsCount !== null && status?.unmappedMealieFoodsCount !== undefined
     ? `${status.unmappedMealieFoodsCount} ${status.unmappedMealieFoodsCount === 1 ? 'product' : 'products'} not yet mapped`
     : 'Review product mappings';
@@ -218,10 +194,12 @@ export default async function Home() {
                 timeZone: config.timeZone,
               })}
             />
-            <StatusMeta
-              label="Next run in"
-              value={formatNextRunIn(mostRecentPoll, status?.schedulerStatus ?? null)}
+            <DashboardShopStatus
+              initialStatus={getSafeShopDashboardStatus(status?.schedulerStatus === 'active', getNextPollRun())}
+              timeZone={config.timeZone}
+              locale={config.timeZoneLocale}
             />
+            <NextRunCountdown initialNextRunAt={getNextPollRun()?.toISOString() ?? null} />
             <StatusMeta
               label="Next cleanup"
               value={formatDateTime(status?.nextCleanupRun ?? null, {
@@ -247,7 +225,7 @@ export default async function Home() {
             <h2 className="text-base font-bold tracking-tight">Manual Sync</h2>
             <p className="text-sm text-muted-foreground">Trigger targeted sync steps directly from the dashboard.</p>
           </div>
-          <DashboardSyncPanel />
+          <DashboardSyncPanel hasShopInstallations={listInstallations().length > 0} />
         </AppCard>
 
         <AppCard>

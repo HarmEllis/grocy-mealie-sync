@@ -1,0 +1,326 @@
+import { config } from '../config';
+import { recordHistoryRun } from '../history-store';
+import type { HistoryEventInput } from '../history-store';
+import { log } from '../logger';
+import { getPluginGateway, setShopWorker, type ShopWorkerHandle } from '../plugins/runtime';
+import { helloHasFeature } from '../plugins/gateway';
+import { FEATURES } from '../plugins/protocol/v1';
+import { getInstallation, hasActiveInstallations, listInstallations, type PluginInstallation } from '../plugins/installations';
+import { resolveShoppingListId } from '../settings';
+import { fetchAllMealieShoppingItems } from '../sync/helpers';
+import { activityEvent } from '../sync/activity';
+import type { SchedulerStepStatus } from '../scheduler-notifications';
+import { loadUnitContext } from './context';
+import { listOpenDemand, observeDemand, recordedDemandLabels } from './demand-observer';
+import { defaultEffectRunnerDeps } from './effect-runners';
+import { syncInstallationList } from './list-sync';
+import { persistExports, projectDemand, targetKey, type ProjectionMapping } from './projection';
+import { isReceiptPullDue, pullReceipts } from './receipts';
+import { hasPendingReceiptEffects, runShopReconcile } from './reconcile-executor';
+import { generateSuggestions, listRetailerMappings, listRetailerProducts } from './retailer-catalog';
+import { queueCatalogDiscovery, discoverCatalogProducts } from './catalog-discovery';
+import { listActiveExports } from './projection';
+import type { TargetKind } from './units';
+import { recordShopJob } from './status';
+import { getProjectionReview, saveProjectionReview } from './projection-diagnostics';
+import { needsProjectionAttention, PROJECTION_LABELS } from './projection-reasons';
+
+/**
+ * Orchestration of the shop features. Everything here is owned by the
+ * scheduler: the poll cycle runs the core steps under the sync lock, and the
+ * plugin I/O timer is started and stopped together with the scheduler. The
+ * gateway only accepts plugin sessions while this instance owns the
+ * scheduler, so connected plugins always have a running worker.
+ */
+
+export interface ShopStepOutcome {
+  status: SchedulerStepStatus;
+  message?: string;
+  summary?: unknown;
+  events?: HistoryEventInput[];
+}
+
+/** Keep accepted ledger work active until it settles, even after plugin revocation. */
+export function isShopFeatureActive(): boolean {
+  try {
+    return hasActiveInstallations() || hasPendingReceiptEffects();
+  } catch (error) {
+    log.warn('[Shop] Could not check plugin installations:', error);
+    return false;
+  }
+}
+
+/** Observe demand and project it onto each list-sync installation. Runs under the sync lock. */
+export async function runShopDemandStep(): Promise<ShopStepOutcome> {
+  const shoppingListId = await resolveShoppingListId();
+  if (!shoppingListId) return { status: 'skipped', message: 'No Mealie shopping list configured' };
+  const items = await fetchAllMealieShoppingItems(shoppingListId);
+  const observation = observeDemand(shoppingListId, items);
+
+  const projecting = listInstallations().filter(installation => installation.providerId && installation.settings.listSyncEnabled);
+  const summary: Record<string, unknown> = { observation, projections: [] as unknown[] };
+  if (projecting.length === 0) return { status: 'success', summary };
+
+  const ctx = await loadUnitContext();
+  // Shopping rows already contain names for Mealie-only ingredients.
+  for (const item of items) if (item.foodId && item.food?.name) ctx.mealieFoodNames.set(item.foodId, item.food.name);
+  const open = listOpenDemand(shoppingListId);
+  const labels = recordedDemandLabels();
+  const demands = open.map(({ revision }) => {
+    let subItems = null;
+    try {
+      subItems = revision.subItemsJson ? JSON.parse(revision.subItemsJson) : null;
+    } catch {
+      subItems = null;
+    }
+    return {
+      revisionId: revision.id,
+      mealieItemId: revision.mealieItemId,
+      foodId: revision.foodId,
+      unitId: revision.unitId,
+      quantity: revision.quantity,
+      subItems,
+      label: (revision.foodId && ctx.mealieFoodNames.get(revision.foodId)) || labels.get(revision.mealieItemId) || revision.note || revision.mealieItemId,
+    };
+  });
+  const events: HistoryEventInput[] = [];
+  for (const installation of projecting) {
+    const providerId = installation.providerId!;
+    const retailerProducts = new Map(listRetailerProducts(providerId).map(product => [product.externalId, product]));
+    const preferred = new Map<string, ProjectionMapping>();
+    for (const mapping of listRetailerMappings(providerId)) {
+      if (mapping.role !== 'preferred') continue;
+      preferred.set(targetKey(mapping.targetKind as TargetKind, mapping.targetId), {
+        retailerProductId: mapping.retailerProductId,
+        targetKind: mapping.targetKind as TargetKind,
+        targetId: mapping.targetId,
+        packageBaseAmount: mapping.packageBaseAmount,
+        packageBaseUnitId: mapping.packageBaseUnitId,
+        confirmed: mapping.confirmed,
+        measure: retailerProducts.get(mapping.retailerProductId)?.measure === 'weight' ? 'weight' : 'unit',
+      });
+    }
+    queueCatalogDiscovery(providerId, demands, ctx);
+    const previous = new Map(listActiveExports(installation.id).map(row => [row.retailerProductId, row]));
+    const projection = projectDemand(demands, preferred, ctx);
+    const previousReasons = new Set(getProjectionReview(installation.id).map(row => `${row.mealieItemId}:${row.reason}:${row.label}`));
+    for (const row of projection.review) {
+      if (!needsProjectionAttention(row.reason) || previousReasons.has(`${row.mealieItemId}:${row.reason}:${row.label}`)) continue;
+      events.push(activityEvent({ source: 'Mealie', target: 'App', category: 'shopping', level: 'warning',
+        entityKind: 'shopping_item', entityRef: row.mealieItemId, productName: row.label,
+        message: `${row.label}: not sent to ${installation.name}.`, reason: PROJECTION_LABELS[row.reason],
+        details: { installationId: installation.id, mealieItemId: row.mealieItemId, reason: row.reason },
+      }));
+    }
+    saveProjectionReview(installation.id, projection.review);
+    const persisted = persistExports(installation.id, providerId, projection.lines, new Date());
+    (summary.projections as unknown[]).push({
+      installationId: installation.id,
+      lines: projection.lines.length,
+      review: projection.review.length,
+      ...persisted,
+    });
+    const candidates = [
+      ...[...ctx.grocyProducts.values()].map(product => ({ targetKind: 'grocy_product' as const, targetId: String(product.id), targetName: product.name })),
+    ];
+    generateSuggestions(providerId, candidates);
+    const names = new Map(listRetailerProducts(providerId).map(product => [product.externalId, product.name]));
+    const current = new Map(listActiveExports(installation.id).map(row => [row.retailerProductId, row]));
+    for (const id of new Set([...previous.keys(), ...current.keys()])) {
+      const before = previous.get(id);
+      const after = current.get(id);
+      if (before?.id === after?.id) continue;
+      const productName = names.get(id) ?? id;
+      const packages = after?.packages ?? 0;
+      events.push(activityEvent({
+        source: 'Mealie', target: 'App', category: 'shopping', entityKind: 'product', productName,
+        entityRef: `retailer:${providerId}:${id}`,
+        message: after ? `Prepared ${packages} package(s) of ${productName} for the ${installation.name} shopping list.`
+          : `Removed the demand for ${productName} from the ${installation.name} shopping list plan.`,
+        reason: 'Open Mealie demand changed.', details: { installationId: installation.id, retailerProductId: id, packages, previousPackages: before?.packages ?? 0 },
+      }));
+    }
+  }
+  return { status: 'success', summary, events };
+}
+
+/** Verify, plan and execute receipt effects. Runs under the sync lock. */
+export async function runShopReconcileStep(): Promise<ShopStepOutcome> {
+  try {
+    const shoppingListId = await resolveShoppingListId();
+    const result = await runShopReconcile({
+      runner: defaultEffectRunnerDeps,
+      shoppingListId,
+      loadMealieItems: fetchAllMealieShoppingItems,
+      loadUnitContext,
+      observationGraceMs: config.pollIntervalSeconds * 1000 + 60_000,
+      now: () => new Date(),
+    });
+    const status = result.status === 'ok' ? 'success' : result.status === 'error' ? 'failure' : result.status;
+    try { recordShopJob(status); } catch (error) { log.warn('[Shop] Could not record job status:', error); }
+    return {
+      status,
+      message: result.message,
+      summary: result.summary,
+      events: result.events,
+    };
+  } catch (error) {
+    try { recordShopJob('failure'); } catch (statusError) { log.warn('[Shop] Could not record job status:', statusError); }
+    throw error;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Plugin I/O timer
+// ---------------------------------------------------------------------------
+
+const WORKER_INTERVAL_MS = 60_000;
+
+/**
+ * Two installations signed in to the same retailer account would fight over
+ * one shared list. Only the oldest one runs list sync; receipts are
+ * deduplicated per account anyway.
+ */
+function listSyncOwner(installations: PluginInstallation[], candidate: PluginInstallation): boolean {
+  if (!candidate.accountKey || !candidate.providerId) return false;
+  const sameAccount = installations
+    .filter(other => other.providerId === candidate.providerId && other.accountKey === candidate.accountKey)
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  return sameAccount[0]?.id === candidate.id;
+}
+
+export function createShopWorker(): ShopWorkerHandle & { start: () => void; stop: () => void; onSessionReady: (installationId: string) => void } {
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let running: Promise<void> | null = null;
+  const listRequests = new Set<string>();
+  const receiptRequests = new Set<string>();
+  let rerun = false;
+
+  async function tick(): Promise<void> {
+    const gateway = getPluginGateway();
+    const sessions = gateway?.listSessions() ?? [];
+    // Without connected plugins the worker does nothing, not even a database read.
+    if (!gateway || sessions.length === 0) return;
+    const installations = listInstallations();
+    const searchedProviders = new Set<string>();
+    for (const session of sessions) {
+      const installation = installations.find(candidate => candidate.id === session.installationId);
+      if (!installation || installation.revokedAt) continue;
+      const capabilities = new Set<string>(session.hello.capabilities);
+      const now = new Date();
+
+      if (installation.settings.listSyncEnabled && installation.providerId && capabilities.has('catalog') && session.hello.authState === 'authenticated' && !searchedProviders.has(installation.providerId)) {
+        searchedProviders.add(installation.providerId);
+        const discoveries = await discoverCatalogProducts(installation.providerId, async query =>
+          (await gateway.call(installation.id, 'catalog.search', { query }, { timeoutMs: 20_000 })).products);
+        if (discoveries.length) {
+          try {
+            await recordHistoryRun({ trigger: 'scheduler', action: 'shop_catalog_search', status: discoveries.some(d => d.error) ? 'partial' : 'success', startedAt: now, finishedAt: new Date(),
+              events: discoveries.map(d => activityEvent({ source: 'Mealie', target: 'App', category: 'mapping', productName: d.targetName,
+                message: d.error ? `${d.targetName}: ${d.error}` : `${d.targetName}: found ${d.products} retailer product(s); review the proposed mappings in Shop.`,
+                reason: 'An open Mealie ingredient has no preferred retailer product.', level: d.error ? 'warning' : 'info',
+              })),
+            });
+          } catch (error) { log.warn('[Shop] Could not record catalogue discovery:', error); }
+        }
+        for (const discovery of discoveries) {
+          if (discovery.error) log.warn(`[Shop] ${discovery.targetName}: ${discovery.error}`);
+          else log.info(`[Shop] ${discovery.targetName}: found ${discovery.products} catalogue product(s) for mapping review.`);
+        }
+      }
+
+      if (installation.settings.listSyncEnabled && capabilities.has('list') && listSyncOwner(installations, installation)) {
+        listRequests.delete(installation.id);
+        const result = await syncInstallationList(installation.id, {
+          readList: () => gateway.call(installation.id, 'list.read', {}),
+          applyList: params => gateway.call(installation.id, 'list.apply', params),
+          now: () => new Date(),
+          notesSupported: helloHasFeature(session.hello, FEATURES.listNotes),
+        });
+        if ((result.status !== 'ok' && result.status !== 'skipped') || result.failed || result.conflicts) {
+          log.warn(`[Shop] List sync for ${installation.name}: ${result.status}${result.message ? ` (${result.message})` : ''}`);
+        }
+      }
+
+      if (installation.settings.receiptsEnabled && capabilities.has('receipts')
+        && (receiptRequests.has(installation.id) || isReceiptPullDue(installation, now))) {
+        receiptRequests.delete(installation.id);
+        const fresh = getInstallation(installation.id) ?? installation;
+        const result = await pullReceipts(fresh, {
+          listReceipts: params => gateway.call(installation.id, 'receipts.list', params),
+          getReceipt: receiptId => gateway.call(installation.id, 'receipts.get', { receiptId }),
+          now: () => new Date(),
+        });
+        if (result.status === 'error') log.warn(`[Shop] Receipt pull for ${installation.name} failed: ${result.message}`);
+        else if (result.stored > 0) log.info(`[Shop] Stored ${result.stored} new receipt(s) from ${installation.name}`);
+      }
+    }
+  }
+
+  function run(): Promise<void> {
+    if (running) {
+      rerun = true;
+      return running;
+    }
+    running = (async () => {
+      try {
+        do {
+          rerun = false;
+          await tick();
+        } while (rerun);
+      } catch (error) {
+        log.warn('[Shop] Worker tick failed:', error);
+      } finally {
+        running = null;
+      }
+    })();
+    return running;
+  }
+
+  return {
+    start: () => {
+      if (timer) return;
+      timer = setInterval(() => void run(), WORKER_INTERVAL_MS);
+      timer.unref?.();
+      void run();
+    },
+    stop: () => {
+      if (timer) clearInterval(timer);
+      timer = null;
+    },
+    requestListSync: (installationId) => {
+      if (installationId) listRequests.add(installationId);
+      void run();
+    },
+    requestReceiptPull: (installationId) => {
+      if (installationId) receiptRequests.add(installationId);
+      else for (const session of getPluginGateway()?.listSessions() ?? []) receiptRequests.add(session.installationId);
+      void run();
+    },
+    onSessionReady: (installationId) => {
+      // Catch-up never depends on hints: pull and sync whenever a session starts.
+      receiptRequests.add(installationId);
+      listRequests.add(installationId);
+      void run();
+    },
+    runNow: () => run(),
+  };
+}
+
+let worker: ReturnType<typeof createShopWorker> | null = null;
+
+/** Started and stopped by the scheduler that owns this instance. */
+export function startShopWorker(): void {
+  worker ??= createShopWorker();
+  setShopWorker(worker);
+  worker.start();
+}
+
+export function stopShopWorker(): void {
+  worker?.stop();
+  setShopWorker(undefined);
+}
+
+export function getLocalShopWorker() {
+  return worker;
+}

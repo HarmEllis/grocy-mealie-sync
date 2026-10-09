@@ -1,72 +1,22 @@
-import packageMetadata from '../package.json';
-
-let shutdownHooksRegistered = false;
-let startupInfoLogged = false;
-
-function registerSchedulerShutdownHooks(stopScheduler: () => void) {
-  if (shutdownHooksRegistered) {
-    return;
-  }
-
-  shutdownHooksRegistered = true;
-
-  let stopped = false;
-  const shutdown = () => {
-    if (stopped) {
-      return;
-    }
-    stopped = true;
-    stopScheduler();
-  };
-
-  const processRef = (globalThis as { process?: { once?: (event: string, handler: () => void) => void } }).process;
-  if (!processRef?.once) {
-    return;
-  }
-
-  processRef.once('SIGINT', shutdown);
-  processRef.once('SIGTERM', shutdown);
-  processRef.once('exit', shutdown);
+declare global {
+  // Lets server.mjs see whether startup ran, independent of Next.js module instances.
+  // eslint-disable-next-line no-var
+  var __gmsInstrumentationStarted: boolean | undefined;
+  // eslint-disable-next-line no-var
+  var __gmsInstrumentationReady: boolean | undefined;
+  // eslint-disable-next-line no-var
+  var __gmsInstrumentationPromise: Promise<void> | undefined;
 }
 
+/**
+ * Startup runs once per process. The promise lives on globalThis because
+ * Next.js and the server.mjs development fallback may load this module from
+ * different bundles; both share one migration and scheduler start.
+ */
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    // Initialize API clients
-    await import('./lib/grocy');
-    await import('./lib/mealie');
-
-    // Run DB migrations
-    const { migrate } = await import('drizzle-orm/better-sqlite3/migrator');
-    const { db } = await import('./lib/db');
-    migrate(db, { migrationsFolder: './drizzle' });
-
-    const { initializeHistoryStorage } = await import('./lib/history-store');
-    await initializeHistoryStorage();
-
-    // Log config warnings
-    const { config } = await import('./lib/config');
-    const { log } = await import('./lib/logger');
-    if (!startupInfoLogged) {
-      log.info(`[App] Starting ${packageMetadata.name} v${packageMetadata.version}`);
-      log.info(
-        config.mcpEnabled
-          ? '[MCP] Server enabled at /api/mcp'
-          : '[MCP] Server disabled. Set MCP_ENABLED=true to enable /api/mcp',
-      );
-      startupInfoLogged = true;
-    }
-    const { getSettings } = await import('./lib/settings');
-    const settings = await getSettings();
-    if (!settings.defaultUnitMappingId && !config.grocyDefaultUnitId) {
-      log.warn('[Config] No default unit configured — new Mealie products will not be created in Grocy until a default unit is set in the web UI or via GROCY_DEFAULT_UNIT_ID');
-    }
-    if (!settings.mealieShoppingListId && !config.mealieShoppingListId) {
-      log.warn('[Config] No Mealie shopping list configured — sync cannot add items to a shopping list until one is selected in the web UI or via MEALIE_SHOPPING_LIST_ID');
-    }
-
-    // Start the polling scheduler
-    const { startScheduler, stopScheduler } = await import('./lib/sync/scheduler');
-    registerSchedulerShutdownHooks(stopScheduler);
-    startScheduler();
+    const { startNodeRuntime } = await import('./instrumentation-node');
+    globalThis.__gmsInstrumentationPromise ??= startNodeRuntime();
+    return globalThis.__gmsInstrumentationPromise;
   }
 }
