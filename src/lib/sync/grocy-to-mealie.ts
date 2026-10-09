@@ -45,8 +45,8 @@ interface AdjustMealieShoppingItemOptions {
   logWhenMappingMissing?: boolean;
   /** When set, the function computes and writes note/extras for sub-product tracking. */
   subProducts?: SubProductItem[];
-  /** Grocy quantity unit names, loaded at most once per poll. */
-  unitNames?: () => Promise<Map<number, string>>;
+  /** Grocy quantity unit names, loaded at most once per poll. Required so no caller can skip the count-unit rule. */
+  unitNames: () => Promise<Map<number, string>>;
 }
 
 interface EffectiveMissingEntry {
@@ -413,6 +413,7 @@ export async function pollGrocyForMissingStock(
           // Clear managed sub-product note/extras if item stays on list with remaining user qty
           {
             ...(syncSubProducts ? { subProducts: [] } : {}),
+            unitNames,
             history: { events, recordedErrors, reason: 'Grocy stock reached its minimum again; removing its previous shopping list contribution.', deficit: 0 },
           },
         );
@@ -567,7 +568,7 @@ async function adjustMealieShoppingItem(
   shoppingListId: string,
   mealieShoppingItems: MealieShoppingItem[],
   grocyProductsById: Map<number, GrocyProductWithParent>,
-  options: AdjustMealieShoppingItemOptions = {},
+  options: AdjustMealieShoppingItemOptions,
 ): Promise<AdjustMealieShoppingItemResult> {
   try {
     return await applyMealieShoppingAdjustment(grocyProductId, delta, shoppingListId, mealieShoppingItems, grocyProductsById, options);
