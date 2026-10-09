@@ -647,7 +647,8 @@ async function applyMealieShoppingAdjustment(
   }
   unwritableShortageWarned.delete(grocyProductId);
   const unitId = label.unitId;
-  const toLabelQuantity = (stockAmount: number) => label.factor === 1 ? stockAmount : Number((stockAmount / label.factor).toFixed(6));
+  // Significant digits, not decimals: a small change with a large factor never rounds to zero.
+  const toLabelQuantity = (stockAmount: number) => label.factor === 1 ? stockAmount : Number((stockAmount / label.factor).toPrecision(12));
   delta = toLabelQuantity(delta);
 
   // Only a row in the same unit without recipe references belongs to the sync:

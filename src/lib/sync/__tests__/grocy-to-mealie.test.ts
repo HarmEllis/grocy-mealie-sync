@@ -890,6 +890,25 @@ describe('pollGrocyForMissingStock', () => {
       expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: 'mealie-unit-1', quantity: 2 }));
     });
 
+    it('keeps small changes when the unit mapping factor is large', async () => {
+      setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 10, conversionFactor: 1000 })]);
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Saffron', qu_id_stock: 10, qu_id_purchase: 10 },
+      ] as any);
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 1 } }));
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 1.0001 })],
+      });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'own-row', foodId: 'food-1', unitId: 'mealie-unit-1', quantity: 0.001, checked: false }),
+      ]);
+
+      await pollGrocyForMissingStock();
+
+      const update = mockedUpdate.mock.calls[0]?.[1] as { quantity: number } | undefined;
+      expect(update?.quantity).toBeCloseTo(0.0010001, 10);
+    });
+
     it('never merges a shortage into a recipe row in another unit', async () => {
       setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 13, mealieUnitId: 'mealie-blik' })]);
       mockedGetGrocyEntities.mockResolvedValue([
