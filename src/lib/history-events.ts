@@ -79,6 +79,8 @@ export function formatHistoryActionLabel(action: HistoryRunAction): string {
   switch (action) {
     case 'shop_list_sync':
       return 'Retailer shopping list sync';
+    case 'shop_receipt_pull':
+      return 'Retailer receipt check';
     case 'shop_catalog_search':
       return 'Retailer product suggestions';
     case 'scheduler_cycle':

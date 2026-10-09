@@ -1,7 +1,8 @@
+import { parseStoredJson } from './stored-json';
 import { createHash, randomUUID } from 'crypto';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, like } from 'drizzle-orm';
 import { db } from '../db';
-import { demandRevisions, demands } from '../db/schema';
+import { appMeta, demandRevisions, demands } from '../db/schema';
 import type { MealieShoppingItem } from '../mealie/types';
 import { GMS_ITEMS_KEY, isValidSubProductItem, type SubProductItem } from '../shopping-notes';
 
@@ -13,6 +14,11 @@ import { GMS_ITEMS_KEY, isValidSubProductItem, type SubProductItem } from '../sh
  */
 
 export type DemandStatus = 'open' | 'checked' | 'removed';
+
+/** Mealie displays an omitted or zero shopping quantity as one item. */
+export function effectiveDemandQuantity(quantity: number | null | undefined): number {
+  return quantity != null && quantity > 0 ? quantity : 1;
+}
 
 export interface DemandSnapshot {
   foodId: string | null;
@@ -74,6 +80,14 @@ export interface DemandObservationSummary {
 export function observeDemand(shoppingListId: string, items: MealieShoppingItem[], now = new Date()): DemandObservationSummary {
   const summary: DemandObservationSummary = { created: 0, revised: 0, checked: 0, reopened: 0, removed: 0 };
   db.transaction((tx) => {
+    const labelKey = `shop-demand-labels:${shoppingListId}`;
+    const savedLabels = tx.select().from(appMeta).where(eq(appMeta.key, labelKey)).get();
+    const previousLabels: Record<string, string> = parseStoredJson(savedLabels?.value, {});
+    const labels = Object.fromEntries(items.map(item => [item.id,
+      item.food?.name?.trim() || item.display?.trim() || previousLabels[item.id] || item.note?.trim() || `Shopping item ${item.id}`]));
+    const labelValue = JSON.stringify(labels);
+    if (labelValue !== savedLabels?.value) tx.insert(appMeta).values({ key: labelKey, value: labelValue })
+      .onConflictDoUpdate({ target: appMeta.key, set: { value: labelValue } }).run();
     const existingRows = tx.select().from(demands)
       .where(and(eq(demands.shoppingListId, shoppingListId), inArray(demands.status, ['open', 'checked'])))
       .all();
@@ -162,6 +176,11 @@ function insertRevision(tx: Tx, id: string, mealieItemId: string, revision: numb
 }
 
 export type DemandRow = typeof demands.$inferSelect;
+
+export function recordedDemandLabels(): Map<string, string> {
+  return new Map(db.select().from(appMeta).where(like(appMeta.key, 'shop-demand-labels:%')).all()
+    .flatMap(row => Object.entries(parseStoredJson<Record<string, string>>(row.value, {}))));
+}
 export type DemandRevisionRow = typeof demandRevisions.$inferSelect;
 
 export function getDemand(mealieItemId: string): DemandRow | null {

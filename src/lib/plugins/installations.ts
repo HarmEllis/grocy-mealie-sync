@@ -1,8 +1,8 @@
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, inArray, like, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db';
-import { pluginInstallations } from '../db/schema';
+import { appMeta, pluginInstallations } from '../db/schema';
 import { parsePluginToken, type HelloParams, type PluginAuthState } from './protocol/v1';
 
 export type PluginInstallationRow = typeof pluginInstallations.$inferSelect;
@@ -147,7 +147,13 @@ export function renameInstallation(id: string, name: string): PluginInstallation
 }
 
 export function revokeInstallation(id: string, now = new Date()): PluginInstallation | null {
-  db.update(pluginInstallations).set({ revokedAt: now }).where(eq(pluginInstallations.id, id)).run();
+  db.transaction(tx => {
+    tx.update(pluginInstallations).set({ revokedAt: now }).where(eq(pluginInstallations.id, id)).run();
+    tx.delete(appMeta).where(or(
+      inArray(appMeta.key, [`shop-list-status:${id}`, `shop-projection-review:${id}`]),
+      like(appMeta.key, `shop-note-preference:${id}:%`),
+    )).run();
+  });
   return getInstallation(id);
 }
 

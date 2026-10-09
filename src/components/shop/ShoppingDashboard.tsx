@@ -12,11 +12,13 @@ import { ThemedSelect } from '@/components/shared/ThemedSelect';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { apiJson } from './api';
 import { OwnProductsTab } from './OwnProductsTab';
+import { DashboardShopStatus } from './DashboardShopStatus';
 import type { mappingPreview } from '@/lib/shop/mapping-preview';
 import type { TargetOption } from '@/lib/shop/targets';
 import type { ShopOverview } from '@/lib/shop/overview';
+import { needsProjectionAttention, PROJECTION_LABELS } from '@/lib/shop/projection-reasons';
 
-type Tab = 'overview' | 'products' | 'receipts' | 'review';
+type Tab = 'overview' | 'products' | 'receipts' | 'review' | 'diagnostics';
 
 const PAUSE_LABELS: Record<string, string> = {
   reduced_by_other: 'Someone reduced this line',
@@ -91,7 +93,7 @@ function ShopCell({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-export function ShoppingDashboard() {
+export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone?: string | null; locale?: string | null }) {
   const [overview, setOverview] = useState<ShopOverview | null>(null);
   const [tab, setTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(false);
@@ -115,7 +117,7 @@ export function ShoppingDashboard() {
     return () => window.clearInterval(interval);
   }, [load]);
 
-  const attention = (overview?.review.length ?? 0) + (overview?.discrepancies.length ?? 0) + (overview?.effects.length ?? 0)
+  const attention = (overview?.review.length ?? 0) + (overview?.projectionReview?.filter(row => needsProjectionAttention(row.reason)).length ?? 0) + (overview?.discrepancies.length ?? 0) + (overview?.effects.length ?? 0)
     + (overview?.lines.filter(line => line.pausedReason && line.pausedReason !== 'released').length ?? 0);
 
   return (
@@ -143,6 +145,7 @@ export function ShoppingDashboard() {
             <TabsTrigger value="products" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"><Package className="size-3.5" /> Products</TabsTrigger>
             <TabsTrigger value="receipts" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"><Receipt className="size-3.5" /> Receipts</TabsTrigger>
             <TabsTrigger value="review" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"><TriangleAlert className="size-3.5" /> Review{attention > 0 ? ` (${attention})` : ''}</TabsTrigger>
+            <TabsTrigger value="diagnostics" className="rounded-none border-b-2 border-transparent px-4 py-2 data-active:border-primary data-active:text-primary"><RefreshCw className="size-3.5" /> Diagnostics</TabsTrigger>
           </TabsList>
         </div>
         <p className="text-[11px] text-text-3 md:hidden">Swipe tabs to view all sections.</p>
@@ -150,8 +153,33 @@ export function ShoppingDashboard() {
         <TabsContent value="products">{overview ? <OwnProductsTab overview={overview} reloadOverview={load} /> : null}</TabsContent>
         <TabsContent value="receipts">{overview ? <ReceiptsTab overview={overview} reload={load} /> : null}</TabsContent>
         <TabsContent value="review">{overview ? <ReviewTab overview={overview} reload={load} /> : null}</TabsContent>
+        <TabsContent value="diagnostics">
+          <div className="space-y-4">
+            <DashboardShopStatus details timeZone={timeZone} locale={locale} />
+            {overview ? <ShopSection title="List cleanup" subtitle="When open demand disappears, gm-sync removes its managed quantity. Quantities added by the household remain.">
+              <ul className="space-y-2">{overview.lines.map(line => <li key={`${line.installationId}:${line.kind}:${line.retailerProductId}`} className="rounded-md border border-border p-3 text-sm">
+                <p className="font-semibold">{line.productName} · {overview.installations.find(installation => installation.id === line.installationId)?.name}</p>
+                <p className="text-text-2">Managed: {line.managedQty} · Household: {line.baselineUserQty} · Desired: {line.kind === 'note' ? 'Not applicable (replacement note)' : overview.exports.find(row => row.installationId === line.installationId && row.retailerProductId === line.retailerProductId)?.packages ?? 0}{line.pausedReason ? ` · ${PAUSE_LABELS[line.pausedReason] ?? line.pausedReason}` : ''}</p>
+              </li>)}</ul>
+            </ShopSection> : null}
+          </div>
+        </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+function ProjectionReviewSection({ overview }: { overview: ShopOverview }) {
+  const installationName = (id: string) => overview.installations.find(installation => installation.id === id)?.name ?? id;
+  return (
+    <ShopSection title="Not sent to retailer" subtitle="Reasons from the latest shopping projection. Fix the mapping or unit; the next sync retries automatically.">
+      {(overview.projectionReview ?? []).length === 0 ? <p className="text-sm text-muted-foreground">No blocked shopping rows reported.</p> : <ul className="space-y-2">
+        {overview.projectionReview.map((row, index) => <li key={`${row.installationId}:${row.revisionId}:${index}`} className="rounded-md border border-border p-3 text-sm">
+          <p className="font-semibold">{row.label} · {installationName(row.installationId)}</p>
+          <p className="mt-1 text-text-2">{PROJECTION_LABELS[row.reason]}</p>
+        </li>)}
+      </ul>}
+    </ShopSection>
   );
 }
 
@@ -174,6 +202,8 @@ function OverviewTab({ overview, reload }: { overview: ShopOverview; reload: () 
           ))}
         </ul>
       </ShopSection>
+
+      <ProjectionReviewSection overview={overview} />
 
       <ShopSection title="On the shared list" subtitle="Packages gm-sync currently wants on each retailer list. Your own additions are kept.">
         {overview.exports.length === 0 ? <p className="text-sm text-muted-foreground">Nothing exported.</p> : (
@@ -459,6 +489,7 @@ function ReceiptsTab({ overview, reload }: { overview: ShopOverview; reload: () 
 function ReviewTab({ overview, reload }: { overview: ShopOverview; reload: () => Promise<void> }) {
   return (
     <div className="space-y-4">
+      <ProjectionReviewSection overview={overview} />
       <ShopSection title="Receipt lines to review" subtitle="Nothing here was booked. Map the product, confirm a one-off substitution, or dismiss the line.">
         {overview.review.length === 0 ? <p className="text-sm text-muted-foreground">Nothing to review.</p> : (
           <ul className="space-y-3">

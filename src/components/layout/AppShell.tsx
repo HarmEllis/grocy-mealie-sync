@@ -2,20 +2,15 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { ArrowLeftRight, History, LayoutDashboard, Link2, Moon, Ruler, Server, Settings2, ShoppingCart, Sun } from 'lucide-react';
 import { LogoutButton } from '@/components/auth/LogoutButton';
 import { AppVersion } from '@/components/app/AppVersion';
 import { AppStatusDot } from '@/components/redesign/primitives';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { type AccentMode, useThemePreferences } from '@/components/theme/ThemeProvider';
+import { useAppStatus } from '@/components/sync/AppStatusProvider';
 import { cn } from '@/lib/utils';
-
-interface ShellStatus {
-  lastGrocyPoll: string | null;
-  lastMealiePoll: string | null;
-  schedulerStatus?: 'active' | 'passive_startup_lock' | 'inactive';
-}
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -36,8 +31,6 @@ const ACCENT_OPTIONS = [
   { value: 'teal', label: 'Teal' },
   { value: 'violet', label: 'Violet' },
 ] as const;
-
-const STATUS_POLL_MS = 60_000;
 
 function formatShortDate(value: string | null): string {
   if (!value) {
@@ -88,29 +81,7 @@ function navActive(currentPath: string, href: string): boolean {
 export function AppShell({ children, authEnabled }: AppShellProps) {
   const pathname = usePathname();
   const { theme, setTheme, accent, setAccent } = useThemePreferences();
-  const [status, setStatus] = useState<ShellStatus | null>(null);
-  const [statusError, setStatusError] = useState(false);
-
-  useEffect(() => {
-    async function loadStatus() {
-      try {
-        const response = await fetch('/api/status', { cache: 'no-store' });
-        if (!response.ok) {
-          throw new Error('failed status fetch');
-        }
-
-        const data = await response.json() as ShellStatus;
-        setStatus(data);
-        setStatusError(false);
-      } catch {
-        setStatusError(true);
-      }
-    }
-
-    void loadStatus();
-    const interval = window.setInterval(loadStatus, STATUS_POLL_MS);
-    return () => window.clearInterval(interval);
-  }, []);
+  const { status, unavailable: statusError } = useAppStatus();
 
   const lastSeen = useMemo(() => {
     const timestamps = [status?.lastGrocyPoll, status?.lastMealiePoll].filter((value): value is string => Boolean(value));

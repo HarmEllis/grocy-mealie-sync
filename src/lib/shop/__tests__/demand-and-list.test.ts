@@ -6,7 +6,7 @@ vi.mock('@/lib/db', async () => {
 });
 
 import { db } from '@/lib/db';
-import { appMeta, demandRevisions, demands, pluginInstallations, runtimeLocks, shopExportAllocations, shopExports, shopListLines } from '@/lib/db/schema';
+import { appMeta, demandRevisions, demands, historyEvents, historyRuns, pluginInstallations, runtimeLocks, shopExportAllocations, shopExports, shopListLines } from '@/lib/db/schema';
 import type { MealieShoppingItem } from '@/lib/mealie/types';
 import { createInstallation } from '@/lib/plugins/installations';
 import { PluginCallError } from '@/lib/plugins/gateway';
@@ -16,13 +16,15 @@ import { planListSync, resolvePausedLine, validateApplyResults, type DesiredLine
 import { getPendingListApply, resolvePausedListLine, syncInstallationList } from '../list-sync';
 import { listActiveExports, persistExports, projectDemand, targetKey, type ProjectionDemand, type ProjectionMapping } from '../projection';
 import { emptyUnitContext, mealieQuantityToGrocyStock, type UnitContext } from '../units';
+import { getLastListSync } from '../status';
+import { shopOverview } from '../overview';
 
 function item(overrides: Partial<MealieShoppingItem> = {}): MealieShoppingItem {
   return { id: 'row-1', shoppingListId: 'list', groupId: 'g', householdId: 'h', checked: false, quantity: 1, foodId: 'food-milk', note: null, display: 'Milk', ...overrides } as MealieShoppingItem;
 }
 
 beforeEach(() => {
-  for (const table of [demands, demandRevisions, shopExports, shopExportAllocations, shopListLines, appMeta, pluginInstallations, runtimeLocks]) db.delete(table).run();
+  for (const table of [demands, demandRevisions, shopExports, shopExportAllocations, shopListLines, appMeta, pluginInstallations, runtimeLocks, historyEvents, historyRuns]) db.delete(table).run();
 });
 
 describe('demand observation', () => {
@@ -70,6 +72,24 @@ function demand(overrides: Partial<ProjectionDemand>): ProjectionDemand {
 const milkMapping: ProjectionMapping = { retailerProductId: 'ah-milk', targetKind: 'grocy_product', targetId: '1', packageBaseAmount: 1, packageBaseUnitId: '10', confirmed: true };
 
 describe('projection', () => {
+  it('uses one confirmed package for amountless unitless demand, keeping explicit amounts in their own unit', () => {
+    const mappings = new Map([[targetKey('grocy_product', 1), { ...milkMapping, packageBaseAmount: 6 }]]);
+    const implicit = projectDemand([demand({ quantity: 0, unitId: null })], mappings, ctx());
+    expect(implicit.lines[0]).toMatchObject({ packages: 1, baseAmount: 6, allocations: [expect.objectContaining({ rowFactor: 6 })] });
+    const explicit = projectDemand([demand({ quantity: 2, unitId: 'm-liter' })], mappings, ctx());
+    expect(explicit.lines[0]).toMatchObject({ packages: 1, baseAmount: 2, allocations: [expect.objectContaining({ rowFactor: 1 })] });
+    const unconfirmed = new Map([[targetKey('grocy_product', 1), { ...milkMapping, packageBaseAmount: 6, confirmed: false }]]);
+    expect(projectDemand([demand({ quantity: 0, unitId: null })], unconfirmed, ctx()).review).toEqual([expect.objectContaining({ reason: 'mapping_unconfirmed' })]);
+  });
+
+  it('uses the package base amount for amountless Mealie-only demand with a named base unit', () => {
+    const mapping: ProjectionMapping = { retailerProductId: 'ah-basil', targetKind: 'mealie_food', targetId: 'basil', packageBaseAmount: 25, packageBaseUnitId: 'm-g', confirmed: true };
+    const projected = projectDemand([demand({ foodId: 'basil', quantity: 0, unitId: null })], new Map([[targetKey('mealie_food', 'basil'), mapping]]), ctx());
+    expect(projected.lines[0]).toMatchObject({ packages: 1, baseAmount: 25 });
+    expect(projectDemand([demand({ foodId: 'basil', quantity: 0, unitId: null })], new Map([[targetKey('mealie_food', 'basil'), { ...mapping, measure: 'weight' }]]), ctx()).review)
+      .toEqual([expect.objectContaining({ reason: 'missing_unit' })]);
+  });
+
   it('sums compatible demand before rounding packages once', () => {
     const mappings = new Map([[targetKey('grocy_product', 1), { ...milkMapping, packageBaseAmount: 1.5 }]]);
     const { lines } = projectDemand([
@@ -202,6 +222,42 @@ describe('shared list ownership', () => {
 });
 
 describe('list sync', () => {
+  it('exposes read failures in the overview and history, without repeating the same unresolved issue', async () => {
+    const { installation } = createInstallation('AH test');
+    const readList = vi.fn(async (): Promise<ShopList> => { throw new Error('AH returned HTTP 503'); });
+    const applyList = vi.fn();
+    const deps = { readList, applyList, now: () => new Date() };
+    await syncInstallationList(installation.id, deps);
+    await syncInstallationList(installation.id, deps);
+    expect(applyList).not.toHaveBeenCalled();
+    expect(getLastListSync(installation.id)?.result).toMatchObject({ status: 'error', message: 'AH returned HTTP 503' });
+    expect(shopOverview().installations[0].lastListSync?.result.message).toBe('AH returned HTTP 503');
+    expect(db.select().from(historyEvents).all()).toEqual([expect.objectContaining({ kind: 'issue', level: 'error', category: 'shopping', reason: 'AH returned HTTP 503' })]);
+    expect(db.select().from(historyRuns).all()).toEqual([expect.objectContaining({ action: 'shop_list_sync', status: 'failure' })]);
+    readList.mockImplementationOnce(async () => ({ listId: 'demo-list', lines: [] }));
+    await syncInstallationList(installation.id, deps);
+    expect(getLastListSync(installation.id)?.result.status).toBe('ok');
+    await syncInstallationList(installation.id, deps);
+    expect(db.select().from(historyEvents).all()).toHaveLength(2);
+  });
+
+  it('records a refused list operation with its retailer reason and product in history', async () => {
+    const { installation } = createInstallation('AH test');
+    exportMilk(installation.id, 1);
+    const list = { listId: 'demo-list', lines: [] };
+    const deps = { readList: async () => list, now: () => new Date(),
+      applyList: async (params: ListApplyParams): Promise<ListApplyResult> => ({ opId: params.opId, list,
+        results: [{ index: 0, status: 'failed', message: 'AH refused this product' }] }),
+    };
+    await syncInstallationList(installation.id, deps);
+    await syncInstallationList(installation.id, deps);
+    expect(getLastListSync(installation.id)?.result).toMatchObject({ failed: 1, message: 'AH refused this product',
+      operationIssues: [{ retailerProductId: 'milk', operation: 'add', outcome: 'failed', reason: 'AH refused this product' }],
+    });
+    expect(db.select().from(historyEvents).all()).toEqual([expect.objectContaining({ kind: 'issue', productName: 'milk', entityRef: `retailer:${installation.providerId}:milk`, reason: 'AH refused this product' })]);
+    expect(db.select().from(historyRuns).all()).toEqual([expect.objectContaining({ action: 'shop_list_sync', status: 'failure' })]);
+  });
+
   function exportMilk(installationId: string, packages: number) {
     persistExports(installationId, 'demo-shop', [{
       retailerProductId: 'milk', packages, baseAmount: packages,

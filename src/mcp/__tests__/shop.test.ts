@@ -9,6 +9,7 @@ import { db } from '@/lib/db';
 import { receipts, receiptLines, retailerMappings, retailerProducts, pluginInstallations } from '@/lib/db/schema';
 import { getInstallation, recordHello } from '@/lib/plugins/installations';
 import { acquireSyncLock, releaseSyncLock } from '@/lib/sync/mutex';
+import { syncInstallationList } from '@/lib/shop/list-sync';
 import { registerShopTools } from '../tools/shop';
 
 beforeEach(() => { db.delete(receiptLines).run(); db.delete(receipts).run(); db.delete(retailerMappings).run(); db.delete(retailerProducts).run(); db.delete(pluginInstallations).run(); runtime.gateway = null; });
@@ -41,6 +42,22 @@ it('exposes every Shop UI action as a discoverable MCP tool', async () => {
     expect(tools.find(t => t.name === 'plugins.catalog_search')?.inputSchema.properties).toHaveProperty('refresh');
     expect(tools.find(t => t.name === 'shop.lines.resolve')?.inputSchema.properties).toHaveProperty('kind');
     expect(tools.find(t => t.name === 'shop.targets.search')?.inputSchema.properties).toHaveProperty('suggestFor');
+  } finally { await connection.close(); }
+});
+
+it('exposes the latest retailer list error through the same overview tool as the UI', async () => {
+  const connection = await pair();
+  try {
+    const created = data(await connection.client.callTool({ name: 'plugins.create', arguments: { name: 'AH diagnostics' } }));
+    const id = (created.installation as { id: string }).id;
+    await syncInstallationList(id, {
+      readList: async () => { throw new Error('AH list unavailable'); },
+      applyList: vi.fn(), now: () => new Date(),
+    });
+    const overview = data(await connection.client.callTool({ name: 'shop.overview', arguments: {} }));
+    expect(overview.installations).toEqual(expect.arrayContaining([expect.objectContaining({
+      id, lastListSync: expect.objectContaining({ result: expect.objectContaining({ status: 'error', message: 'AH list unavailable' }) }),
+    })]));
   } finally { await connection.close(); }
 });
 

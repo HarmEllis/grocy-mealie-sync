@@ -11,7 +11,7 @@ import { fetchAllMealieShoppingItems } from '../sync/helpers';
 import { activityEvent } from '../sync/activity';
 import type { SchedulerStepStatus } from '../scheduler-notifications';
 import { loadUnitContext } from './context';
-import { listOpenDemand, observeDemand } from './demand-observer';
+import { listOpenDemand, observeDemand, recordedDemandLabels } from './demand-observer';
 import { defaultEffectRunnerDeps } from './effect-runners';
 import { syncInstallationList } from './list-sync';
 import { persistExports, projectDemand, targetKey, type ProjectionMapping } from './projection';
@@ -21,6 +21,9 @@ import { generateSuggestions, listRetailerMappings, listRetailerProducts } from 
 import { queueCatalogDiscovery, discoverCatalogProducts } from './catalog-discovery';
 import { listActiveExports } from './projection';
 import type { TargetKind } from './units';
+import { recordShopJob } from './status';
+import { getProjectionReview, saveProjectionReview } from './projection-diagnostics';
+import { needsProjectionAttention, PROJECTION_LABELS } from './projection-reasons';
 
 /**
  * Orchestration of the shop features. Everything here is owned by the
@@ -62,6 +65,7 @@ export async function runShopDemandStep(): Promise<ShopStepOutcome> {
   // Shopping rows already contain names for Mealie-only ingredients.
   for (const item of items) if (item.foodId && item.food?.name) ctx.mealieFoodNames.set(item.foodId, item.food.name);
   const open = listOpenDemand(shoppingListId);
+  const labels = recordedDemandLabels();
   const demands = open.map(({ revision }) => {
     let subItems = null;
     try {
@@ -76,12 +80,13 @@ export async function runShopDemandStep(): Promise<ShopStepOutcome> {
       unitId: revision.unitId,
       quantity: revision.quantity,
       subItems,
-      label: (revision.foodId && ctx.mealieFoodNames.get(revision.foodId)) || revision.note || revision.mealieItemId,
+      label: (revision.foodId && ctx.mealieFoodNames.get(revision.foodId)) || labels.get(revision.mealieItemId) || revision.note || revision.mealieItemId,
     };
   });
   const events: HistoryEventInput[] = [];
   for (const installation of projecting) {
     const providerId = installation.providerId!;
+    const retailerProducts = new Map(listRetailerProducts(providerId).map(product => [product.externalId, product]));
     const preferred = new Map<string, ProjectionMapping>();
     for (const mapping of listRetailerMappings(providerId)) {
       if (mapping.role !== 'preferred') continue;
@@ -92,11 +97,22 @@ export async function runShopDemandStep(): Promise<ShopStepOutcome> {
         packageBaseAmount: mapping.packageBaseAmount,
         packageBaseUnitId: mapping.packageBaseUnitId,
         confirmed: mapping.confirmed,
+        measure: retailerProducts.get(mapping.retailerProductId)?.measure === 'weight' ? 'weight' : 'unit',
       });
     }
     queueCatalogDiscovery(providerId, demands, ctx);
     const previous = new Map(listActiveExports(installation.id).map(row => [row.retailerProductId, row]));
     const projection = projectDemand(demands, preferred, ctx);
+    const previousReasons = new Set(getProjectionReview(installation.id).map(row => `${row.mealieItemId}:${row.reason}:${row.label}`));
+    for (const row of projection.review) {
+      if (!needsProjectionAttention(row.reason) || previousReasons.has(`${row.mealieItemId}:${row.reason}:${row.label}`)) continue;
+      events.push(activityEvent({ source: 'Mealie', target: 'App', category: 'shopping', level: 'warning',
+        entityKind: 'shopping_item', entityRef: row.mealieItemId, productName: row.label,
+        message: `${row.label}: not sent to ${installation.name}.`, reason: PROJECTION_LABELS[row.reason],
+        details: { installationId: installation.id, mealieItemId: row.mealieItemId, reason: row.reason },
+      }));
+    }
+    saveProjectionReview(installation.id, projection.review);
     const persisted = persistExports(installation.id, providerId, projection.lines, new Date());
     (summary.projections as unknown[]).push({
       installationId: installation.id,
@@ -130,21 +146,28 @@ export async function runShopDemandStep(): Promise<ShopStepOutcome> {
 
 /** Verify, plan and execute receipt effects. Runs under the sync lock. */
 export async function runShopReconcileStep(): Promise<ShopStepOutcome> {
-  const shoppingListId = await resolveShoppingListId();
-  const result = await runShopReconcile({
-    runner: defaultEffectRunnerDeps,
-    shoppingListId,
-    loadMealieItems: fetchAllMealieShoppingItems,
-    loadUnitContext,
-    observationGraceMs: config.pollIntervalSeconds * 1000 + 60_000,
-    now: () => new Date(),
-  });
-  return {
-    status: result.status === 'ok' ? 'success' : result.status === 'error' ? 'failure' : result.status,
-    message: result.message,
-    summary: result.summary,
-    events: result.events,
-  };
+  try {
+    const shoppingListId = await resolveShoppingListId();
+    const result = await runShopReconcile({
+      runner: defaultEffectRunnerDeps,
+      shoppingListId,
+      loadMealieItems: fetchAllMealieShoppingItems,
+      loadUnitContext,
+      observationGraceMs: config.pollIntervalSeconds * 1000 + 60_000,
+      now: () => new Date(),
+    });
+    const status = result.status === 'ok' ? 'success' : result.status === 'error' ? 'failure' : result.status;
+    try { recordShopJob(status); } catch (error) { log.warn('[Shop] Could not record job status:', error); }
+    return {
+      status,
+      message: result.message,
+      summary: result.summary,
+      events: result.events,
+    };
+  } catch (error) {
+    try { recordShopJob('failure'); } catch (statusError) { log.warn('[Shop] Could not record job status:', statusError); }
+    throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +237,7 @@ export function createShopWorker(): ShopWorkerHandle & { start: () => void; stop
           now: () => new Date(),
           notesSupported: helloHasFeature(session.hello, FEATURES.listNotes),
         });
-        if (result.status !== 'ok' && result.status !== 'skipped') {
+        if ((result.status !== 'ok' && result.status !== 'skipped') || result.failed || result.conflicts) {
           log.warn(`[Shop] List sync for ${installation.name}: ${result.status}${result.message ? ` (${result.message})` : ''}`);
         }
       }
@@ -271,6 +294,7 @@ export function createShopWorker(): ShopWorkerHandle & { start: () => void; stop
     },
     requestReceiptPull: (installationId) => {
       if (installationId) receiptRequests.add(installationId);
+      else for (const session of getPluginGateway()?.listSessions() ?? []) receiptRequests.add(session.installationId);
       void run();
     },
     onSessionReady: (installationId) => {

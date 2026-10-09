@@ -112,7 +112,28 @@ wait for a manual retry or catalogue search.
 History records product names and quantities separately: a prepared shopping-list
 plan is distinct from a list operation confirmed by the retailer plugin.
 
+Shopping → Overview and Review show why an open Mealie row was not sent to a
+retailer, including missing mappings, unconfirmed package amounts and unit
+conversion problems. Product names are retained from the observed Mealie rows,
+including ingredients without a Grocy mapping. New blocking reasons for mapped
+products also appear as shopping issues in History. Rows without a retailer
+mapping or ingredient stay visible here without adding History issues or Review
+attention counts.
+
+Shopping → Diagnostics shows the last list sync, receipt checks and the managed,
+household and desired quantities on each tracked retailer line. List read errors,
+refused writes and receipt retrieval errors are recorded in History. An identical
+unresolved error is not recorded again every minute; it is recorded again if it
+returns after a successful attempt. History retention settings still apply.
+MCP exposes the same issues through `history.list_activity` with `kind: "issue"`,
+and current list sync results and blocked rows through `shop.overview`.
+
 ## Mappings
+
+A Mealie row with quantity zero (no amount) and no unit requests one retailer
+package when its mapping and package amount are confirmed. Projection and receipt
+matching use the same package amount. Explicit quantities retain their normal
+unit conversion. Products sold by weight require a quantity and unit.
 
 Mappings are kept per retailer (provider), shared by all installations of that
 retailer:

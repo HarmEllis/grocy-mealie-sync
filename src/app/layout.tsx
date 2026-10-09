@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import { Toaster } from '@/components/ui/sonner';
 import { ThemeProvider } from '@/components/theme/ThemeProvider';
 import { ThemeScript } from '@/components/theme/ThemeScript';
+import { AppStatusProvider } from '@/components/sync/AppStatusProvider';
 import { AppShell } from '@/components/layout/AppShell';
 import { getAuthConfig } from '@/lib/auth';
 
@@ -38,7 +39,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <ThemeProvider>
-          <AppShell authEnabled={authEnabled}>{children}</AppShell>
+          <AppStatusProvider>
+            <AppShell authEnabled={authEnabled}>{children}</AppShell>
+          </AppStatusProvider>
           <Toaster position="bottom-right" richColors closeButton />
         </ThemeProvider>
       </body>

@@ -15,7 +15,7 @@ import type { MealieShoppingItem } from '../mealie/types';
 import { getInstallation, type PluginInstallation } from '../plugins/installations';
 import { activityEvent } from '../sync/activity';
 import { getLifecycleBookings } from './check-lifecycles';
-import { identityOf, parseSubItems, rowIdentityOf } from './demand-observer';
+import { effectiveDemandQuantity, identityOf, parseSubItems, rowIdentityOf } from './demand-observer';
 import {
   defaultEffectRunnerDeps,
   runGrocyAddEffect,
@@ -26,7 +26,7 @@ import {
   type MealieReducePayload,
 } from './effect-runners';
 import { ensureEffect, listEffects, recoverInterruptedEffects, type EffectStatus, type LedgerTx, type ShopEffect } from './ledger';
-import { exportsActiveAt, listAllocations, listExportsForProduct, listNoteExposedExports, noteExposedExportsActiveAt } from './projection';
+import { exportsActiveAt, implicitPackageAmount, listAllocations, listExportsForProduct, listNoteExposedExports, noteExposedExportsActiveAt, targetKey, type ProjectionMapping } from './projection';
 import {
   planReceipt,
   type PlannerDemand,
@@ -97,6 +97,7 @@ function demandTargetFor(
   item: MealieShoppingItem,
   ctx: UnitContext,
   mealieBaseUnits: Map<string, string | null>,
+  preferred: Map<string, ProjectionMapping>,
 ): { targetKind: TargetKind; targetId: string; rowFactor: number } | null {
   const subItems = parseSubItems(item);
   if (subItems) {
@@ -106,6 +107,13 @@ function demandTargetFor(
   }
   if (!item.foodId) return null;
   const productId = ctx.foodToGrocyProduct.get(item.foodId);
+  const mapping = (productId !== undefined ? preferred.get(targetKey('grocy_product', productId)) : undefined)
+    ?? preferred.get(targetKey('mealie_food', item.foodId));
+  const packageAmount = mapping ? implicitPackageAmount({ quantity: Number(item.quantity ?? 0), unitId: item.unitId ?? null }, mapping, ctx) : null;
+  if (mapping && packageAmount !== null) {
+    return { targetKind: mapping.targetKind, targetId: mapping.targetId, rowFactor: packageAmount };
+  }
+  if (Number(item.quantity ?? 0) === 0 && !item.unitId && mapping?.measure === 'weight') return null;
   if (productId !== undefined) {
     const converted = mealieQuantityToGrocyStock(ctx, productId, 1, item.unitId ?? null);
     return converted.ok ? { targetKind: 'grocy_product', targetId: String(productId), rowFactor: converted.factor } : null;
@@ -135,7 +143,7 @@ function purchaseRevisionFor(mealieItemId: string, purchasedAt: Date, graceMs: n
   return {
     revisionId: chosen.id,
     identity: identityOf({ foodId: chosen.foodId, unitId: chosen.unitId, subItems }),
-    quantity: chosen.quantity,
+    quantity: effectiveDemandQuantity(chosen.quantity),
     checked: chosen.checked,
   };
 }
@@ -214,8 +222,14 @@ export async function buildPlannerInput(
   const lines = getReceiptLines(receipt.id).filter(line => line.status === 'pending');
   const mappings = new Map<string, PlannerMapping>();
   const mealieBaseUnits = new Map<string, string | null>();
+  const preferred = new Map<string, ProjectionMapping>();
   for (const mapping of listRetailerMappings(providerId)) {
     const product = getRetailerProduct(providerId, mapping.retailerProductId);
+    if (mapping.role === 'preferred') preferred.set(targetKey(mapping.targetKind as TargetKind, mapping.targetId), {
+      retailerProductId: mapping.retailerProductId, targetKind: mapping.targetKind as TargetKind, targetId: mapping.targetId,
+      confirmed: mapping.confirmed, packageBaseAmount: mapping.packageBaseAmount, packageBaseUnitId: mapping.packageBaseUnitId,
+      measure: product?.measure === 'weight' ? 'weight' : 'unit',
+    });
     mappings.set(mapping.retailerProductId, {
       retailerProductId: mapping.retailerProductId,
       targetKind: mapping.targetKind as TargetKind,
@@ -275,9 +289,9 @@ export async function buildPlannerInput(
   const demand: PlannerDemand[] = [];
   for (const item of items) {
     if (item.checked) continue;
-    const target = demandTargetFor(item, ctx, mealieBaseUnits);
+    const target = demandTargetFor(item, ctx, mealieBaseUnits, preferred);
     if (!target) continue;
-    const quantity = Number(item.quantity ?? 0) > 0 ? Number(item.quantity) : 1;
+    const quantity = effectiveDemandQuantity(item.quantity);
     demand.push({
       mealieItemId: item.id,
       ...target,

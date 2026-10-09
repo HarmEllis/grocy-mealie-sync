@@ -3,6 +3,7 @@ import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { db } from '../db';
 import { shopExportAllocations, shopExports } from '../db/schema';
 import type { SubProductItem } from '../shopping-notes';
+import { effectiveDemandQuantity } from './demand-observer';
 import {
   mappingBaseUnitValid,
   mealieQuantityToGrocyStock,
@@ -29,6 +30,7 @@ export interface ProjectionMapping {
   packageBaseAmount: number | null;
   packageBaseUnitId: string | null;
   confirmed: boolean;
+  measure?: 'unit' | 'weight';
 }
 
 export interface ProjectionAllocation {
@@ -62,9 +64,11 @@ export function targetKey(kind: TargetKind, id: string | number): string {
   return `${kind}:${id}`;
 }
 
-/** Mealie treats a missing or zero quantity as one item; so does the manual check flow. */
-function effectiveQuantity(quantity: number): number {
-  return quantity > 0 ? quantity : 1;
+/** A unitless row with no amount requests one confirmed retailer package. */
+export function implicitPackageAmount(demand: { quantity: number; unitId: string | null }, mapping: ProjectionMapping, ctx: UnitContext): number | null {
+  return demand.quantity === 0 && !demand.unitId && mapping.confirmed && mapping.measure !== 'weight'
+    && mapping.packageBaseAmount != null && mapping.packageBaseAmount > 0 && mappingBaseUnitValid(ctx, mapping)
+    ? mapping.packageBaseAmount : null;
 }
 
 /**
@@ -134,12 +138,22 @@ export function projectDemand(
       review.push({ mealieItemId: demand.mealieItemId, revisionId: demand.revisionId, label: demand.label, reason: 'no_food' });
       continue;
     }
-    const quantity = effectiveQuantity(demand.quantity);
+    const quantity = effectiveDemandQuantity(demand.quantity);
     const grocyProductId = ctx.foodToGrocyProduct.get(demand.foodId);
     const grocyMapping = grocyProductId !== undefined ? preferredByTarget.get(targetKey('grocy_product', grocyProductId)) : undefined;
     const foodMapping = preferredByTarget.get(targetKey('mealie_food', demand.foodId));
     const mapping = grocyMapping ?? foodMapping;
     if (!usableMapping(demand, mapping)) continue;
+
+    const packageAmount = implicitPackageAmount(demand, mapping, ctx);
+    if (packageAmount !== null) {
+      allocate(demand, mapping, packageAmount, packageAmount);
+      continue;
+    }
+    if (demand.quantity === 0 && !demand.unitId && mapping.measure === 'weight') {
+      review.push({ mealieItemId: demand.mealieItemId, revisionId: demand.revisionId, label: demand.label, reason: 'missing_unit' });
+      continue;
+    }
 
     const converted = mapping.targetKind === 'grocy_product'
       ? mealieQuantityToGrocyStock(ctx, Number(mapping.targetId), quantity, demand.unitId)

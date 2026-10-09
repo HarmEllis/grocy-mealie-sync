@@ -163,6 +163,14 @@ try {
     exports: [{ id: 'e1', installationId: original.id, productName: products[0].name, packages: 2, createdAt: new Date().toISOString() }],
     receipts: [{ id: 'r1', providerId: 'ah', referenceOnly: true, purchasedAt: new Date().toISOString(), storeLabel: 'Demo', status: 'reference_only', totalCents: 199, lines: [{ id: 'line1', description: products[0].name, retailerProductId: '123', quantity: 2, unit: 'unit', amountCents: 199, status: 'reference_only', links: [] }] }],
     review: [],
+    projectionReview: [{ installationId: original.id, mealieItemId: 'blocked-basil', revisionId: 'basil-rev', label: 'Basil', reason: 'no_retailer_mapping' }],
+  } }));
+  await page.route('**/api/status', route => route.fulfill({ json: {
+    schedulerStatus: 'active', nextRunAt: new Date(Date.now() + 60_000).toISOString(),
+    shop: { lastJob: { finishedAt: new Date().toISOString(), status: 'success' }, nextProcessingAt: new Date(Date.now() + 60_000).toISOString(),
+      receipts: [{ installationId: original.id, name: 'AH test', state: 'ready', lastCheckedAt: null, nextCheckAt: new Date(Date.now() + 1800_000).toISOString(), lastError: 'Receipt service unavailable',
+        listSync: { finishedAt: new Date().toISOString(), result: { status: 'error', applied: 0, failed: 0, conflicts: 0, paused: 0, message: 'AH list read failed' } } }],
+    },
   } }));
   await page.route('**/api/shop/products?*', route => {
     const params = new URL(route.request().url()).searchParams;
@@ -224,9 +232,17 @@ try {
   for (const width of [360, 390, 768, 1280]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(`${baseUrl}/shopping`, { waitUntil: 'networkidle', timeout: 180_000 });
-    for (const tab of ['Overview', 'Products', 'Receipts', 'Review']) {
+    for (const tab of ['Overview', 'Products', 'Receipts', 'Review', 'Diagnostics']) {
       await page.getByRole('tab', { name: new RegExp(`^${tab}`) }).click();
       await assertNoPageOverflow(`${width}px ${tab}`);
+      if (tab === 'Overview' || tab === 'Review') {
+        await page.getByText('Basil ·', { exact: false }).waitFor();
+        await page.getByText('No preferred retailer product is mapped to this ingredient.', { exact: true }).waitFor();
+      }
+      if (tab === 'Diagnostics') {
+        await page.getByText('AH list read failed', { exact: true }).waitFor();
+        await page.getByText('Last check failed: Receipt service unavailable', { exact: true }).waitFor();
+      }
       if (tab === 'Receipts') {
         await page.getByRole('button', { name: 'Map product', exact: true }).click();
         await page.getByRole('dialog').waitFor();

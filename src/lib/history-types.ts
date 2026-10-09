@@ -53,6 +53,7 @@ export const historyRunActions = [
   'shopping_merge_duplicates',
   'shopping_cleanup',
   'shop_list_sync',
+  'shop_receipt_pull',
   'shop_catalog_search',
   'conflict_remap',
   'conversion_create',

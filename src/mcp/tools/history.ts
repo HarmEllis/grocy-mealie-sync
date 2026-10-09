@@ -22,7 +22,7 @@ function dates<T extends { dateFrom?: string; dateTo?: string }>(input: T) {
 export function registerHistoryTools(server: McpServer, services: HistoryMcpServices) {
   server.registerTool('history.list_activity', {
     title: 'Read Product Activity',
-    description: 'Read the same product-level history as the UI, with search, action, trigger, status, issue/mutation, date and pagination filters. Includes shop proposals, list plans and confirmed retailer changes.',
+    description: 'Read the same product-level history as the UI, with search, action, trigger, status, issue/mutation, date and pagination filters. Includes shop proposals, blocked projection reasons, list read errors, refused retailer changes and receipt retrieval failures. Use kind="issue" and action="shop_list_sync" or action="shop_receipt_pull" to inspect these errors.',
     inputSchema: { ...filters, limit: z.number().int().min(1).max(100).optional(), offset: z.number().int().min(0).max(100000).optional(), kind: z.enum(['mutation', 'issue']).optional() },
     annotations: { readOnlyHint: true },
   }, async input => {

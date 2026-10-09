@@ -6,16 +6,17 @@ vi.mock('@/lib/sync/helpers', () => ({ fetchAllMealieShoppingItems: async () => 
 vi.mock('../context', () => ({ loadUnitContext: async () => mocked.context }));
 vi.mock('@/lib/plugins/runtime', () => ({ getPluginGateway: () => null, setShopWorker: vi.fn() }));
 import { db } from '@/lib/db';
-import { demandRevisions, demands, pluginInstallations, retailerMappings, retailerProducts, retailerSuggestions, shopCatalogSearches, shopExportAllocations, shopExports } from '@/lib/db/schema';
+import { appMeta, demandRevisions, demands, pluginInstallations, retailerMappings, retailerProducts, retailerSuggestions, shopCatalogSearches, shopExportAllocations, shopExports } from '@/lib/db/schema';
 import { createInstallation, recordHello, updateInstallationSettings } from '@/lib/plugins/installations';
 import { emptyUnitContext } from '../units';
 import { runShopDemandStep } from '../worker';
 import { listCatalogSearches } from '../catalog-discovery';
 import { upsertRetailerMapping, upsertRetailerProducts } from '../retailer-catalog';
+import { shopOverview } from '../overview';
 
 let installationId: string;
 beforeEach(() => {
-  for (const table of [demands, demandRevisions, pluginInstallations, retailerMappings, retailerProducts, retailerSuggestions, shopCatalogSearches, shopExports, shopExportAllocations]) db.delete(table).run();
+  for (const table of [appMeta, demands, demandRevisions, pluginInstallations, retailerMappings, retailerProducts, retailerSuggestions, shopCatalogSearches, shopExports, shopExportAllocations]) db.delete(table).run();
   const ctx = emptyUnitContext();
   ctx.foodToGrocyProduct.set('tomatoes', 1);
   ctx.grocyProducts.set(1, { id: 1, name: 'Cherry tomaten', quIdStock: 1, quIdPurchase: 1, parentProductId: null, noOwnStock: false });
@@ -33,6 +34,26 @@ it('automatically queues newly observed ingredients, including Mealie-only names
     expect.objectContaining({ targetKind: 'grocy_product', targetId: '1', query: 'Cherry tomaten' }),
     expect.objectContaining({ targetKind: 'mealie_food', targetId: 'basil', query: 'Basil' }),
   ]));
+});
+
+it('shows real row names and projection reasons without requiring a Grocy mapping', async () => {
+  mocked.items.push({ id: 'basil-row', shoppingListId: 'list', foodId: 'basil', food: { name: 'Basil' }, quantity: 1 });
+  db.insert(appMeta).values({ key: 'shop-demand-labels:list', value: '{broken' }).run();
+  db.insert(appMeta).values({ key: `shop-projection-review:${installationId}`, value: '{broken' }).run();
+  const observed = await runShopDemandStep();
+  expect(observed.events).toEqual([]);
+  expect(shopOverview().openDemand).toEqual(expect.arrayContaining([expect.objectContaining({ mealieItemId: 'basil-row', label: 'Basil' })]));
+  expect(shopOverview().projectionReview).toEqual(expect.arrayContaining([
+    expect.objectContaining({ installationId, mealieItemId: 'basil-row', label: 'Basil', reason: 'no_retailer_mapping' }),
+  ]));
+  upsertRetailerProducts('ah', [{ id: 'basil-product', name: 'AH Basil', measure: 'unit' }]);
+  upsertRetailerMapping({ providerId: 'ah', retailerProductId: 'basil-product', targetKind: 'mealie_food', targetId: 'basil', targetName: 'Basil',
+    role: 'preferred', baseUnitId: null, baseUnitName: null, packageBaseAmount: 1, confirm: true });
+  await runShopDemandStep();
+  expect(shopOverview().projectionReview.some(row => row.mealieItemId === 'basil-row')).toBe(false);
+  mocked.items = [];
+  await runShopDemandStep();
+  expect(shopOverview().projectionReview).toEqual([]);
 });
 
 it('reports individual product plans and preserves preferred mapping through Mealie remove/re-add', async () => {

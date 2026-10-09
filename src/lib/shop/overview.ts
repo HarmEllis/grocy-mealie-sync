@@ -1,7 +1,7 @@
 import { desc, eq, inArray } from 'drizzle-orm';
 import { db } from '../db';
 import { checkLifecycles, productMappings, receiptLines, receipts, reconciliationLinks } from '../db/schema';
-import { listOpenDemand } from './demand-observer';
+import { listOpenDemand, recordedDemandLabels } from './demand-observer';
 import { listInstallations, type PluginInstallation } from '../plugins/installations';
 import { getPluginGateway } from '../plugins/runtime';
 import { listDiscrepancies } from './discrepancies';
@@ -11,6 +11,8 @@ import { manualNoteProductIds } from './note-preferences';
 import { listActiveExports } from './projection';
 import { getReceiptCursor } from './receipts';
 import { listRetailerMappings, listRetailerProducts } from './retailer-catalog';
+import { getProjectionReview } from './projection-diagnostics';
+import { getLastListSync } from './status';
 
 export interface InstallationView {
   id: string;
@@ -31,6 +33,7 @@ export interface InstallationView {
   settings: PluginInstallation['settings'];
   receiptCursor: { lastPullAt: string | null; lastError: string | null; resuming: boolean } | null;
   pendingListApply: boolean;
+  lastListSync?: ReturnType<typeof getLastListSync>;
   /** Preferred retailer products this account shows as a text note by choice. */
   manualNoteProductIds?: string[];
   listReplacementBlocks?: ListReplacementBlock[];
@@ -65,6 +68,7 @@ export function installationViews(): InstallationView[] {
         resuming: Boolean(cursor.pageCursor),
       } : null,
       pendingListApply: Boolean(getPendingListApply(installation.id)),
+      lastListSync: getLastListSync(installation.id),
       manualNoteProductIds: manualNoteProductIds(installation.id),
       listReplacementBlocks: listReplacementBlocks(installation.id),
     };
@@ -175,14 +179,21 @@ export function shopOverview() {
   });
 
   const foodNames = new Map(db.select().from(productMappings).all().map(row => [row.mealieFoodId, row.mealieFoodName]));
-  const openDemand = listOpenDemand().map(({ demand, revision }) => ({
+  const labels = recordedDemandLabels();
+  const open = listOpenDemand();
+  const openRevisionIds = new Set(open.map(({ revision }) => revision.id));
+  const projectionReview = installations.filter(installation => installation.settings.listSyncEnabled)
+    .flatMap(installation => getProjectionReview(installation.id)
+      .filter(row => openRevisionIds.has(row.revisionId))
+      .map(row => ({ ...row, installationId: installation.id })));
+  const openDemand = open.map(({ demand, revision }) => ({
     mealieItemId: demand.mealieItemId,
-    label: (revision.foodId && foodNames.get(revision.foodId)) || revision.note || 'Unnamed row',
+    label: labels.get(demand.mealieItemId) || (revision.foodId && foodNames.get(revision.foodId)) || revision.note || `Shopping item ${demand.mealieItemId}`,
     quantity: revision.quantity,
     observedAt: revision.observedAt.toISOString(),
   }));
 
-  return { installations, exports, lines, receipts: receiptViews, review, effects: attention, discrepancies: discrepancyViews, recentChecks, openDemand };
+  return { installations, exports, lines, receipts: receiptViews, review, effects: attention, discrepancies: discrepancyViews, recentChecks, openDemand, projectionReview };
 }
 
 export type ShopOverview = ReturnType<typeof shopOverview>;

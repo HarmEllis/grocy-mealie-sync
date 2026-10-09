@@ -8,7 +8,7 @@ import {
 } from '../grocy/types';
 import { HouseholdsShoppingListItemsService } from '../mealie';
 import type { MealieShoppingItem } from '../mealie/types';
-import { rowIdentityOf } from './demand-observer';
+import { effectiveDemandQuantity, rowIdentityOf } from './demand-observer';
 import { applyGrocyAddSideEffects } from './effect-hooks';
 import {
   beginAttempt,
@@ -258,7 +258,7 @@ export async function runMealieReduceEffect(
       return status;
     }
     const sameIdentity = rowIdentityOf(item) === payload.expectedIdentity && !item.checked;
-    const quantity = item.quantity ?? 0;
+    const quantity = effectiveDemandQuantity(item.quantity);
     if (sameIdentity && !deleting && quantitiesEqual(quantity, payload.expectedAfter)) {
       completeEffect(effect.id, { status: 'applied', evidence: { verifiedBy: 're-read' }, fromStatuses: ['unknown'] }, undefined, now());
       return 'applied';
@@ -289,7 +289,7 @@ export async function runMealieReduceEffect(
     completeEffect(effect.id, { status, evidence: { rowMissing: true }, fromStatuses: ['in_flight'] }, undefined, now());
     return status;
   }
-  const quantity = item.quantity ?? 0;
+  const quantity = effectiveDemandQuantity(item.quantity);
   const sameIdentity = rowIdentityOf(item) === payload.expectedIdentity;
   if (item.checked || !sameIdentity || !quantitiesEqual(quantity, payload.expectedBefore)) {
     completeEffect(effect.id, {

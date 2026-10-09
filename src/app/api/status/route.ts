@@ -3,8 +3,9 @@ import { getSyncState } from '@/lib/sync/state';
 import { db } from '@/lib/db';
 import { productMappings, unitMappings } from '@/lib/db/schema';
 import { count } from 'drizzle-orm';
-import { getNextCleanupRun, getSchedulerRuntimeState } from '@/lib/sync/scheduler';
+import { getNextCleanupRun, getNextPollRun, getSchedulerRuntimeState } from '@/lib/sync/scheduler';
 import { getSchedulerInstanceOwnerId, getSchedulerLockOwnerId } from '@/lib/sync/mutex';
+import { getSafeShopDashboardStatus } from '@/lib/shop/status';
 
 export async function GET() {
   const state = await getSyncState();
@@ -26,6 +27,8 @@ export async function GET() {
     productMappings: productCount.count,
     unitMappings: unitCount.count,
     nextCleanupRun: getNextCleanupRun(),
+    nextRunAt: getNextPollRun(),
     schedulerStatus,
+    shop: getSafeShopDashboardStatus(schedulerStatus === 'active', getNextPollRun()),
   });
 }

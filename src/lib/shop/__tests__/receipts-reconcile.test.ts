@@ -23,7 +23,7 @@ import { listDiscrepancies, resolveDiscrepancy, substituteReceiptLine } from '..
 import { defaultEffectRunnerDeps, type EffectRunnerDeps } from '../effect-runners';
 import { CheckDeferredError, ensureLedgerActivated, listEffects } from '../ledger';
 import { resetListOwnership } from '../list-sync';
-import { persistExports } from '../projection';
+import { persistExports, projectDemand, targetKey } from '../projection';
 import { getReceiptLines, listReceipts, pullReceipts, pullReferenceReceipts, type ReceiptPullDeps } from '../receipts';
 import { hasPendingReceiptEffects, runShopReconcile } from '../reconcile-executor';
 import { isShopFeatureActive } from '../worker';
@@ -131,6 +131,18 @@ beforeEach(() => {
 });
 
 describe('receipt pulls', () => {
+  it('records receipt retrieval failures in history once until the service recovers', async () => {
+    const installation = setupInstallation();
+    const deps = pullDeps([], { listReceipts: vi.fn(async () => { throw new Error('AH receipt service unavailable'); }) });
+    await pullReceipts(installation, deps);
+    await pullReceipts(installation, deps);
+    expect(db.select().from(schema.historyEvents).all()).toEqual([expect.objectContaining({ kind: 'issue', level: 'error', reason: 'AH receipt service unavailable' })]);
+    expect(db.select().from(schema.historyRuns).all()).toEqual([expect.objectContaining({ action: 'shop_receipt_pull', status: 'failure' })]);
+    await pullReceipts(installation, pullDeps([]));
+    await pullReceipts(installation, deps);
+    expect(db.select().from(schema.historyEvents).all()).toHaveLength(2);
+  });
+
   it('leaves post-activation purchases to normal processing when setup is requested first', async () => {
     const installation = setupInstallation();
     mapMilk();
@@ -220,6 +232,39 @@ describe('receipt pulls', () => {
 });
 
 describe('receipt reconciliation', () => {
+  it.each([1, 250])('fulfils a zero-quantity unitless row with a confirmed package size of %s exactly once', async packageSize => {
+    const installation = setupInstallation();
+    mapMilk();
+    upsertRetailerMapping({ providerId: 'demo-shop', retailerProductId: 'milk', targetKind: 'grocy_product', targetId: '1', targetName: 'Milk',
+      role: 'preferred', baseUnitId: '10', baseUnitName: 'Liter', packageBaseAmount: packageSize, confirm: true });
+    const ctx = unitContext();
+    // A confirmed retailer package also works when Grocy purchase and stock units differ.
+    ctx.grocyProducts.set(1, { ...ctx.grocyProducts.get(1)!, quIdPurchase: 20 });
+    const empty = row({ quantity: 0, unitId: null });
+    const observedAt = new Date('2026-10-04T10:00:00Z');
+    observeDemand('list', [empty], observedAt);
+    const revisionId = db.select().from(schema.demandRevisions).get()!.id;
+    const projection = projectDemand([{ revisionId, mealieItemId: empty.id, foodId: empty.foodId!, unitId: null, quantity: 0, subItems: null, label: 'Milk' }],
+      new Map([[targetKey('grocy_product', 1), { retailerProductId: 'milk', targetKind: 'grocy_product' as const, targetId: '1', confirmed: true, packageBaseAmount: packageSize, packageBaseUnitId: '10' }]]), ctx);
+    expect(projection.lines[0]).toMatchObject({ packages: 1, baseAmount: packageSize });
+    persistExports(installation.id, 'demo-shop', projection.lines, observedAt);
+    await pullReceipts(installation, pullDeps([receipt({ lines: [receipt().lines[0]] })]));
+    const items = { current: [empty] };
+    const run = runner(items);
+    const deps = { ...reconcileDeps(items, run), loadUnitContext: async () => ctx };
+    await runShopReconcile(deps);
+    expect(run.addStock).toHaveBeenCalledTimes(1);
+    expect(run.addStock).toHaveBeenCalledWith(1, expect.objectContaining({ amount: 2 * packageSize }));
+    expect(run.deleteMealieItem).toHaveBeenCalledWith(empty.id);
+    expect(items.current).toEqual([]);
+    expect(db.select().from(schema.reconciliationLinks).all()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ mealieItemId: empty.id, baseAmount: packageSize }),
+    ]));
+    await runShopReconcile(deps);
+    expect(run.addStock).toHaveBeenCalledTimes(1);
+    expect(run.deleteMealieItem).toHaveBeenCalledTimes(1);
+  });
+
   it('books the purchase once, reduces the row and records low-stock accounting', async () => {
     const installation = setupInstallation();
     mapMilk();

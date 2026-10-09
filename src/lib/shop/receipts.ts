@@ -6,6 +6,9 @@ import type { PluginInstallation } from '../plugins/installations';
 import type { Receipt, ReceiptSummary } from '../plugins/protocol/v1';
 import { getLedgerActivatedAt } from './ledger';
 import { rememberReceiptProduct } from './retailer-catalog';
+import { recordHistoryRun } from '../history-store';
+import { activityEvent } from '../sync/activity';
+import { log } from '../logger';
 
 /**
  * Receipt levels, kept strictly apart:
@@ -201,6 +204,18 @@ export async function pullReceipts(installation: PluginInstallation, deps: Recei
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     saveCursor({ pageCursor: pageCursor ?? null, lastError: message.slice(0, 500) });
+    if (cursor?.lastError !== message.slice(0, 500)) {
+      try {
+        await recordHistoryRun({ trigger: 'scheduler', action: 'shop_receipt_pull', status: 'failure',
+          startedAt: now, finishedAt: deps.now(), message: `${installation.name} receipt check failed: ${message}`,
+          events: [activityEvent({ source: 'App', target: 'App', category: 'shopping', level: 'error',
+            entityKind: 'system', entityRef: `shop-receipts:${installation.id}`,
+            message: `${installation.name} receipts could not be fetched.`, reason: message,
+            details: { installationId: installation.id, listed: result.listed, stored: result.stored, resuming: Boolean(pageCursor) },
+          })],
+        });
+      } catch (auditError) { log.warn('[Shop] Could not record receipt pull failure:', auditError); }
+    }
     return { ...result, status: 'error', message };
   }
 }

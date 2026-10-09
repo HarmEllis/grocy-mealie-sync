@@ -51,10 +51,13 @@ declare global {
   // Shared process-wide runtime marker for UI/API status, independent of module instance boundaries.
   // eslint-disable-next-line no-var
   var __gmsSchedulerRuntimeStatus: SchedulerRuntimeStatus | undefined;
+  // eslint-disable-next-line no-var
+  var __gmsNextPollAt: number | undefined;
 }
 
 function setSchedulerRuntimeStatus(status: SchedulerRuntimeStatus): void {
   globalThis.__gmsSchedulerRuntimeStatus = status;
+  if (status !== 'active') globalThis.__gmsNextPollAt = undefined;
 }
 
 function getSchedulerRuntimeStatus(): SchedulerRuntimeStatus {
@@ -330,7 +333,9 @@ function startTimers(): void {
   // Mealie→Grocy runs first so sync-restocked products are recorded before
   // Grocy→Mealie processes the "no longer missing" list (feedback loop guard).
   const pollMs = config.pollIntervalSeconds * 1000;
+  globalThis.__gmsNextPollAt = Date.now() + pollMs;
   pollTimer = setInterval(async () => {
+    globalThis.__gmsNextPollAt = Date.now() + pollMs;
     if (!acquireSyncLock()) {
       log.warn('[Scheduler] Skipping poll — previous sync still running');
       return;
@@ -471,6 +476,11 @@ export function stopScheduler(): void {
     schedulerLockHeld = false;
   }
   log.info('[Scheduler] Stopped');
+}
+
+export function getNextPollRun(): Date | null {
+  return getSchedulerRuntimeStatus() === 'active' && globalThis.__gmsNextPollAt
+    ? new Date(globalThis.__gmsNextPollAt) : null;
 }
 
 export function getSchedulerRuntimeState(): SchedulerRuntimeState {

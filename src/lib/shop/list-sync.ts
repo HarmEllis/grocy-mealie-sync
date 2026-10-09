@@ -12,6 +12,7 @@ import { PluginCallError } from '../plugins/gateway';
 import { getInstallation, pinListId } from '../plugins/installations';
 import { listActiveExports, type ShopExportRow } from './projection';
 import { clearManualNotePreferences, manualNoteProductIds } from './note-preferences';
+import { getLastListSync, recordListSync } from './status';
 import {
   normalizeNoteText,
   planListSync,
@@ -44,6 +45,7 @@ export interface ListSyncResult {
   /** Products the retailer refused because they are no longer sold; a note replaces them next time. */
   discontinued?: string[];
   message?: string;
+  operationIssues?: Array<{ retailerProductId: string; operation: string; outcome: 'failed' | 'conflict'; reason: string }>;
 }
 
 type LineRow = typeof shopListLines.$inferSelect;
@@ -192,13 +194,14 @@ async function sendApply(installationId: string, pending: PendingApply, deps: Li
     writePending(installationId, null);
   });
   const events: HistoryEventInput[] = [];
+  const nameOf = (id: string) => installation?.providerId ? getRetailerProduct(installation.providerId, id)?.name ?? id : id;
   for (const opResult of response.results) {
     // Per-op `failed` means the plugin guarantees nothing was written for that op.
     if (opResult.status === 'applied') {
       result.applied++;
       const planned = pending.plan.ops[opResult.index];
       const op = planned.op;
-      const productName = installation?.providerId ? getRetailerProduct(installation.providerId, planned.retailerProductId)?.name ?? planned.retailerProductId : planned.retailerProductId;
+      const productName = nameOf(planned.retailerProductId);
       const quantity = op.op === 'add' || op.op === 'set' ? op.quantity : 0;
       const confirmed = op.op === 'remove' ? 'removal from the shared list'
         : op.op === 'add_note' ? `the note "${op.text}" on the shared list`
@@ -217,8 +220,17 @@ async function sendApply(installationId: string, pending: PendingApply, deps: Li
     else if (opResult.status === 'conflict') {
       result.conflicts++;
       const planned = pending.plan.ops[opResult.index];
+      const reason = opResult.message ?? opResult.reason ?? 'The retailer reported a conflict.';
+      (result.operationIssues ??= []).push({ retailerProductId: planned.retailerProductId, operation: planned.op.op, outcome: 'conflict', reason });
+      events.push(activityEvent({ source: 'App', target: 'App', category: 'shopping', level: 'warning',
+        entityRef: `retailer:${installation?.providerId}:${planned.retailerProductId}`,
+        productName: nameOf(planned.retailerProductId),
+        message: `Retailer list operation ${planned.op.op} was not applied because the list changed.`,
+        reason,
+        details: { installationId, retailerProductId: planned.retailerProductId, operation: planned.op.op, result: opResult },
+      }));
       if (planned.op.op === 'add_note' && opResult.reason === 'note_exists') {
-        const productName = installation?.providerId ? getRetailerProduct(installation.providerId, planned.retailerProductId)?.name ?? planned.retailerProductId : planned.retailerProductId;
+        const productName = nameOf(planned.retailerProductId);
         const message = `The replacement note "${planned.op.text}" for ${productName} already exists and is left to the household. Remove it manually when bought; it may be from an interrupted write.`;
         log.warn(`[Shop] ${message}`);
         events.push(activityEvent({ source: 'App', target: 'App', category: 'shopping', productName,
@@ -228,17 +240,33 @@ async function sendApply(installationId: string, pending: PendingApply, deps: Li
         }));
       }
     }
-    else result.failed++;
+    else {
+      result.failed++;
+      const planned = pending.plan.ops[opResult.index];
+      const reason = opResult.message ?? opResult.reason ?? 'The retailer refused the operation.';
+      result.message = reason;
+      (result.operationIssues ??= []).push({ retailerProductId: planned.retailerProductId, operation: planned.op.op, outcome: 'failed', reason });
+      events.push(activityEvent({ source: 'App', target: 'App', category: 'shopping', level: 'error',
+        entityRef: `retailer:${installation?.providerId}:${planned.retailerProductId}`,
+        productName: nameOf(planned.retailerProductId),
+        message: `Retailer list operation ${planned.op.op} failed.`, reason,
+        details: { installationId, retailerProductId: planned.retailerProductId, operation: planned.op.op, result: opResult },
+      }));
+    }
   }
   for (const id of result.discontinued ?? []) {
     log.warn(`[Shop] ${installation?.name ?? 'Retailer'} reports retailer product ${id} as no longer sold; the shared list will carry a note instead.`);
   }
-  if (events.length) {
-    // Audit storage must never reopen an already settled retailer operation.
-    try {
-      await recordHistoryRun({ trigger: 'scheduler', action: 'shop_list_sync', status: result.failed || result.conflicts ? 'partial' : 'success', startedAt: now, finishedAt: now, events });
-    } catch (error) { log.warn('[Shop] Could not record confirmed list changes:', error); }
-  }
+  // Audit storage must never reopen an already settled retailer operation.
+  try {
+    const previousIssues = getLastListSync(installationId)?.result.operationIssues;
+    const issueKeys = (issues: ListSyncResult['operationIssues']) => JSON.stringify([...new Set((issues ?? []).map(issue => JSON.stringify([issue.retailerProductId, issue.operation, issue.outcome, issue.reason])))].sort());
+    const repeatedIssues = issueKeys(previousIssues) === issueKeys(result.operationIssues);
+    const auditEvents = events.filter(event => !repeatedIssues || (event.level !== 'warning' && event.level !== 'error'));
+    if (auditEvents.length) {
+      await recordHistoryRun({ trigger: 'scheduler', action: 'shop_list_sync', status: result.failed && !result.applied ? 'failure' : result.failed || result.conflicts ? 'partial' : 'success', startedAt: now, finishedAt: now, events: auditEvents });
+    }
+  } catch (error) { log.warn('[Shop] Could not record confirmed list changes:', error); }
   return true;
 }
 
@@ -353,6 +381,29 @@ function stageTargetReplacements(installationId: string, providerId: string | nu
 }
 
 export async function syncInstallationList(installationId: string, deps: ListSyncDeps): Promise<ListSyncResult> {
+  const startedAt = deps.now();
+  const previous = getLastListSync(installationId);
+  const result = await syncInstallationListImpl(installationId, deps);
+  if (result.status === 'skipped') return result;
+  try {
+    recordListSync(installationId, result, deps.now());
+    if (result.status !== 'ok' && (previous?.result.status !== result.status || previous.result.message !== result.message)) {
+      const installation = getInstallation(installationId);
+      await recordHistoryRun({ trigger: 'scheduler', action: 'shop_list_sync',
+        status: result.status === 'error' ? 'failure' : 'partial', startedAt, finishedAt: deps.now(),
+        message: `${installation?.name ?? 'Retailer'} list sync: ${result.message ?? result.status}`,
+        events: [activityEvent({ source: 'App', target: 'App', category: 'shopping', level: result.status === 'error' ? 'error' : 'warning',
+          entityKind: 'system', entityRef: `shop-list:${installationId}`,
+          message: `${installation?.name ?? 'Retailer'} shopping list could not be synchronized.`,
+          reason: result.message ?? result.status, details: { installationId, ...result },
+        })],
+      });
+    }
+  } catch (error) { log.warn('[Shop] Could not record list sync outcome:', error); }
+  return result;
+}
+
+async function syncInstallationListImpl(installationId: string, deps: ListSyncDeps): Promise<ListSyncResult> {
   const result: ListSyncResult = { status: 'ok', applied: 0, conflicts: 0, failed: 0, paused: 0 };
   const running = runningSyncs();
   if (running.has(installationId)) return { ...result, status: 'skipped', message: 'A list sync is already running' };
