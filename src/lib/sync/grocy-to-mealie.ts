@@ -134,24 +134,25 @@ export async function pollGrocyForMissingStock(
 
       // Fetch all Mealie shopping list items once, to be reused across all adjustments
       const mealieShoppingItems = await fetchAllMealieShoppingItems(shoppingListId);
-      let unitNamesPromise: Promise<Map<number, string>> | null = null;
-      const unitNames = () => {
-        unitNamesPromise ??= getGrocyEntities('quantity_units')
-          .then(units => new Map(units.map(unit => [Number(unit.id), unit.name ?? ''])));
-        return unitNamesPromise;
-      };
-      // Rows are labelled with each product's stock unit; without the products the
-      // poll cannot write unambiguous rows and is retried as a whole next time.
+      // Rows are labelled with each product's stock unit. Products and unit names are
+      // loaded before any Mealie change: without them the poll cannot write
+      // unambiguous rows and is retried as a whole, without half-applied deltas.
       let grocyProductsById: Map<number, GrocyProductWithParent>;
+      let grocyUnitNames: Map<number, string>;
       try {
-        const grocyProducts = await getGrocyEntities('products');
+        const [grocyProducts, grocyUnits] = await Promise.all([
+          getGrocyEntities('products'),
+          getGrocyEntities('quantity_units'),
+        ]);
         grocyProductsById = new Map(
           grocyProducts.map(product => [Number(product.id), product as GrocyProductWithParent]),
         );
+        grocyUnitNames = new Map(grocyUnits.map(unit => [Number(unit.id), unit.name ?? '']));
       } catch (error) {
-        log.warn('[Grocy→Mealie] Could not fetch Grocy products; skipping this low-stock poll:', error);
+        log.warn('[Grocy→Mealie] Could not fetch Grocy products or units; skipping this low-stock poll:', error);
         throw error;
       }
+      const unitNames = async () => grocyUnitNames;
 
       // Build parent lookup from current products
       const parentByProductId = new Map<number, number>();

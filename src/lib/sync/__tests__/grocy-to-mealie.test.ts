@@ -858,6 +858,28 @@ describe('pollGrocyForMissingStock', () => {
       expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: 'mealie-kg', quantity: 2 }));
     });
 
+    it('changes nothing when Grocy unit names cannot be loaded', async () => {
+      setupDbMock([DEFAULT_MAPPING], []);
+      mockedGetGrocyEntities.mockImplementation((async (entity: string) => {
+        if (entity === 'quantity_units') throw new Error('Grocy hiccup');
+        return [{ id: 101, name: 'Milk', qu_id_stock: 10, qu_id_purchase: 10 }];
+      }) as any);
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 1 } }));
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 3 })],
+      });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'own-row', foodId: 'food-1', quantity: 1, checked: false }),
+      ]);
+
+      const result = await pollGrocyForMissingStock();
+
+      expect(result.status).toBe('error');
+      expect(mockedUpdate).not.toHaveBeenCalled();
+      expect(mockedCreate).not.toHaveBeenCalled();
+      expect(mockedSaveSyncState).not.toHaveBeenCalled();
+    });
+
     it('treats an invalid unit mapping factor like a missing mapping', async () => {
       setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 10, conversionFactor: 0 })]);
       mockedGetGrocyEntities.mockResolvedValue([
