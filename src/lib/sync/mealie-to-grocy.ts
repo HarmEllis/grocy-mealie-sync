@@ -12,13 +12,20 @@ import type { HistoryEventInput } from '../history-store';
 import { activityEvent, describeSyncError } from './activity';
 import {
   bookCheckStock,
+  findOpenLifecycle,
+  getLifecycleBookings,
   guardReceiptFulfillment,
   handleUncheckedItem,
   openCheckLifecycle,
   reconcileCheckLifecycles,
+  retireLegacyCheckLifecycle,
   setLifecycleStatus,
+  type LifecycleBooking,
 } from '../shop/check-lifecycles';
+import { loadUnitContext } from '../shop/context';
+import type { CheckConversion } from '../shop/effect-runners';
 import { CheckDeferredError, UncertainWriteError } from '../shop/ledger';
+import { resolveCheckOffAmount, type CheckOffFailure, type UnitContext } from '../shop/units';
 import {
   GMS_ITEMS_KEY,
   isValidSubProductItem,
@@ -33,6 +40,16 @@ export interface MealieToGrocySyncSummary {
   /** Bookings whose outcome is unknown; they wait for verification or a user decision. */
   uncertainItems?: number;
 }
+
+/** The unit data needed to convert a checked row could not be loaded; the row is retried next poll. */
+export class UnitContextUnavailableError extends Error {
+  constructor(readonly cause: unknown) {
+    super(`Unit conversion data is unavailable: ${describeSyncError(cause)}`);
+    this.name = 'UnitContextUnavailableError';
+  }
+}
+
+type UnitContextLoader = () => Promise<UnitContext>;
 
 export interface MealieToGrocyPollResult {
   status: 'ok' | 'partial' | 'skipped' | 'error';
@@ -78,6 +95,14 @@ export async function pollMealieForCheckedItems(): Promise<MealieToGrocyPollResu
     } catch (error) {
       log.warn('[Mealie→Grocy] Could not fetch Grocy products for no-own-stock check:', error);
     }
+    // Loaded at most once per poll, and only when a checked row needs conversion.
+    let unitContextPromise: Promise<UnitContext> | null = null;
+    const getUnitContext: UnitContextLoader = () => {
+      unitContextPromise ??= loadUnitContext(grocyProductsById.size > 0 ? [...grocyProductsById.values()] : undefined);
+      return unitContextPromise;
+    };
+    const unitContextFailures: { itemId: string; name: string | undefined }[] = [];
+    let unitContextError: unknown = null;
     const previousCheckedState = state.mealieCheckedItems;
     const newCheckedState: Record<string, boolean> = {};
     const isBootstrapPoll = state.lastMealiePoll === null;
@@ -141,7 +166,7 @@ export async function pollMealieForCheckedItems(): Promise<MealieToGrocyPollResu
 
       if (checked && (wasChecked !== true || retryRequested.has(item.id))) {
         try {
-          const grocyProductId = await processCheckedItem(item, state, grocyProductsById, events);
+          const grocyProductId = await processCheckedItem(item, state, grocyProductsById, events, getUnitContext);
           if (grocyProductId !== null) {
             // Track that this product was restocked by sync, so Grocy→Mealie
             // won't remove it from the shopping list on the next poll
@@ -155,6 +180,15 @@ export async function pollMealieForCheckedItems(): Promise<MealieToGrocyPollResu
             summary.restockedProducts++;
           }
         } catch (err) {
+          if (err instanceof UnitContextUnavailableError) {
+            // Nothing was booked and no lifecycle was started: retry the row next
+            // poll, exactly like a failed booking, but report the cause once.
+            unitContextError = err.cause;
+            unitContextFailures.push({ itemId: item.id, name: item.food?.name ?? item.display ?? item.note ?? undefined });
+            delete newCheckedState[item.id];
+            delete state.mealieCheckedAt[item.id];
+            continue;
+          }
           if (err instanceof CheckDeferredError) {
             summary.uncertainItems = (summary.uncertainItems ?? 0) + 1;
             events.push(activityEvent({
@@ -202,6 +236,16 @@ export async function pollMealieForCheckedItems(): Promise<MealieToGrocyPollResu
       // B3 edge case: un-checking is ignored (Scenario 10)
     }
 
+    if (unitContextFailures.length > 0) {
+      log.warn(`[Mealie→Grocy] Unit conversion data unavailable; ${unitContextFailures.length} checked item(s) will be retried:`, unitContextError);
+      events.push(activityEvent({
+        level: 'warning', source: 'Mealie', target: 'Grocy',
+        message: `Could not load unit conversion data; ${unitContextFailures.length} checked item(s) will be retried on the next sync.`,
+        reason: 'Checked items are only booked when their amount can be converted to the Grocy stock unit.',
+        details: { items: unitContextFailures, error: describeSyncError(unitContextError) },
+      }));
+    }
+
     state.mealieCheckedItems = newCheckedState;
     state.lastMealiePoll = new Date();
     await saveSyncState(state);
@@ -227,15 +271,27 @@ export async function pollMealieForCheckedItems(): Promise<MealieToGrocyPollResu
 
 /** Process a checked item: add stock in Grocy and clean up Grocy shopping list.
  *  Returns the grocyProductId if stock was successfully added, or null if skipped. */
-async function processCheckedItem(item: ShoppingListItemOut_Output, state: SyncStateData, grocyProductsById: Map<number, GrocyProductWithParent>, events: HistoryEventInput[]): Promise<number | null> {
+async function processCheckedItem(
+  item: ShoppingListItemOut_Output,
+  state: SyncStateData,
+  grocyProductsById: Map<number, GrocyProductWithParent>,
+  events: HistoryEventInput[],
+  getUnitContext: UnitContextLoader,
+): Promise<number | null> {
   // One lifecycle per observed check; reused when this row is retried.
   let lifecycle: { id: string } | null = null;
   try {
-    const productId = await processCheckedItemWithLifecycle(item, state, grocyProductsById, events, (grocyProductId) => {
+    const productId = await processCheckedItemWithLifecycle(item, state, grocyProductsById, events, getUnitContext, (grocyProductId) => {
       lifecycle = openCheckLifecycle(item, grocyProductId);
       return lifecycle;
     });
-    if (lifecycle) setLifecycleStatus((lifecycle as { id: string }).id, productId === null ? 'skipped' : 'completed');
+    if (lifecycle) {
+      const lifecycleId = (lifecycle as { id: string }).id;
+      // A row that is not fulfilled can still hold applied bookings (sub-products);
+      // its lifecycle stays completed so receipts credit those bookings.
+      const booked = productId !== null || getLifecycleBookings(lifecycleId).some(booking => booking.status === 'applied');
+      setLifecycleStatus(lifecycleId, booked ? 'completed' : 'skipped');
+    }
     return productId;
   } catch (error) {
     if (lifecycle) {
@@ -251,6 +307,7 @@ async function processCheckedItemWithLifecycle(
   state: SyncStateData,
   grocyProductsById: Map<number, GrocyProductWithParent>,
   events: HistoryEventInput[],
+  getUnitContext: UnitContextLoader,
   startLifecycle: (grocyProductId: number | null) => { id: string },
 ): Promise<number | null> {
   const foodId = item.foodId;
@@ -260,13 +317,35 @@ async function processCheckedItemWithLifecycle(
     return null;
   }
 
+  const subItems = parseSubProductItems(item);
+
+  // Normal rows book one product. A retry re-uses the booking already planned for
+  // this check (product, amount and label), even if the mapping changed or was
+  // removed meanwhile. Unbooked bookings from before unit conversion are replaced.
+  let priorBooking: LifecycleBooking | null = null;
+  if (!subItems) {
+    const retired = retireLegacyCheckLifecycle(item.id);
+    if (retired.length > 0) {
+      const retiredName = retired[0].label ?? item.food?.name ?? item.display ?? foodId;
+      log.info(`[Mealie→Grocy] Cancelled ${retired.length} unbooked pre-conversion booking(s) for "${retiredName}"; booking again with conversion`);
+      events.push(activityEvent({
+        source: 'Mealie', target: 'Grocy', productName: retiredName, entityRef: item.id,
+        message: `Replaced an unbooked earlier booking for "${retiredName}" with a unit-converted one.`,
+        reason: 'Bookings from before unit conversion may hold recipe amounts (such as 400 for 400 g); none of them reached Grocy.',
+        details: { mealieItemId: item.id, cancelled: retired.map(booking => ({ effectId: booking.effectId, productId: booking.productId, amount: booking.amount })) },
+      }));
+    }
+    const open = findOpenLifecycle(item.id);
+    priorBooking = open ? getLifecycleBookings(open.id)[0] ?? null : null;
+  }
+
   // Look up product mapping
   const mappings = await db.select()
     .from(productMappings)
     .where(eq(productMappings.mealieFoodId, foodId))
     .limit(1);
 
-  if (mappings.length === 0) {
+  if (mappings.length === 0 && !priorBooking) {
     log.warn(`[Mealie→Grocy] No mapping found for Mealie food ${foodId}, skipping`);
     events.push(activityEvent({
       level: 'warning', source: 'Mealie', target: 'Grocy', productName: item.food?.name ?? item.display ?? undefined,
@@ -276,16 +355,39 @@ async function processCheckedItemWithLifecycle(
     return null;
   }
 
-  const mapping = mappings[0];
+  // The product this check books: the planned booking's on a retry, else the mapping's.
+  const currentMapping = mappings[0] as typeof mappings[number] | undefined;
+  const mapping: { grocyProductId: number; grocyProductName: string; mealieFoodName: string } = priorBooking
+    ? {
+      grocyProductId: priorBooking.productId,
+      grocyProductName: priorBooking.label ?? currentMapping?.grocyProductName ?? `#${priorBooking.productId}`,
+      mealieFoodName: currentMapping?.mealieFoodName ?? item.food?.name ?? foodId,
+    }
+    : currentMapping!;
+
+  // Only a first booking converts the row, so the unit data is loaded before any
+  // lifecycle exists; a failed load leaves nothing behind to clean up.
+  let unitContext: UnitContext | null = null;
+  if (!subItems && !priorBooking) {
+    try {
+      unitContext = await getUnitContext();
+    } catch (error) {
+      throw new UnitContextUnavailableError(error);
+    }
+  }
+
   const lifecycle = startLifecycle(mapping.grocyProductId);
   // A receipt may already be fulfilling this exact row; never book the same purchase twice.
   guardReceiptFulfillment(lifecycle.id, item.id);
-  const recordStockAdded = (productId: number, productName: string, amount: number, amountSource: string) => {
+  const recordStockAdded = (productId: number, productName: string, amount: number, amountSource: string, conversionText = '', conversion: CheckConversion | null = null) => {
     events.push(activityEvent({
       source: 'Mealie', target: 'Grocy', productName, entityRef: `grocy:${productId}`,
-      category: 'inventory', message: `Added ${amount} to Grocy stock for "${productName}".`,
+      category: 'inventory', message: `Added ${amount}${conversionText} to Grocy stock for "${productName}".`,
       reason: `"${mapping.mealieFoodName}" was checked off on the Mealie shopping list.`,
-      details: { grocyProductId: productId, mealieFoodId: foodId, mealieFoodName: mapping.mealieFoodName, mealieItemId: item.id, amount, amountSource },
+      details: {
+        grocyProductId: productId, mealieFoodId: foodId, mealieFoodName: mapping.mealieFoodName, mealieItemId: item.id, amount, amountSource,
+        ...(conversion ? { mealieQuantity: conversion.mealieQuantity, mealieUnitId: conversion.mealieUnitId, mealieUnitName: conversion.mealieUnitName, conversionFactor: conversion.factor } : {}),
+      },
     }));
   };
 
@@ -293,12 +395,7 @@ async function processCheckedItemWithLifecycle(
   // restock each sub-product individually using note amounts (user-editable) with
   // extras amounts as fallback. Sub-products were added because they were below
   // min stock by construction, so STOCK_ONLY_MIN_STOCK is always satisfied.
-  const rawSubItemsValue = (item.extras as Record<string, unknown> | undefined)?.[GMS_ITEMS_KEY];
-  const rawSubItems: unknown = typeof rawSubItemsValue === 'string'
-    ? (() => { try { return JSON.parse(rawSubItemsValue); } catch { return null; } })()
-    : rawSubItemsValue;
-  if (Array.isArray(rawSubItems) && rawSubItems.length > 0 && rawSubItems.every(isValidSubProductItem)) {
-    const subItems = rawSubItems as SubProductItem[];
+  if (subItems) {
     const names = subItems.map(s => s.name);
     const hasDuplicateNames = new Set(names).size !== names.length;
     if (hasDuplicateNames) {
@@ -307,6 +404,7 @@ async function processCheckedItemWithLifecycle(
     const noteAmounts = hasDuplicateNames ? null : parseSubProductNoteAmounts(item.note);
     const progress = state.mealieSubRestockProgress[item.id] ?? [];
     const failed: string[] = [];
+    let cancelledChildren = 0;
 
     for (const sub of subItems) {
       if (progress.includes(sub.grocyProductId)) {
@@ -325,10 +423,17 @@ async function processCheckedItemWithLifecycle(
       const source = noteAmounts?.has(sub.name) ? 'note' : 'sync data';
       let stockAdded = false;
       try {
-        await bookCheckStock(lifecycle, sub.grocyProductId, amount, sub.name);
-        stockAdded = true;
-        recordStockAdded(sub.grocyProductId, sub.name, amount, source);
-        log.info(`[Mealie→Grocy] Restocked "${sub.name}" qty=${amount} (from ${source})`);
+        const outcome = await bookCheckStock(lifecycle, sub.grocyProductId, amount, sub.name);
+        if (outcome === 'cancelled') {
+          // Dropped earlier without writing: never report it as booked or retry it.
+          log.warn(`[Mealie→Grocy] Booking for "${sub.name}" was cancelled earlier; not restocked`);
+          recordBookingCancelled(events, sub.grocyProductId, sub.name, item.id, 'sub_product');
+          cancelledChildren++;
+        } else {
+          stockAdded = true;
+          recordStockAdded(sub.grocyProductId, sub.name, amount, source);
+          log.info(`[Mealie→Grocy] Restocked "${sub.name}" qty=${amount} (from ${source})`);
+        }
         progress.push(sub.grocyProductId);
         state.mealieSubRestockProgress[item.id] = [...progress];
         await saveSyncState(state);
@@ -349,6 +454,12 @@ async function processCheckedItemWithLifecycle(
 
     if (failed.length > 0) {
       throw new Error(`Sub-product restock failed for: ${failed.join(', ')}`);
+    }
+    // Children already in progress are skipped above, so a cancellation seen in an
+    // earlier attempt is read back from the persisted bookings.
+    if (cancelledChildren > 0 || getLifecycleBookings(lifecycle.id).some(booking => booking.status === 'cancelled')) {
+      // The row is not fulfilled: keep it unsynced and the Grocy list untouched.
+      return null;
     }
 
     // Do NOT clear mealieSubRestockProgress here. The outer poll clears it
@@ -383,17 +494,19 @@ async function processCheckedItemWithLifecycle(
   // Mealie can send 0 or omit quantity for checked shopping items.
   // We intentionally treat that as a purchase of 1 item to preserve the
   // "check off means bought one" workflow in Grocy.
-  const quantity = item.quantity || 1;
+  // Other values (negative, NaN) are kept so validation refuses them.
+  const quantity = item.quantity === undefined || item.quantity === null || item.quantity === 0 ? 1 : item.quantity;
 
+  // A planned booking already passed these checks when it was planned.
   const grocyProduct = grocyProductsById.get(mapping.grocyProductId);
   const noOwnStockRaw = Number(grocyProduct?.no_own_stock);
-  if (grocyProduct && Number.isFinite(noOwnStockRaw) && noOwnStockRaw !== 0) {
+  if (!priorBooking && grocyProduct && Number.isFinite(noOwnStockRaw) && noOwnStockRaw !== 0) {
     log.info(`[Mealie→Grocy] Skipping "${mapping.grocyProductName}" — product has no own stock in Grocy`);
     return null;
   }
 
   // Check if we should only add stock for products with min_stock_amount > 0
-  if (await resolveStockOnlyMinStock()) {
+  if (!priorBooking && await resolveStockOnlyMinStock()) {
     try {
       const productDetails = await getProductDetails(mapping.grocyProductId);
       const minStock = Number(productDetails.product?.min_stock_amount ?? 0);
@@ -406,21 +519,49 @@ async function processCheckedItemWithLifecycle(
     }
   }
 
-  // B3.2: Add stock in Grocy
-  log.info(`[Mealie→Grocy] Adding stock: "${mapping.grocyProductName}" qty=${quantity} to Grocy`);
+  // B3.2: Add stock in Grocy, converted to the stock unit
+  let booking: { productId: number; amount: number; conversion: CheckConversion | null };
+  if (priorBooking) {
+    booking = { productId: priorBooking.productId, amount: priorBooking.amount, conversion: priorBooking.conversion };
+  } else {
+    const ctx = unitContext as UnitContext;
+    const unitId = item.unitId ?? null;
+    const converted = resolveCheckOffAmount(ctx, mapping.grocyProductId, quantity, unitId);
+    const mealieUnitName = unitId ? ctx.mealieUnits.get(unitId)?.name ?? item.unit?.name ?? null : null;
+    if (!converted.ok) {
+      recordConversionSkipped(events, ctx, mapping, item, quantity, mealieUnitName, converted.reason);
+      log.warn(`[Mealie→Grocy] Not booking "${mapping.grocyProductName}": ${quantity} ${mealieUnitName ?? '(no unit)'} cannot be converted to its stock unit (${converted.reason})`);
+      return null;
+    }
+    booking = {
+      productId: mapping.grocyProductId,
+      amount: converted.amount,
+      conversion: { mealieQuantity: quantity, mealieUnitId: unitId, mealieUnitName, factor: converted.factor },
+    };
+  }
+  log.info(`[Mealie→Grocy] Adding stock: "${mapping.grocyProductName}" qty=${booking.amount} to Grocy`);
 
   try {
-    await bookCheckStock(lifecycle, mapping.grocyProductId, quantity, mapping.grocyProductName);
-    recordStockAdded(mapping.grocyProductId, mapping.grocyProductName, quantity, item.quantity ? 'shopping list quantity' : 'default quantity');
+    const outcome = await bookCheckStock(lifecycle, booking.productId, booking.amount, mapping.grocyProductName, {}, booking.conversion ?? undefined);
+    if (outcome === 'cancelled') {
+      // Dropped earlier without writing: nothing is booked, synced or cleaned up.
+      log.warn(`[Mealie→Grocy] Booking for "${mapping.grocyProductName}" was cancelled earlier; not restocked`);
+      recordBookingCancelled(events, booking.productId, mapping.grocyProductName, item.id, 'row');
+      return null;
+    }
+    const conversionText = booking.conversion && booking.conversion.factor !== 1
+      ? ` (${booking.conversion.mealieQuantity}${booking.conversion.mealieUnitName ? ` ${booking.conversion.mealieUnitName}` : ''})`
+      : '';
+    recordStockAdded(booking.productId, mapping.grocyProductName, booking.amount, item.quantity ? 'shopping list quantity' : 'default quantity', conversionText, booking.conversion);
   } catch (error) {
     if (error instanceof UncertainWriteError) throw error;
     log.error(`[Mealie→Grocy] Failed to add stock for "${mapping.grocyProductName}":`, error);
     events.push(activityEvent({
       level: 'error', source: 'Mealie', target: 'Grocy', productName: mapping.grocyProductName,
       category: 'inventory', entityRef: `grocy:${mapping.grocyProductId}`,
-      message: `Could not add ${quantity} to Grocy stock for "${mapping.grocyProductName}": ${describeSyncError(error)}`,
+      message: `Could not add ${booking.amount} to Grocy stock for "${mapping.grocyProductName}": ${describeSyncError(error)}`,
       reason: `"${mapping.mealieFoodName}" was checked off on the Mealie shopping list.`,
-      details: { grocyProductId: mapping.grocyProductId, mealieFoodId: foodId, mealieItemId: item.id, amount: quantity, error: describeSyncError(error) },
+      details: { grocyProductId: booking.productId, mealieFoodId: foodId, mealieItemId: item.id, amount: booking.amount, error: describeSyncError(error) },
     }));
     // Propagate to caller — the poll loop catches this per-item and leaves
     // the item out of newCheckedState so it retries on the next poll.
@@ -449,6 +590,61 @@ async function processCheckedItemWithLifecycle(
   }
 
   return mapping.grocyProductId;
+}
+
+/** Sub-product rows written by the low-stock sync; null for normal rows. */
+function parseSubProductItems(item: ShoppingListItemOut_Output): SubProductItem[] | null {
+  const rawSubItemsValue = (item.extras as Record<string, unknown> | undefined)?.[GMS_ITEMS_KEY];
+  const rawSubItems: unknown = typeof rawSubItemsValue === 'string'
+    ? (() => { try { return JSON.parse(rawSubItemsValue); } catch { return null; } })()
+    : rawSubItemsValue;
+  return Array.isArray(rawSubItems) && rawSubItems.length > 0 && rawSubItems.every(isValidSubProductItem)
+    ? rawSubItems as SubProductItem[]
+    : null;
+}
+
+const CONVERSION_SKIP_REASONS: Record<CheckOffFailure, string> = {
+  unknown_product: 'The Grocy product or its stock unit is unknown.',
+  missing_unit: 'The row has no unit, and the product is bought in a different unit than it is stocked in.',
+  purchase_unit_ambiguous: 'The row uses the purchase unit, which differs from the stock unit; its amount could mean either.',
+  no_conversion: 'No Grocy unit conversion links this unit to the stock unit.',
+  invalid_amount: 'The amount is not a positive number after conversion.',
+};
+
+function recordConversionSkipped(
+  events: HistoryEventInput[],
+  ctx: UnitContext,
+  mapping: { grocyProductId: number; grocyProductName: string },
+  item: ShoppingListItemOut_Output,
+  quantity: number,
+  mealieUnitName: string | null,
+  reason: CheckOffFailure,
+) {
+  const stockQu = ctx.grocyProducts.get(mapping.grocyProductId)?.quIdStock ?? null;
+  const stockUnitName = stockQu !== null ? ctx.grocyUnitNames.get(stockQu) ?? null : null;
+  events.push(activityEvent({
+    level: 'warning', source: 'Mealie', target: 'Grocy', productName: mapping.grocyProductName,
+    category: 'inventory', entityRef: `grocy:${mapping.grocyProductId}`,
+    message: `Did not add stock for "${mapping.grocyProductName}": ${quantity} ${mealieUnitName ?? '(no unit)'} cannot be converted to ${stockUnitName ?? 'its stock unit'}.`,
+    reason: `${CONVERSION_SKIP_REASONS[reason]} Add the stock manually in Grocy. Adding a conversion later does not re-process this row; uncheck and re-check it in Mealie to retry.`,
+    details: { grocyProductId: mapping.grocyProductId, mealieItemId: item.id, mealieQuantity: quantity, mealieUnitId: item.unitId ?? null, mealieUnitName, stockUnitName, reason },
+  }));
+}
+
+/**
+ * A normal row books one product, so re-checking it is a safe retry. A
+ * sub-product row may have booked other children already; re-checking would
+ * book those again, so only manual booking of the missing child is advised.
+ */
+function recordBookingCancelled(events: HistoryEventInput[], productId: number, productName: string, mealieItemId: string, scope: 'row' | 'sub_product') {
+  events.push(activityEvent({
+    level: 'warning', source: 'Mealie', target: 'Grocy', productName, category: 'inventory', entityRef: `grocy:${productId}`,
+    message: `Did not add stock for "${productName}": its booking was cancelled earlier.`,
+    reason: scope === 'row'
+      ? 'Nothing was written to Grocy. Uncheck and re-check the row in Mealie to book it again.'
+      : `Nothing was written to Grocy for "${productName}". Add its stock manually in Grocy; do not re-check the Mealie row, because its other products were already booked.`,
+    details: { grocyProductId: productId, mealieItemId, scope },
+  }));
 }
 
 function recordShoppingRemoval(events: HistoryEventInput[], mapping: { grocyProductId: number; grocyProductName: string; mealieFoodName: string }, mealieItemId: string, shoppingItemId: number) {

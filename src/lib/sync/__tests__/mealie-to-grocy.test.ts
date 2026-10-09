@@ -41,6 +41,9 @@ vi.mock('../../shop/check-lifecycles', async () => {
   const grocy = await import('../../grocy/types');
   return {
     openCheckLifecycle: vi.fn(() => ({ id: 'lifecycle-1' })),
+    findOpenLifecycle: vi.fn(() => null),
+    getLifecycleBookings: vi.fn(() => []),
+    retireLegacyCheckLifecycle: vi.fn(() => []),
     guardReceiptFulfillment: vi.fn(),
     setLifecycleStatus: vi.fn(),
     handleUncheckedItem: vi.fn(),
@@ -51,6 +54,14 @@ vi.mock('../../shop/check-lifecycles', async () => {
     }),
   };
 });
+
+// ---------------------------------------------------------------------------
+// Unit context: every test product is stocked and bought in unit 1 unless a
+// test installs its own context.
+// ---------------------------------------------------------------------------
+vi.mock('../../shop/context', () => ({
+  loadUnitContext: vi.fn(),
+}));
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -99,6 +110,21 @@ import {
   getProductDetails,
   addProductStock,
 } from '../../grocy/types';
+import { loadUnitContext } from '../../shop/context';
+import { bookCheckStock, findOpenLifecycle, getLifecycleBookings, openCheckLifecycle, retireLegacyCheckLifecycle, setLifecycleStatus } from '../../shop/check-lifecycles';
+import { emptyUnitContext, type UnitContext } from '../../shop/units';
+
+const DEFAULT_PRODUCT_IDS = [100, 101, 201, 202, 777];
+
+function unitContext(configure: (ctx: UnitContext) => void = () => {}): UnitContext {
+  const ctx = emptyUnitContext();
+  for (const id of DEFAULT_PRODUCT_IDS) {
+    ctx.grocyProducts.set(id, { id, name: `Product ${id}`, quIdStock: 1, quIdPurchase: 1, parentProductId: null, noOwnStock: false });
+  }
+  ctx.grocyUnitNames.set(1, 'pak');
+  configure(ctx);
+  return ctx;
+}
 
 // ---------------------------------------------------------------------------
 // Typed mock accessors
@@ -133,6 +159,15 @@ beforeEach(() => {
 
   // DB: no mappings by default
   mockLimit.mockResolvedValue([]);
+
+  vi.mocked(loadUnitContext).mockResolvedValue(unitContext());
+  vi.mocked(findOpenLifecycle).mockReturnValue(null);
+  vi.mocked(getLifecycleBookings).mockReturnValue([]);
+  vi.mocked(retireLegacyCheckLifecycle).mockReturnValue([]);
+  vi.mocked(bookCheckStock).mockImplementation(async (_lifecycle, productId, amount) => {
+    await addProductStock(productId, amount);
+    return 'applied';
+  });
 });
 
 // ===========================================================================
@@ -936,5 +971,242 @@ describe('pollMealieForCheckedItems', () => {
     // 201 is skipped, 202 is restocked
     expect(mockedAddProductStock).toHaveBeenCalledTimes(1);
     expect(mockedAddProductStock).toHaveBeenCalledWith(202, 1);
+  });
+});
+
+// ===========================================================================
+describe('unit conversion on check-off', () => {
+  const GRAM = 15;
+  const BLIK = 13;
+
+  function chickpeasContext() {
+    return unitContext((ctx) => {
+      ctx.grocyProducts.set(58, { id: 58, name: 'Kikkererwten', quIdStock: BLIK, quIdPurchase: BLIK, parentProductId: null, noOwnStock: false });
+      ctx.grocyUnitNames.set(BLIK, 'blik');
+      ctx.grocyUnitNames.set(GRAM, 'gram');
+      ctx.grocyConversions.push({ fromQuId: BLIK, toQuId: GRAM, factor: 400, productId: 58 });
+      ctx.unitMappings.set('mealie-gram', { grocyUnitId: GRAM, factor: 1 });
+      ctx.mealieUnits.set('mealie-gram', { id: 'mealie-gram', name: 'gram', abbreviation: 'g', standardUnit: 'gram', standardQuantity: 1 });
+      ctx.mealieUnits.set('mealie-eetlepel', { id: 'mealie-eetlepel', name: 'eetlepel', abbreviation: 'el', standardUnit: 'milliliter', standardQuantity: 15 });
+    });
+  }
+
+  function checkedChickpeas(overrides: Record<string, unknown> = {}) {
+    mockLimit.mockResolvedValue([mockProductMapping({ mealieFoodId: 'food-58', grocyProductId: 58, grocyProductName: 'Kikkererwten', mealieFoodName: 'Kikkererwten' })]);
+    vi.mocked(loadUnitContext).mockResolvedValue(chickpeasContext());
+    return mockMealieShoppingItem({ id: 'row-58', checked: true, foodId: 'food-58', quantity: 400, unitId: 'mealie-gram', ...overrides });
+  }
+
+  it('books a recipe amount in the stock unit and records the conversion', async () => {
+    mockedFetchAll.mockResolvedValue([checkedChickpeas()]);
+
+    const result = await pollMealieForCheckedItems();
+
+    expect(mockedAddProductStock).toHaveBeenCalledWith(58, 1);
+    expect(vi.mocked(bookCheckStock)).toHaveBeenCalledWith(
+      { id: 'lifecycle-1' }, 58, 1, 'Kikkererwten', {},
+      { mealieQuantity: 400, mealieUnitId: 'mealie-gram', mealieUnitName: 'gram', factor: 0.0025 },
+    );
+    expect(result.events?.[0]).toMatchObject({
+      message: 'Added 1 (400 gram) to Grocy stock for "Kikkererwten".',
+      details: expect.objectContaining({ amount: 1, mealieQuantity: 400, mealieUnitName: 'gram', conversionFactor: 0.0025 }),
+    });
+  });
+
+  it('does not book a row it cannot convert and does not retry it', async () => {
+    mockedFetchAll.mockResolvedValue([checkedChickpeas({ quantity: 2, unitId: 'mealie-eetlepel' })]);
+
+    const result = await pollMealieForCheckedItems();
+
+    expect(mockedAddProductStock).not.toHaveBeenCalled();
+    expect(mockedDeleteGrocyEntity).not.toHaveBeenCalled();
+    expect(vi.mocked(setLifecycleStatus)).toHaveBeenCalledWith('lifecycle-1', 'skipped');
+    expect(result.events).toEqual([expect.objectContaining({
+      level: 'warning',
+      message: 'Did not add stock for "Kikkererwten": 2 eetlepel cannot be converted to blik.',
+      reason: expect.stringContaining('uncheck and re-check it in Mealie'),
+    })]);
+    const saved = mockedSaveSyncState.mock.calls[0][0];
+    expect(saved.mealieCheckedItems['row-58']).toBe(true);
+    expect(saved.mealieItemsSyncedToGrocy['row-58']).toBeUndefined();
+    expect(saved.syncRestockedProducts['58']).toBeUndefined();
+  });
+
+  it('retries rows on the next poll when the unit data cannot be loaded, with one warning', async () => {
+    const first = checkedChickpeas();
+    const second = mockMealieShoppingItem({ id: 'row-other', checked: true, foodId: 'food-58', quantity: 1 });
+    mockedFetchAll.mockResolvedValue([first, second]);
+    vi.mocked(loadUnitContext).mockRejectedValue(new Error('Grocy unavailable'));
+
+    const result = await pollMealieForCheckedItems();
+
+    expect(vi.mocked(loadUnitContext)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(openCheckLifecycle)).not.toHaveBeenCalled();
+    expect(mockedAddProductStock).not.toHaveBeenCalled();
+    expect(result.summary.failedItems).toBe(0);
+    expect(result.events).toEqual([expect.objectContaining({ level: 'warning', message: expect.stringContaining('2 checked item(s) will be retried') })]);
+    const saved = mockedSaveSyncState.mock.calls[0][0];
+    expect(saved.mealieCheckedItems).toEqual({});
+    expect(saved.mealieCheckedAt['row-58']).toBeUndefined();
+  });
+
+  it('re-uses the planned booking of a retried check without converting again', async () => {
+    mockedFetchAll.mockResolvedValue([checkedChickpeas({ quantity: 800 })]);
+    mockedGetGrocyEntities.mockResolvedValue([
+      mockGrocyShoppingItem({ id: 7, product_id: 777 }),
+      mockGrocyShoppingItem({ id: 8, product_id: 58 }),
+    ] as any);
+    vi.mocked(findOpenLifecycle).mockReturnValue({ id: 'lifecycle-1' } as any);
+    vi.mocked(getLifecycleBookings).mockReturnValue([{
+      effectId: 'effect-1', productId: 777, amount: 1, status: 'not_applied', transactionId: null, label: 'Kikkererwten', version: 2,
+      conversion: { mealieQuantity: 400, mealieUnitId: 'mealie-gram', mealieUnitName: 'gram', factor: 0.0025 },
+    }]);
+
+    await pollMealieForCheckedItems();
+
+    // The mapping now points at 58 and the row says 800 g, but the planned booking wins.
+    expect(vi.mocked(loadUnitContext)).not.toHaveBeenCalled();
+    expect(vi.mocked(openCheckLifecycle)).toHaveBeenCalledWith(expect.objectContaining({ id: 'row-58' }), 777);
+    expect(mockedAddProductStock).toHaveBeenCalledWith(777, 1);
+    // Cleanup and the restock guard follow the booked product, not the current mapping.
+    expect(mockedDeleteGrocyEntity).toHaveBeenCalledWith('shopping_list', 7);
+    expect(mockedDeleteGrocyEntity).not.toHaveBeenCalledWith('shopping_list', 8);
+    const saved = mockedSaveSyncState.mock.calls[0][0];
+    expect(saved.syncRestockedProducts['777']).toBeDefined();
+    expect(saved.syncRestockedProducts['58']).toBeUndefined();
+  });
+
+  it('retries a planned booking after its mapping was removed', async () => {
+    mockedFetchAll.mockResolvedValue([mockMealieShoppingItem({ id: 'row-58', checked: true, foodId: 'food-58', quantity: 400, unitId: 'mealie-gram' })]);
+    mockLimit.mockResolvedValue([]);
+    vi.mocked(findOpenLifecycle).mockReturnValue({ id: 'lifecycle-1' } as any);
+    vi.mocked(getLifecycleBookings).mockReturnValue([{
+      effectId: 'effect-1', productId: 58, amount: 1, status: 'not_applied', transactionId: null, label: 'Kikkererwten', version: 2, conversion: null,
+    }]);
+
+    const result = await pollMealieForCheckedItems();
+
+    expect(mockedAddProductStock).toHaveBeenCalledWith(58, 1);
+    expect(result.events?.[0]).toMatchObject({ message: 'Added 1 to Grocy stock for "Kikkererwten".' });
+  });
+
+  it('never books an invalid quantity', async () => {
+    mockedFetchAll.mockResolvedValue([checkedChickpeas({ quantity: Number.NaN })]);
+
+    const result = await pollMealieForCheckedItems();
+
+    expect(mockedAddProductStock).not.toHaveBeenCalled();
+    expect(result.events).toEqual([expect.objectContaining({ level: 'warning', details: expect.objectContaining({ reason: 'invalid_amount' }) })]);
+  });
+
+  it('reports nothing as booked when the booking was cancelled', async () => {
+    mockedFetchAll.mockResolvedValue([checkedChickpeas()]);
+    mockedGetGrocyEntities.mockResolvedValue([mockGrocyShoppingItem({ id: 5, product_id: 58 })] as any);
+    vi.mocked(bookCheckStock).mockResolvedValue('cancelled');
+
+    const result = await pollMealieForCheckedItems();
+
+    expect(mockedDeleteGrocyEntity).not.toHaveBeenCalled();
+    expect(result.events).toEqual([expect.objectContaining({ level: 'warning', message: 'Did not add stock for "Kikkererwten": its booking was cancelled earlier.' })]);
+    const saved = mockedSaveSyncState.mock.calls[0][0];
+    expect(saved.mealieItemsSyncedToGrocy['row-58']).toBeUndefined();
+    expect(saved.syncRestockedProducts['58']).toBeUndefined();
+    expect(result.summary.restockedProducts).toBe(0);
+  });
+
+  it('replaces unbooked pre-conversion bookings and books the converted amount', async () => {
+    mockedFetchAll.mockResolvedValue([checkedChickpeas()]);
+    vi.mocked(retireLegacyCheckLifecycle).mockReturnValue([
+      { effectId: 'old', productId: 58, amount: 400, status: 'not_applied', transactionId: null, label: 'Kikkererwten', version: null, conversion: null },
+    ]);
+
+    const result = await pollMealieForCheckedItems();
+
+    expect(mockedAddProductStock).toHaveBeenCalledWith(58, 1);
+    expect(result.events?.[0]).toMatchObject({ message: 'Replaced an unbooked earlier booking for "Kikkererwten" with a unit-converted one.' });
+  });
+
+  it('leaves a sub-product row unsynced when a child booking was cancelled', async () => {
+    const item = mockMealieShoppingItem({
+      id: 'sub-row', checked: true, foodId: 'food-1',
+      extras: { grocy_sync_subproduct_items: [{ name: 'Volle Melk', grocyProductId: 201, amount: 2 }, { name: 'Halfvolle Melk', grocyProductId: 202, amount: 1 }] } as any,
+    });
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 100 })]);
+    mockedGetGrocyEntities.mockResolvedValue([mockGrocyShoppingItem({ id: 9, product_id: 100 })] as any);
+    vi.mocked(bookCheckStock).mockImplementation(async (_lifecycle, productId, amount) => {
+      if (productId === 202) return 'cancelled';
+      await addProductStock(productId, amount);
+      return 'applied';
+    });
+
+    const result = await pollMealieForCheckedItems();
+
+    expect(mockedAddProductStock).toHaveBeenCalledWith(201, 2);
+    expect(mockedDeleteGrocyEntity).not.toHaveBeenCalled();
+    expect(result.summary.restockedProducts).toBe(0);
+    const saved = mockedSaveSyncState.mock.calls[0][0];
+    expect(saved.mealieItemsSyncedToGrocy['sub-row']).toBeUndefined();
+    expect(saved.syncRestockedProducts['100']).toBeUndefined();
+    expect(saved.mealieCheckedItems['sub-row']).toBe(true);
+  });
+
+  it('remembers a cancelled child across polls and never re-checks the whole row', async () => {
+    const subItems = [{ name: 'Volle Melk', grocyProductId: 201, amount: 2 }, { name: 'Halfvolle Melk', grocyProductId: 202, amount: 1 }];
+    const item = mockMealieShoppingItem({ id: 'sub-row', checked: true, foodId: 'food-1', extras: { grocy_sync_subproduct_items: subItems } as any });
+    mockLimit.mockResolvedValue([mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 100 })]);
+    mockedGetGrocyEntities.mockResolvedValue([mockGrocyShoppingItem({ id: 9, product_id: 100 })] as any);
+    mockedFetchAll.mockResolvedValue([item]);
+    // Poll 2: child 201 was cancelled and is in progress; child 202 failed before and now succeeds.
+    mockedGetSyncState.mockResolvedValue(mockSyncState({
+      lastMealiePoll: new Date('2026-03-27T12:00:00.000Z'),
+      mealieSubRestockProgress: { 'sub-row': [201] },
+    }));
+    vi.mocked(getLifecycleBookings).mockReturnValue([
+      { effectId: 'e-201', productId: 201, amount: 2, status: 'cancelled', transactionId: null, label: 'Volle Melk', version: 2, conversion: null },
+      { effectId: 'e-202', productId: 202, amount: 1, status: 'applied', transactionId: 'tx', label: 'Halfvolle Melk', version: 2, conversion: null },
+    ]);
+
+    const result = await pollMealieForCheckedItems();
+
+    expect(mockedAddProductStock).toHaveBeenCalledWith(202, 1);
+    expect(mockedAddProductStock).not.toHaveBeenCalledWith(201, 2);
+    expect(mockedDeleteGrocyEntity).not.toHaveBeenCalled();
+    // The applied child keeps the lifecycle completed so a receipt credits it.
+    expect(vi.mocked(setLifecycleStatus)).toHaveBeenCalledWith('lifecycle-1', 'completed');
+    expect(result.summary.restockedProducts).toBe(0);
+    const saved = mockedSaveSyncState.mock.calls[0][0];
+    expect(saved.mealieItemsSyncedToGrocy['sub-row']).toBeUndefined();
+  });
+
+  it('advises booking a cancelled child manually instead of re-checking the row', async () => {
+    const item = mockMealieShoppingItem({
+      id: 'sub-row', checked: true, foodId: 'food-1',
+      extras: { grocy_sync_subproduct_items: [{ name: 'Volle Melk', grocyProductId: 201, amount: 2 }] } as any,
+    });
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 100 })]);
+    vi.mocked(bookCheckStock).mockResolvedValue('cancelled');
+
+    const result = await pollMealieForCheckedItems();
+
+    const warning = result.events?.find(event => event.level === 'warning');
+    expect(warning?.reason).toContain('do not re-check the Mealie row');
+    expect(warning?.reason).not.toContain('Uncheck and re-check');
+  });
+
+  it('keeps sub-product rows on their stock amounts without loading unit data', async () => {
+    const item = mockMealieShoppingItem({
+      id: 'sub-row', checked: true, foodId: 'food-1', quantity: 400, unitId: 'mealie-gram',
+      extras: { grocy_sync_subproduct_items: [{ name: 'Volle Melk', grocyProductId: 201, amount: 2 }] } as any,
+    });
+    mockedFetchAll.mockResolvedValue([item]);
+    mockLimit.mockResolvedValue([mockProductMapping({ mealieFoodId: 'food-1', grocyProductId: 100 })]);
+
+    await pollMealieForCheckedItems();
+
+    expect(vi.mocked(loadUnitContext)).not.toHaveBeenCalled();
+    expect(vi.mocked(retireLegacyCheckLifecycle)).not.toHaveBeenCalled();
+    expect(mockedAddProductStock).toHaveBeenCalledWith(201, 2);
   });
 });

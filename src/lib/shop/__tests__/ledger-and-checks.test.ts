@@ -7,7 +7,7 @@ vi.mock('@/lib/db', async () => {
 
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { checkLifecycles, lowStockAccountedRestocks, shopEffects, syncState } from '@/lib/db/schema';
+import { checkLifecycles, discrepancies, lowStockAccountedRestocks, shopEffects, syncState } from '@/lib/db/schema';
 import {
   beginAttempt,
   classifyWriteError,
@@ -16,7 +16,7 @@ import {
   recoverInterruptedEffects,
   UncertainWriteError,
 } from '../ledger';
-import { bookCheckStock, openCheckLifecycle, reconcileCheckLifecycles, setLifecycleStatus } from '../check-lifecycles';
+import { bookCheckStock, findOpenLifecycle, getLifecycleBookings, handleUncheckedItem, openCheckLifecycle, reconcileCheckLifecycles, retireLegacyCheckLifecycle, setLifecycleStatus } from '../check-lifecycles';
 import { resolveUnknownEffect } from '../effect-resolution';
 import { defaultEffectRunnerDeps, runGrocyAddEffect, type EffectRunnerDeps, type GrocyAddPayload } from '../effect-runners';
 
@@ -35,6 +35,7 @@ function apiError(status: number) {
 }
 
 beforeEach(() => {
+  db.delete(discrepancies).run();
   db.delete(shopEffects).run();
   db.delete(checkLifecycles).run();
   db.delete(lowStockAccountedRestocks).run();
@@ -179,5 +180,129 @@ describe('ledger-backed manual checks', () => {
     expect(resolveUnknownEffect(effect.id, { action: 'booked_elsewhere' })).toBe(true);
     expect(resolveUnknownEffect(effect.id, { action: 'booked_elsewhere' })).toBe(false);
     expect(db.select().from(lowStockAccountedRestocks).all()).toHaveLength(1);
+  });
+});
+
+describe('check booking versions and legacy bookings', () => {
+  function legacyBooking(itemId: string, productId: number, amount: number, status: 'planned' | 'not_applied') {
+    const lifecycle = openCheckLifecycle({ id: itemId, foodId: 'food' }, productId);
+    const effect = ensureEffect<GrocyAddPayload>({
+      effectKey: `check:${lifecycle.id}:grocy_add:${productId}`, kind: 'grocy_add', sourceKind: 'check', sourceRef: lifecycle.id,
+      payload: { productId, amount, label: 'Chickpeas' },
+    });
+    if (status === 'not_applied') db.update(shopEffects).set({ status: 'not_applied' }).where(eq(shopEffects.id, effect.id)).run();
+    setLifecycleStatus(lifecycle.id, 'failed');
+    return { lifecycle, effect };
+  }
+
+  it('stores the payload version and conversion with every new booking', async () => {
+    const lifecycle = openCheckLifecycle({ id: 'row-v', foodId: 'food' }, 58);
+    const conversion = { mealieQuantity: 400, mealieUnitId: 'gram', mealieUnitName: 'gram', factor: 0.0025 };
+    expect(await bookCheckStock(lifecycle, 58, 1, 'Chickpeas', deps(), conversion)).toBe('applied');
+    expect(getLifecycleBookings(lifecycle.id)).toEqual([
+      expect.objectContaining({ productId: 58, amount: 1, version: 2, conversion, label: 'Chickpeas' }),
+    ]);
+  });
+
+  it('reports a cancelled booking as cancelled, never as booked', async () => {
+    const addStock = vi.fn(async () => [{ id: 1, transaction_id: 'tx-1' }]);
+    const lifecycle = openCheckLifecycle({ id: 'row-c', foodId: 'food' }, 58);
+    const effect = ensureEffect<GrocyAddPayload>({
+      effectKey: `check:${lifecycle.id}:grocy_add:58`, kind: 'grocy_add', sourceKind: 'check', sourceRef: lifecycle.id, payload: { productId: 58, amount: 1, v: 2 },
+    });
+    db.update(shopEffects).set({ status: 'cancelled' }).where(eq(shopEffects.id, effect.id)).run();
+    expect(await bookCheckStock(lifecycle, 58, 1, 'Chickpeas', deps({ addStock }))).toBe('cancelled');
+    expect(addStock).not.toHaveBeenCalled();
+  });
+
+  it('cancels unbooked legacy bookings of a normal row and closes their lifecycle', () => {
+    const { lifecycle, effect } = legacyBooking('row-l', 58, 400, 'not_applied');
+    expect(retireLegacyCheckLifecycle('row-l')).toEqual([expect.objectContaining({ effectId: effect.id, amount: 400, version: null })]);
+    expect(getEffect(effect.id)?.status).toBe('cancelled');
+    expect(findOpenLifecycle('row-l')).toBeNull();
+    expect(db.select().from(checkLifecycles).where(eq(checkLifecycles.id, lifecycle.id)).get()).toMatchObject({ status: 'cancelled', closedReason: 'legacy_amount' });
+    // A new check starts a fresh lifecycle and booking.
+    expect(openCheckLifecycle({ id: 'row-l', foodId: 'food' }, 58).id).not.toBe(lifecycle.id);
+    expect(retireLegacyCheckLifecycle('row-l')).toEqual([]);
+  });
+
+  it('keeps the cancellation over later reconciliation runs', async () => {
+    legacyBooking('row-r', 58, 400, 'planned');
+    retireLegacyCheckLifecycle('row-r');
+    for (let run = 0; run < 3; run++) {
+      const result = await reconcileCheckLifecycles(new Set(['row-r']), deps());
+      expect(result.retryRequested).not.toContain('row-r');
+    }
+    expect(findOpenLifecycle('row-r')).toBeNull();
+  });
+
+  it('leaves lifecycles with applied, uncertain or current-version bookings alone', async () => {
+    const applied = openCheckLifecycle({ id: 'row-a', foodId: 'food' }, 58);
+    const appliedEffect = ensureEffect<GrocyAddPayload>({
+      effectKey: `check:${applied.id}:grocy_add:58`, kind: 'grocy_add', sourceKind: 'check', sourceRef: applied.id, payload: { productId: 58, amount: 1 },
+    });
+    db.update(shopEffects).set({ status: 'applied' }).where(eq(shopEffects.id, appliedEffect.id)).run();
+    expect(retireLegacyCheckLifecycle('row-a')).toEqual([]);
+
+    const uncertain = openCheckLifecycle({ id: 'row-u', foodId: 'food' }, 58);
+    const uncertainEffect = ensureEffect<GrocyAddPayload>({
+      effectKey: `check:${uncertain.id}:grocy_add:58`, kind: 'grocy_add', sourceKind: 'check', sourceRef: uncertain.id, payload: { productId: 58, amount: 400 },
+    });
+    db.update(shopEffects).set({ status: 'unknown' }).where(eq(shopEffects.id, uncertainEffect.id)).run();
+    expect(retireLegacyCheckLifecycle('row-u')).toEqual([]);
+    expect(getEffect(uncertainEffect.id)?.status).toBe('unknown');
+
+    const current = openCheckLifecycle({ id: 'row-n', foodId: 'food' }, 58);
+    await expect(bookCheckStock(current, 58, 1, 'Chickpeas', deps({ addStock: vi.fn().mockRejectedValue(apiError(400)) }))).rejects.toMatchObject({ status: 400 });
+    expect(retireLegacyCheckLifecycle('row-n')).toEqual([]);
+  });
+
+  it('keeps a legacy lifecycle that has a review, so its decision still applies', () => {
+    const { lifecycle, effect } = legacyBooking('row-d', 58, 1, 'planned');
+    db.insert(discrepancies).values({
+      id: 'disc-1', kind: 'check_after_receipt', status: 'resolved', resolution: 'book_check', receiptLineId: null,
+      lifecycleId: lifecycle.id, evidenceJson: '{}', createdAt: new Date(),
+    }).run();
+    expect(retireLegacyCheckLifecycle('row-d')).toEqual([]);
+    expect(getEffect(effect.id)?.status).toBe('planned');
+  });
+
+  it('lets an unchecked row drop its pending legacy booking as before', () => {
+    const { effect } = legacyBooking('row-x', 58, 400, 'planned');
+    handleUncheckedItem('row-x');
+    expect(getEffect(effect.id)?.status).toBe('cancelled');
+  });
+});
+
+describe('reconciliation of partly cancelled checks', () => {
+  async function uncertainBooking(lifecycle: { id: string }, productId: number) {
+    await expect(bookCheckStock(lifecycle, productId, 1, `Product ${productId}`, deps({ addStock: vi.fn().mockRejectedValue(apiError(502)) })))
+      .rejects.toBeInstanceOf(UncertainWriteError);
+    return getLifecycleBookings(lifecycle.id).find(booking => booking.productId === productId)!;
+  }
+
+  it('does not report a skipped uncertain booking as a fulfilled row', async () => {
+    const lifecycle = openCheckLifecycle({ id: 'row-s', foodId: 'food' }, 58);
+    const booking = await uncertainBooking(lifecycle, 58);
+    setLifecycleStatus(lifecycle.id, 'blocked');
+    expect(resolveUnknownEffect(booking.effectId, { action: 'skip' })).toBe(true);
+
+    const result = await reconcileCheckLifecycles(new Set(['row-s']), deps());
+
+    expect(result.completedItemIds).not.toContain('row-s');
+    expect(db.select().from(checkLifecycles).where(eq(checkLifecycles.id, lifecycle.id)).get()?.status).toBe('skipped');
+  });
+
+  it('keeps a lifecycle with an applied and a skipped child completed, without syncing the row', async () => {
+    const lifecycle = openCheckLifecycle({ id: 'row-m', foodId: 'food' }, 100);
+    expect(await bookCheckStock(lifecycle, 201, 2, 'Child A', deps())).toBe('applied');
+    const uncertain = await uncertainBooking(lifecycle, 202);
+    setLifecycleStatus(lifecycle.id, 'blocked');
+    expect(resolveUnknownEffect(uncertain.effectId, { action: 'skip' })).toBe(true);
+
+    const result = await reconcileCheckLifecycles(new Set(['row-m']), deps());
+
+    expect(result.completedItemIds).not.toContain('row-m');
+    expect(db.select().from(checkLifecycles).where(eq(checkLifecycles.id, lifecycle.id)).get()?.status).toBe('completed');
   });
 });

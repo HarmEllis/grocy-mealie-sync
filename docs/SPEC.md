@@ -63,7 +63,7 @@ When an item is checked off (purchased) in Mealie's shopping list:
 |----|----------|---------|
 | B3.1 | Detect checked items in Mealie | Detect when a shopping list item's `checked` field changes from `false` to `true`. |
 | B3.2 | Add stock in Grocy | Look up the corresponding Grocy product via the mapping table. Call Grocy's `/api/stock/products/{id}/add` with the checked item's quantity and appropriate unit. If Mealie reports quantity `0` or omits it, treat that as `1` purchased item. |
-| B3.3 | Handle unit conversion | If Mealie and Grocy use different quantity units for the same product, use the QU conversion table in Grocy or the mapping to convert correctly. |
+| B3.3 | Handle unit conversion | Convert the row into the Grocy stock unit through the unit mapping and Grocy's QU conversions (product-specific before global, at most one intermediate unit). Refuse instead of guessing: no conversion, conflicting conversions, an empty unit that does not mean the stock unit, or a purchase unit that differs from the stock unit book nothing and raise a warning. |
 | B3.4 | Remove from Grocy shopping list | After adding stock, delete the corresponding item from the Grocy shopping list (Grocy shopping list items have no `done` field — they must be deleted via `DELETE /api/objects/shopping_list/{id}`). |
 
 ---
@@ -444,7 +444,7 @@ DATABASE_PATH=./data/sync.db
 | A2 | Unit sync creates Grocy QUs for all Mealie units | After sync, every Mealie unit has a corresponding Grocy quantity unit |
 | A3 | Consuming a product in Grocy below min_stock adds it to Mealie shopping list | Scan/consume an item in Grocy → within 1 polling interval, item appears on Mealie list with correct quantity and unit |
 | A4 | Duplicate items are not created on Mealie list | Consuming the same product multiple times does not create duplicate Mealie shopping list items — quantity is updated instead |
-| A5 | Checking off an item in Mealie adds stock in Grocy | Check item in Mealie → within 1 polling interval, Grocy stock increases by the item's quantity |
+| A5 | Checking off an item in Mealie adds stock in Grocy | Check item in Mealie → within 1 polling interval, Grocy stock increases by the item's quantity converted to the stock unit (400 g with 1 can = 400 g adds 1 can); rows that cannot be converted exactly are not booked and raise a warning |
 | A6 | Checked Mealie item triggers Grocy shopping list cleanup | After stock addition, the corresponding Grocy shopping list item is deleted |
 | A7 | Sync service does not modify Mealie items | Mealie shopping list items are never updated or deleted by the sync service |
 | A8 | Unmapped items are skipped gracefully | Note-only items or items without food references in Mealie are ignored without errors |

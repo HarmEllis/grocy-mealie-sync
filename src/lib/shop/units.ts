@@ -56,17 +56,94 @@ export function emptyUnitContext(): UnitContext {
   };
 }
 
-/** Factor to convert an amount in `fromQuId` into `toQuId` for a product, or null when unknown. */
+type EdgeLookup = { kind: 'factor'; factor: number } | { kind: 'missing' } | { kind: 'conflict' };
+
+const FACTOR_TOLERANCE = 1e-9;
+
+function sameFactor(a: number, b: number): boolean {
+  return Math.abs(a - b) <= FACTOR_TOLERANCE * Math.max(Math.abs(a), Math.abs(b));
+}
+
+function isValidFactor(value: number): boolean {
+  return Number.isFinite(value) && value > 0;
+}
+
+interface ConversionIndex {
+  size: number;
+  /** "scope|from|to" -> every candidate factor, from direct and inverted records. */
+  edges: Map<string, number[]>;
+  /** Units that appear in a conversion per scope ("null" for global). */
+  units: Map<string, Set<number>>;
+}
+
+const conversionIndexes = new WeakMap<GrocyConversionInfo[], ConversionIndex>();
+
+/** Index the conversions once per list; rebuilt when records are added. */
+function conversionIndex(ctx: UnitContext): ConversionIndex {
+  const cached = conversionIndexes.get(ctx.grocyConversions);
+  if (cached && cached.size === ctx.grocyConversions.length) return cached;
+  const index: ConversionIndex = { size: ctx.grocyConversions.length, edges: new Map(), units: new Map() };
+  const add = (key: string, factor: number) => {
+    const list = index.edges.get(key);
+    if (list) list.push(factor);
+    else index.edges.set(key, [factor]);
+  };
+  for (const conversion of ctx.grocyConversions) {
+    if (!isValidFactor(conversion.factor)) continue;
+    const scope = String(conversion.productId);
+    add(`${scope}|${conversion.fromQuId}|${conversion.toQuId}`, conversion.factor);
+    add(`${scope}|${conversion.toQuId}|${conversion.fromQuId}`, 1 / conversion.factor);
+    const units = index.units.get(scope) ?? new Set<number>();
+    units.add(conversion.fromQuId);
+    units.add(conversion.toQuId);
+    index.units.set(scope, units);
+  }
+  conversionIndexes.set(ctx.grocyConversions, index);
+  return index;
+}
+
+/** All candidate factors for one hop in one scope; direct and inverse records must agree. */
+function lookupEdge(ctx: UnitContext, scope: number | null, fromQuId: number, toQuId: number): EdgeLookup {
+  const candidates = conversionIndex(ctx).edges.get(`${String(scope)}|${fromQuId}|${toQuId}`) ?? [];
+  if (candidates.length === 0) return { kind: 'missing' };
+  return candidates.every(factor => sameFactor(factor, candidates[0])) ? { kind: 'factor', factor: candidates[0] } : { kind: 'conflict' };
+}
+
+/** One hop for a product: a product-specific record wins over a global one; conflicts never fall back. */
+function lookupHop(ctx: UnitContext, productId: number, fromQuId: number, toQuId: number): EdgeLookup {
+  const own = lookupEdge(ctx, productId, fromQuId, toQuId);
+  return own.kind === 'missing' ? lookupEdge(ctx, null, fromQuId, toQuId) : own;
+}
+
+/**
+ * Factor to convert an amount in `fromQuId` into `toQuId` for a product, or
+ * null when unknown. A direct conversion wins; otherwise one intermediate unit
+ * is allowed (kg -> g -> bag). Conflicting records or intermediate paths that
+ * disagree return null instead of picking one.
+ */
 export function grocyQuFactor(ctx: UnitContext, productId: number, fromQuId: number, toQuId: number): number | null {
   if (fromQuId === toQuId) return 1;
-  const find = (scope: number | null) => {
-    const direct = ctx.grocyConversions.find(c => c.productId === scope && c.fromQuId === fromQuId && c.toQuId === toQuId);
-    if (direct && direct.factor > 0) return direct.factor;
-    const inverse = ctx.grocyConversions.find(c => c.productId === scope && c.fromQuId === toQuId && c.toQuId === fromQuId);
-    if (inverse && inverse.factor > 0) return 1 / inverse.factor;
-    return null;
-  };
-  return find(productId) ?? find(null);
+  const direct = lookupHop(ctx, productId, fromQuId, toQuId);
+  if (direct.kind === 'factor') return direct.factor;
+  if (direct.kind === 'conflict') return null;
+
+  const index = conversionIndex(ctx);
+  const intermediates = new Set<number>([...(index.units.get(String(productId)) ?? []), ...(index.units.get('null') ?? [])]);
+  intermediates.delete(fromQuId);
+  intermediates.delete(toQuId);
+
+  let found: number | null = null;
+  for (const via of intermediates) {
+    const first = lookupHop(ctx, productId, fromQuId, via);
+    const second = lookupHop(ctx, productId, via, toQuId);
+    if (first.kind === 'conflict' || second.kind === 'conflict') return null;
+    if (first.kind !== 'factor' || second.kind !== 'factor') continue;
+    const factor = first.factor * second.factor;
+    if (!isValidFactor(factor)) return null;
+    if (found !== null && !sameFactor(found, factor)) return null;
+    found = found ?? factor;
+  }
+  return found;
 }
 
 export type ConversionFailure =
@@ -104,6 +181,65 @@ export function mealieQuantityToGrocyStock(
   const factor = grocyQuFactor(ctx, productId, mapping.grocyUnitId, stockQu);
   if (factor === null) return { ok: false, reason: 'no_conversion' };
   return { ok: true, amount: quantity * mapping.factor * factor, factor: mapping.factor * factor };
+}
+
+/**
+ * Whether a shopping row without a unit counts in the product's stock unit.
+ * True when purchase and stock unit agree, or when the stock unit is itself a
+ * count unit ("Stuk"): an empty Mealie unit means "pieces".
+ */
+export function emptyUnitMeansStock(ctx: UnitContext, productId: number): boolean {
+  const product = ctx.grocyProducts.get(productId);
+  if (!product || product.quIdStock === null) return false;
+  if (product.quIdPurchase === null || product.quIdPurchase === product.quIdStock) return true;
+  return isCountUnitName(ctx.grocyUnitNames.get(product.quIdStock));
+}
+
+export type CheckOffFailure = ConversionFailure | 'invalid_amount';
+
+export type CheckOffAmountResult =
+  | { ok: true; amount: number; factor: number }
+  | { ok: false; reason: CheckOffFailure };
+
+const CHECK_OFF_DECIMALS = 6;
+
+/**
+ * Convert a checked-off Mealie row into the amount to book in the product's
+ * stock unit. Unlike `mealieQuantityToGrocyStock`, every case that cannot be
+ * established exactly is refused, because a wrong booking pollutes stock:
+ * rows labelled with a purchase unit that differs from the stock unit, empty
+ * units that do not mean the stock unit, unknown conversions and amounts that
+ * are not finite and positive.
+ */
+export function resolveCheckOffAmount(
+  ctx: UnitContext,
+  productId: number,
+  quantity: number,
+  mealieUnitId: string | null,
+): CheckOffAmountResult {
+  if (!Number.isFinite(quantity) || quantity <= 0) return { ok: false, reason: 'invalid_amount' };
+  const product = ctx.grocyProducts.get(productId);
+  if (!product || product.quIdStock === null) return { ok: false, reason: 'unknown_product' };
+  let factor: number;
+  if (!mealieUnitId) {
+    if (!emptyUnitMeansStock(ctx, productId)) return { ok: false, reason: 'missing_unit' };
+    factor = 1;
+  } else {
+    const mapping = ctx.unitMappings.get(mealieUnitId);
+    if (!mapping || !isValidFactor(mapping.factor)) return { ok: false, reason: 'no_conversion' };
+    if (mapping.grocyUnitId === product.quIdStock) {
+      factor = mapping.factor;
+    } else if (mapping.grocyUnitId === product.quIdPurchase) {
+      return { ok: false, reason: 'purchase_unit_ambiguous' };
+    } else {
+      const unitFactor = grocyQuFactor(ctx, productId, mapping.grocyUnitId, product.quIdStock);
+      if (unitFactor === null) return { ok: false, reason: 'no_conversion' };
+      factor = mapping.factor * unitFactor;
+    }
+  }
+  const amount = Number((quantity * factor).toFixed(CHECK_OFF_DECIMALS));
+  if (!Number.isFinite(amount) || amount <= 0) return { ok: false, reason: 'invalid_amount' };
+  return { ok: true, amount, factor };
 }
 
 function mealieStandardScale(unit: MealieUnitInfo | undefined): { dimension: string; scale: number } | null {
