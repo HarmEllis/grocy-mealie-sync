@@ -7,6 +7,7 @@ import { log } from '../logger';
 import { resolveShoppingListId, resolveStockOnlyMinStock } from '../settings';
 import { getSyncState, saveSyncState, type SyncStateData } from './state';
 import { fetchAllMealieShoppingItems } from './helpers';
+import { shoppingItemUnitId } from './shopping-item';
 import { eq } from 'drizzle-orm';
 import type { HistoryEventInput } from '../history-store';
 import { activityEvent, describeSyncError } from './activity';
@@ -525,7 +526,7 @@ async function processCheckedItemWithLifecycle(
     booking = { productId: priorBooking.productId, amount: priorBooking.amount, conversion: priorBooking.conversion };
   } else {
     const ctx = unitContext as UnitContext;
-    const unitId = item.unitId ?? null;
+    const unitId = shoppingItemUnitId(item);
     const converted = resolveCheckOffAmount(ctx, mapping.grocyProductId, quantity, unitId);
     const mealieUnitName = unitId ? ctx.mealieUnits.get(unitId)?.name ?? item.unit?.name ?? null : null;
     if (!converted.ok) {
@@ -627,7 +628,7 @@ function recordConversionSkipped(
     category: 'inventory', entityRef: `grocy:${mapping.grocyProductId}`,
     message: `Did not add stock for "${mapping.grocyProductName}": ${quantity} ${mealieUnitName ?? '(no unit)'} cannot be converted to ${stockUnitName ?? 'its stock unit'}.`,
     reason: `${CONVERSION_SKIP_REASONS[reason]} Add the stock manually in Grocy. Adding a conversion later does not re-process this row; uncheck and re-check it in Mealie to retry.`,
-    details: { grocyProductId: mapping.grocyProductId, mealieItemId: item.id, mealieQuantity: quantity, mealieUnitId: item.unitId ?? null, mealieUnitName, stockUnitName, reason },
+    details: { grocyProductId: mapping.grocyProductId, mealieItemId: item.id, mealieQuantity: quantity, mealieUnitId: shoppingItemUnitId(item), mealieUnitName, stockUnitName, reason },
   }));
 }
 

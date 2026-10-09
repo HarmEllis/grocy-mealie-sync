@@ -16,6 +16,7 @@ import { getSyncState, saveSyncState, saveSyncStateConsumingRestocks } from './s
 import { loadLowStockAdjustments, type LowStockAdjustments } from '../shop/low-stock-accounting';
 import { isCountUnitName } from '../shop/units';
 import { fetchAllMealieShoppingItems } from './helpers';
+import { shoppingItemUnitId } from './shopping-item';
 import { eq } from 'drizzle-orm';
 import type { HistoryEventInput } from '../history-store';
 import { activityEvent, describeSyncError } from './activity';
@@ -656,7 +657,7 @@ async function applyMealieShoppingAdjustment(
   // rows in another unit are never changed, relabelled or removed.
   const existingItem = mealieShoppingItems.find(item =>
     item.foodId === mapping.mealieFoodId && !item.checked
-    && (item.unitId || null) === (unitId ?? null)
+    && shoppingItemUnitId(item) === (unitId ?? null)
     && (item.recipeReferences?.length ?? 0) === 0
   );
 

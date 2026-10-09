@@ -1013,6 +1013,14 @@ describe('unit conversion on check-off', () => {
     });
   });
 
+  it('reads the nested unit when Mealie omits unitId', async () => {
+    mockedFetchAll.mockResolvedValue([checkedChickpeas({ unitId: undefined, unit: { id: 'mealie-gram', name: 'gram' } })]);
+
+    await pollMealieForCheckedItems();
+
+    expect(mockedAddProductStock).toHaveBeenCalledWith(58, 1);
+  });
+
   it('does not book a row it cannot convert and does not retry it', async () => {
     mockedFetchAll.mockResolvedValue([checkedChickpeas({ quantity: 2, unitId: 'mealie-eetlepel' })]);
 
