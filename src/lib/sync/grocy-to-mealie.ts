@@ -296,11 +296,13 @@ export async function pollGrocyForMissingStock(
       // adjustment is retried once the unit configuration is fixed.
       const skippedEffectiveIds = new Set<number>();
       const accountedByEffective = new Map<number, number>();
+      const restockEffectiveIds = new Map<string, number>();
       for (const restock of lowStockAdjustments.accounted) {
         const effectiveId = effectiveIdOf(restock.grocyProductId);
         if (frozenEffectiveIds.has(effectiveId)) continue;
         accountedByEffective.set(effectiveId, (accountedByEffective.get(effectiveId) ?? 0) + restock.stockAmount);
         consumedRestockIds.push(restock.effectId);
+        restockEffectiveIds.set(restock.effectId, effectiveId);
       }
       for (const [effectiveId, accounted] of accountedByEffective) {
         const previous = effectivePreviousMap.get(effectiveId);
@@ -449,6 +451,13 @@ export async function pollGrocyForMissingStock(
         if (skippedSyncRestocked > 0) {
           log.info(`[Grocy→Mealie] ${skippedSyncRestocked} product(s) skipped (restocked by sync, not user)`);
         }
+      }
+
+      // A skipped product keeps its receipt restocks unconsumed, matching its kept
+      // snapshot, so the retry subtracts them exactly once.
+      if (skippedEffectiveIds.size > 0) {
+        const kept = consumedRestockIds.filter(id => !skippedEffectiveIds.has(restockEffectiveIds.get(id) ?? Number.NaN));
+        consumedRestockIds.splice(0, consumedRestockIds.length, ...kept);
       }
 
       // Frozen products keep their previous snapshot until the booking outcome is known;
