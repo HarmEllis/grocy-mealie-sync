@@ -832,6 +832,32 @@ describe('pollGrocyForMissingStock', () => {
       expect(mockedSaveSyncState).not.toHaveBeenCalled();
     });
 
+    it('keeps an unwritable shortage eligible so it is written once the unit is mapped', async () => {
+      const flourEntities = (async (entity: string) => entity === 'quantity_units'
+        ? [{ id: 14, name: 'kilogram' }, { id: 9, name: 'zak' }]
+        : [{ id: 101, name: 'Flour', qu_id_stock: 14, qu_id_purchase: 9 }]) as any;
+      mockedGetGrocyEntities.mockImplementation(flourEntities);
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })],
+      });
+      mockedFetchItems.mockResolvedValue([]);
+      setupDbMock([DEFAULT_MAPPING], []);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedCreate).not.toHaveBeenCalled();
+      const firstState = mockedSaveSyncState.mock.calls.at(-1)![0];
+      expect(firstState.grocyBelowMinStock[101]).toBeUndefined();
+
+      // The user maps kilogram; the next poll still sees the shortage as new and writes it.
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: firstState.grocyBelowMinStock }));
+      setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 14, mealieUnitId: 'mealie-kg' })]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: 'mealie-kg', quantity: 2 }));
+    });
+
     it('treats an invalid unit mapping factor like a missing mapping', async () => {
       setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 10, conversionFactor: 0 })]);
       mockedGetGrocyEntities.mockResolvedValue([
@@ -1212,6 +1238,10 @@ describe('pollGrocyForMissingStock', () => {
         };
       });
 
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Milk', qu_id_stock: 10, qu_id_purchase: 10 },
+        { id: 202, name: 'Butter', qu_id_stock: 10, qu_id_purchase: 10 },
+      ] as any);
       mockedGetVolatileStock.mockResolvedValue({
         missing_products: [
           mockMissingProduct({ id: 101, amount_missing: 2 }),

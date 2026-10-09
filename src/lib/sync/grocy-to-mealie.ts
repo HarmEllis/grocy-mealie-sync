@@ -290,6 +290,9 @@ export async function pollGrocyForMissingStock(
       // Products with a booking of unknown outcome are frozen until it is settled.
       const effectiveIdOf = (productId: number) => (syncSubProducts ? (parentByProductId.get(productId) ?? productId) : productId);
       const frozenEffectiveIds = new Set([...lowStockAdjustments.frozenProductIds].map(effectiveIdOf));
+      // Shortages that could not be written keep their previous snapshot, so the
+      // adjustment is retried once the unit configuration is fixed.
+      const skippedEffectiveIds = new Set<number>();
       const accountedByEffective = new Map<number, number>();
       for (const restock of lowStockAdjustments.accounted) {
         const effectiveId = effectiveIdOf(restock.grocyProductId);
@@ -324,6 +327,7 @@ export async function pollGrocyForMissingStock(
           },
         );
         recordMissingStockResult(summary, result);
+        if (result === 'skipped') skippedEffectiveIds.add(entry.effectiveId);
         if (result === 'ensured') newlyAdded++;
       }
 
@@ -350,6 +354,7 @@ export async function pollGrocyForMissingStock(
           },
         );
         recordMissingStockResult(summary, result);
+        if (result === 'skipped') skippedEffectiveIds.add(entry.effectiveId);
         if (result === 'ensured') adjusted++;
       }
 
@@ -377,6 +382,7 @@ export async function pollGrocyForMissingStock(
           },
         );
         recordMissingStockResult(summary, result);
+        if (result === 'skipped') skippedEffectiveIds.add(entry.effectiveId);
         if (result === 'unmapped') {
           unmappedPresenceCheckProducts++;
         }
@@ -418,6 +424,7 @@ export async function pollGrocyForMissingStock(
           },
         );
         if (result === 'ensured') restocked++;
+        if (result === 'skipped') skippedEffectiveIds.add(effectiveId);
       }
 
       if (newlyMissing.length > 0) {
@@ -442,14 +449,16 @@ export async function pollGrocyForMissingStock(
         }
       }
 
-      // Frozen products keep their previous snapshot until the booking outcome is known.
-      if (frozenEffectiveIds.size > 0) {
+      // Frozen products keep their previous snapshot until the booking outcome is known;
+      // skipped products keep it until their shortage can be written.
+      const keepPrevious = new Set([...frozenEffectiveIds, ...skippedEffectiveIds]);
+      if (keepPrevious.size > 0) {
         for (const id of Object.keys(currentAmounts).map(Number)) {
-          if (frozenEffectiveIds.has(effectiveIdOf(id))) delete currentAmounts[id];
+          if (keepPrevious.has(effectiveIdOf(id))) delete currentAmounts[id];
         }
         for (const [origId, amount] of Object.entries(previousAmounts)) {
           const effectiveId = syncSubProducts ? (prevEffectiveParents[Number(origId)] ?? Number(origId)) : Number(origId);
-          if (frozenEffectiveIds.has(effectiveId)) currentAmounts[Number(origId)] = amount;
+          if (keepPrevious.has(effectiveId)) currentAmounts[Number(origId)] = amount;
         }
       }
 
@@ -624,7 +633,9 @@ async function applyMealieShoppingAdjustment(
     // as a count of the purchase unit; writing it would invite a wrong booking on check-off.
     const productName = options.grocyProductName ?? mapping.grocyProductName;
     log.warn(`[Grocy→Mealie] Not writing "${productName}": its Grocy stock unit is unknown, or has no Mealie unit and does not count pieces`);
-    if (delta !== 0 && options.history) {
+    // The shortage is retried every poll until the configuration is fixed; warn once.
+    if (delta !== 0 && options.history && !unwritableShortageWarned.has(grocyProductId)) {
+      unwritableShortageWarned.add(grocyProductId);
       options.history.events.push(activityEvent({
         level: 'warning', source: 'Grocy', target: 'Mealie', productName, category: 'shopping', entityRef: `grocy:${grocyProductId}`,
         message: `Did not add "${productName}" to the Mealie shopping list: its Grocy stock unit is unknown or has no Mealie unit.`,
@@ -634,6 +645,7 @@ async function applyMealieShoppingAdjustment(
     }
     return 'skipped';
   }
+  unwritableShortageWarned.delete(grocyProductId);
   const unitId = label.unitId;
   const toLabelQuantity = (stockAmount: number) => label.factor === 1 ? stockAmount : Number((stockAmount / label.factor).toFixed(6));
   delta = toLabelQuantity(delta);
@@ -749,6 +761,9 @@ async function applyMealieShoppingAdjustment(
   }
   return 'ensured';
 }
+
+/** Products whose unwritable shortage was already reported in this process. */
+const unwritableShortageWarned = new Set<number>();
 
 /**
  * The Mealie unit for a product's Grocy stock unit, and how many Grocy stock
