@@ -53,6 +53,33 @@ Behind a reverse proxy, enable WebSocket upgrades for `/api/plugins/connect`
 and use an idle timeout above the 30 second heartbeat. Prefer the internal
 Docker network URL so the plugin does not leave the host.
 
+The service name in this example resolves only when the plugin and gm-sync
+share a Docker network. Separate Compose projects have separate default
+networks; attach both services to a shared external network or use a reachable
+LAN/proxy URL. See [Networking](../README.md#networking) for the network setup.
+
+### Troubleshooting
+
+Check the connection badge under **Settings → Shop plugins**, the plugin's
+container logs, **Shopping → Diagnostics** and **History**.
+
+| Symptom | What to check or do |
+| --- | --- |
+| Plugin stays offline | Check `GM_SYNC_URL` from the plugin container, the shared Docker network and proxy WebSocket upgrades. `localhost` identifies the plugin container itself. |
+| Log says "Installation token rejected" | Check for an invalid/revoked token (HTTP 401) or a refused `Origin` header (HTTP 403). Rotate an invalid token, update the plugin environment and recreate the container; otherwise check the proxy headers. The template stops reconnecting after this rejection. |
+| Log repeatedly says "Disconnected; reconnect scheduled" | Check DNS, the shared network, the URL and proxy upgrades. Possible causes also include handshake throttling (429), gm-sync startup or a passive instance (503), or a missing subprotocol (400). The template does not log the HTTP status; use gm-sync/proxy logs to distinguish these cases. Fix stale tokens before waiting for throttling to expire. |
+| Container repeatedly restarts or never becomes healthy | Inspect `docker compose ps` and `docker compose logs shop-plugin`. Check required environment values, token rejection and revoked/superseded sessions before restarting with corrected settings. |
+| Retailer sign-in is disabled | Wait for the connected badge. The plugin must advertise the `auth` capability for sign-in through gm-sync. |
+| Installation token was lost | Rotate the token and update the plugin environment; the original token cannot be retrieved. |
+| Plugin data volume was lost | Restore its backup if available. Otherwise sign in again to the same retailer account and review uncertain operations; restoring credentials alone cannot recreate a lost operation cache. |
+| A different account or list is refused | Use **Reset account and list binding**, then sign in again. Reset turns both automation toggles off; review mappings and re-enable them explicitly. |
+
+Use the template's synthetic demo on an isolated test instance to check the
+connection and sign-in flow. Build it from the bundled source, or select an exact
+version from the [template releases](https://github.com/HarmEllis/gms-shop-plugin-template/releases)
+for image `ghcr.io/harmellis/gms-shop-plugin-template`. It is not a real retailer integration; do not map
+synthetic purchases to production products or stock.
+
 The public [plugin template](https://github.com/HarmEllis/gms-shop-plugin-template)
 (also vendored in `examples/shop-plugin-template`) contains a synthetic
 demo shop, the reusable client runtime and a contract test suite. Build a real

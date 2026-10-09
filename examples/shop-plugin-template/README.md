@@ -6,11 +6,67 @@ The container opens one authenticated WebSocket connection to gm-sync's existing
 
 ## Run
 
-Use Node.js 24. Create a plugin installation in gm-sync's **Plugins** screen and copy its token once. Set `GM_SYNC_URL` to the existing gm-sync URL and `GM_SYNC_PLUGIN_TOKEN` to that token in your container environment, then run `docker compose up --build -d`. Mount `/data` persistently. The existing reverse proxy must allow WebSocket upgrades on this path; no extra hostname or port is required.
+Use the synthetic retailer with a test gm-sync instance; do not map demo receipts
+to production products or stock. A host Node.js installation is needed only for
+local development (Node.js 24); Docker builds include the runtime.
 
-For local development, run `npm ci`, `npm test`, `npm run typecheck` and `npm start`. Set `PLUGIN_DATA_DIR` to a writable directory when not using Docker. In gm-sync, connect the synthetic account with a stable account label and code `demo`. The label is bound to this volume; use a fresh installation and volume for another account. `DEMO_AUTHENTICATED=true` is available for synthetic integration tests only.
+1. Create a plugin installation under gm-sync's **Settings → Shop plugins** and
+   copy its token, which is shown only once.
+2. In this template directory, create `.env` for Compose interpolation:
 
-The demo catalogue contains `demo-milk` (1 litre), `demo-rice` (500 grams) and `demo-apples` (weighed). The list is persisted in `/data/state.json`. To simulate a purchase, write an array of protocol-valid receipt objects to `/data/receipts.json`, then request a receipt pull in gm-sync. Fixtures must be synthetic. Enable automation and confirm product/unit mappings in gm-sync before testing list projection or receipt processing.
+   ```dotenv
+   GM_SYNC_URL=https://gm-sync.example.com
+   GM_SYNC_PLUGIN_TOKEN=replace-with-the-installation-token
+   ```
+
+   Restrict its permissions (`chmod 600 .env`) and keep it out of version control.
+   The URL may use HTTP(S) or WS(S); `/api/plugins/connect` is appended
+   automatically. Credentials embedded in URLs are rejected.
+3. Run `docker compose up --build -d`. The bundled `compose.yaml` persists `/data`.
+   Its Docker healthcheck reads `/data/heartbeat`; a recent heartbeat indicates a
+   live gm-sync connection.
+4. Wait for the connected badge in gm-sync, then click **Retailer sign-in**.
+   Use a stable synthetic account label and code `demo`. The label is bound to
+   this volume; use a fresh installation and volume for another account.
+
+The URL must be reachable from the plugin container. An internal URL such as
+`http://grocy-mealie-sync:3000` works only on a shared Docker network; separate
+Compose projects do not share their default network. The reverse proxy must
+allow WebSocket upgrades with an idle timeout above the 30-second heartbeat.
+No extra hostname or published plugin port is required. See gm-sync's
+[networking guide](https://github.com/HarmEllis/grocy-mealie-sync#networking)
+and [plugin troubleshooting](https://github.com/HarmEllis/grocy-mealie-sync/blob/main/docs/shop-plugins.md#troubleshooting).
+
+### Local development
+
+Run `npm ci`, `npm test` and `npm run typecheck`. Start with the connection settings
+and a writable data directory (plain `npm start` does not load the Compose `.env`).
+After the `read` command, paste the plugin token and press Enter:
+
+```bash
+export GM_SYNC_URL=http://localhost:3000
+read -r GM_SYNC_PLUGIN_TOKEN
+export GM_SYNC_PLUGIN_TOKEN
+PLUGIN_DATA_DIR=./.data npm start
+```
+
+Keep `.data` out of version control. `DEMO_AUTHENTICATED=true` is available for
+synthetic integration tests only.
+
+### Test lists and receipts
+
+The demo catalogue contains `demo-milk` (1 litre), `demo-rice` (500 grams) and
+`demo-apples` (weighed). The list is persisted in `/data/state.json`. Confirm
+product/unit mappings and enable **Sync shared shopping list** before testing
+projection from Mealie.
+
+To simulate a purchase, enable **Process receipts** first, then write an array
+of synthetic receipt objects to `/data/receipts.json`. Each `purchasedAt` must
+be after that activation moment; older purchases are reference-only and book
+no stock. Use **Pull receipts now** under **Shopping → Receipts**; reconciliation
+follows in the next scheduled sync. See the `receiptSchema` in
+[lib/protocol/v1.ts](lib/protocol/v1.ts) and the fixture in
+[test/contract.mjs](test/contract.mjs) for the required fields.
 
 ## Build a shop adapter
 
