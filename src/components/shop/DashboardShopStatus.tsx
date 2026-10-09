@@ -29,6 +29,10 @@ export function DashboardShopStatus({ initialStatus = null, timeZone, locale, de
   if (!details && !status.receipts.length && !status.lastJob) return null;
   const date = (value: string | null) => formatDateTime(value, { fallback: 'Never', timeZone, locale });
   const countdown = (value: string | null) => formatRunCountdown(value, now, unavailable, 'Due / waiting for worker');
+  const nextReceiptCheck = status.receipts.reduce<string | null>((earliest, receipt) => {
+    if (!receipt.nextCheckAt) return earliest;
+    return !earliest || Date.parse(receipt.nextCheckAt) < Date.parse(earliest) ? receipt.nextCheckAt : earliest;
+  }, null);
 
   const summary = <>
     <div>
@@ -36,8 +40,8 @@ export function DashboardShopStatus({ initialStatus = null, timeZone, locale, de
       <p className="font-mono text-sm font-semibold text-text-1">{date(status.lastJob?.finishedAt ?? null)}{details && status.lastJob ? ` · ${status.lastJob.status}` : ''}</p>
     </div>
     <div>
-      <p className="text-[11px] font-bold tracking-wider text-text-3 uppercase">Next shopping sync</p>
-      <p className="font-mono text-sm font-semibold text-text-1">{countdown(status.nextProcessingAt)}</p>
+      <p className="text-[11px] font-bold tracking-wider text-text-3 uppercase">Next receipt fetch</p>
+      <p className="font-mono text-sm font-semibold text-text-1">{countdown(nextReceiptCheck)}</p>
     </div>
   </>;
 
