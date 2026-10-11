@@ -154,6 +154,17 @@ describe('projection', () => {
     expect(mealieQuantityToGrocyStock(ctx(), 2, 3, 'm-pack')).toEqual({ ok: false, reason: 'purchase_unit_ambiguous' });
     expect(mealieQuantityToGrocyStock(ctx(), 1, 500, 'm-ml')).toEqual({ ok: true, amount: 0.5, factor: 0.001 });
   });
+
+  it('reads unitless demand as pieces when the stock unit counts pieces, like check-off', () => {
+    const context = ctx();
+    context.grocyProducts.set(4, { id: 4, name: 'Onion', quIdStock: 40, quIdPurchase: 41, parentProductId: null, noOwnStock: false });
+    context.grocyUnitNames.set(40, 'Stuk');
+    context.grocyUnitNames.set(41, 'Net');
+    context.grocyUnitNames.set(20, 'kilogram');
+    expect(mealieQuantityToGrocyStock(context, 4, 1, null)).toEqual({ ok: true, amount: 1, factor: 1 });
+    // Flour is stocked per kilogram and bought per bag: an unlabelled "1" stays ambiguous.
+    expect(mealieQuantityToGrocyStock(context, 2, 1, null)).toEqual({ ok: false, reason: 'missing_unit' });
+  });
 });
 
 function record(overrides: Partial<LineRecord>): LineRecord {

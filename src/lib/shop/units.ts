@@ -159,7 +159,8 @@ export type BaseAmountResult = { ok: true; amount: number; factor: number } | { 
  *
  * Rows labelled with a purchase unit that differs from the stock unit are
  * ambiguous: low-stock sync writes stock amounts with the purchase unit label,
- * while users write purchase amounts. Those rows go to review.
+ * while users write purchase amounts. Those rows go to review. Rows without a
+ * unit follow the same rule as check-off (`emptyUnitMeansStock`).
  */
 export function mealieQuantityToGrocyStock(
   ctx: UnitContext,
@@ -171,8 +172,7 @@ export function mealieQuantityToGrocyStock(
   if (!product || product.quIdStock === null) return { ok: false, reason: 'unknown_product' };
   const stockQu = product.quIdStock;
   if (!mealieUnitId) {
-    if (product.quIdPurchase === null || product.quIdPurchase === stockQu) return { ok: true, amount: quantity, factor: 1 };
-    return { ok: false, reason: 'missing_unit' };
+    return emptyUnitMeansStock(ctx, productId) ? { ok: true, amount: quantity, factor: 1 } : { ok: false, reason: 'missing_unit' };
   }
   const mapping = ctx.unitMappings.get(mealieUnitId);
   if (!mapping) return { ok: false, reason: 'no_conversion' };

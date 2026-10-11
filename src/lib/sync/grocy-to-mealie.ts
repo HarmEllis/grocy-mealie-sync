@@ -674,12 +674,18 @@ async function applyMealieShoppingAdjustment(
 
   // Only a row in the same unit without recipe references belongs to the sync:
   // its quantity means stock units whoever wrote it. Recipe rows ("400 g") and
-  // rows in another unit are never changed, relabelled or removed.
-  const existingItem = mealieShoppingItems.find(item =>
+  // rows in another unit are never changed, relabelled or removed. A row without
+  // a unit counts as the same unit when an empty unit means one stock unit, so
+  // mapping a count unit later does not add a second row next to it; the next
+  // write labels it with the mapped unit.
+  const ownRows = mealieShoppingItems.filter(item =>
     item.foodId === mapping.mealieFoodId && !item.checked
-    && shoppingItemUnitId(item) === (unitId ?? null)
     && (item.recipeReferences?.length ?? 0) === 0
   );
+  const existingItem = ownRows.find(item => shoppingItemUnitId(item) === (unitId ?? null))
+    ?? (unitId && label.emptyMeansStock && label.factor === 1
+      ? ownRows.find(item => shoppingItemUnitId(item) === null)
+      : undefined);
 
   // Compute note/extras for sub-product tracking using the correct existing item
   let subProductNote: string | null | undefined;
@@ -790,34 +796,32 @@ const unwritableShortageWarned = new Set<number>();
 /**
  * The Mealie unit for a product's Grocy stock unit, and how many Grocy stock
  * units one of it holds. The purchase unit is never used, because the quantity
- * written is a stock amount. Without a valid mapping the row gets no unit, but
- * only where an empty unit means the stock unit (the rule check-off applies):
- * purchase and stock unit agree, or the stock unit counts pieces ("Stuk").
- * Returns null when no unambiguous label exists, including when the product or
- * its stock unit is unknown.
+ * written is a stock amount. `emptyMeansStock` applies the rule check-off uses
+ * for rows without a unit: purchase and stock unit agree, or the stock unit
+ * counts pieces ("Stuk"). Without a valid mapping the row gets no unit, but only
+ * where an empty unit means the stock unit. Returns null when no unambiguous
+ * label exists, including when the product or its stock unit is unknown.
  */
 async function resolveStockUnitLabel(
   grocyProductId: number,
   grocyProductsById: Map<number, GrocyProductWithParent>,
   unitNames?: () => Promise<Map<number, string>>,
-): Promise<{ unitId: string | undefined; factor: number } | null> {
+): Promise<{ unitId: string | undefined; factor: number; emptyMeansStock: boolean } | null> {
   const product = grocyProductsById.get(grocyProductId);
   const grocyStockUnitId = Number(product?.qu_id_stock ?? 0);
   if (!product || !(grocyStockUnitId > 0)) return null;
+  const grocyPurchaseUnitId = Number(product.qu_id_purchase ?? 0);
+  const emptyMeansStock = !(grocyPurchaseUnitId > 0) || grocyPurchaseUnitId === grocyStockUnitId
+    || isCountUnitName((unitNames ? await unitNames() : new Map<number, string>()).get(grocyStockUnitId));
   const units = await db.select()
     .from(unitMappings)
     .where(eq(unitMappings.grocyUnitId, grocyStockUnitId))
     .limit(1);
   const factor = Number(units[0]?.conversionFactor ?? 1);
   if (units.length > 0 && units[0].mealieUnitId && Number.isFinite(factor) && factor > 0) {
-    return { unitId: units[0].mealieUnitId, factor };
+    return { unitId: units[0].mealieUnitId, factor, emptyMeansStock };
   }
-  const grocyPurchaseUnitId = Number(product.qu_id_purchase ?? 0);
-  if (!(grocyPurchaseUnitId > 0) || grocyPurchaseUnitId === grocyStockUnitId) {
-    return { unitId: undefined, factor: 1 };
-  }
-  const names = unitNames ? await unitNames() : new Map<number, string>();
-  return isCountUnitName(names.get(grocyStockUnitId)) ? { unitId: undefined, factor: 1 } : null;
+  return emptyMeansStock ? { unitId: undefined, factor: 1, emptyMeansStock } : null;
 }
 
 async function resolveGrocyProductName(grocyProductId: number): Promise<string> {
