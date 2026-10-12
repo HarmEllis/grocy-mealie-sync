@@ -764,6 +764,12 @@ async function applyMealieShoppingAdjustment(
       recordChange(`Changed "${mapping.mealieFoodName}" on the Mealie shopping list: ${currentQty} → ${newQty}.`, currentQty, newQty, existingItem.id);
     }
   } else {
+    // An unchanged shortage only has to be visible. A row in another unit that is
+    // not from a recipe ("1000 ml" where stock counts packs) already shows it, so
+    // the presence check does not add a second row next to it.
+    if (delta === 0 && ownRows.length > 0) {
+      return 'ensured';
+    }
     // A positive change without a row of the sync's own (removed, or a legacy row
     // in another unit) recreates the full shortage instead of only the change.
     const createQuantity = options.createQuantityWhenMissing !== undefined

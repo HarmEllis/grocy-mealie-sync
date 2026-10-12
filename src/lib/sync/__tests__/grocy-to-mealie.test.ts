@@ -319,6 +319,50 @@ describe('pollGrocyForMissingStock', () => {
       expect(mockedUpdate).not.toHaveBeenCalled();
       expect(mockedDelete).not.toHaveBeenCalled();
     });
+
+    it('does not add a second row when the unchanged shortage is already listed in another unit', async () => {
+      mockedResolveEnsureLowStockOnMealieList.mockResolvedValue(true);
+      setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 3, mealieUnitId: 'mealie-pak' })]);
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Milk', qu_id_stock: 3, qu_id_purchase: 3 },
+      ] as any);
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 1 } }));
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 1 })],
+      });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'user-row', foodId: 'food-1', unitId: 'mealie-ml', quantity: 1000, checked: false }),
+      ]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedCreate).not.toHaveBeenCalled();
+      expect(mockedUpdate).not.toHaveBeenCalled();
+      expect(mockedDelete).not.toHaveBeenCalled();
+    });
+
+    it('still adds the unchanged shortage when only a recipe row in another unit is listed', async () => {
+      mockedResolveEnsureLowStockOnMealieList.mockResolvedValue(true);
+      setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 3, mealieUnitId: 'mealie-pak' })]);
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Milk', qu_id_stock: 3, qu_id_purchase: 3 },
+      ] as any);
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 1 } }));
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 1 })],
+      });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({
+          id: 'recipe-row', foodId: 'food-1', unitId: 'mealie-ml', quantity: 250, checked: false,
+          recipeReferences: [{ id: 'ref-1', shoppingListItemId: 'recipe-row', recipeId: 'recipe-1' }] as any,
+        }),
+      ]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedUpdate).not.toHaveBeenCalled();
+      expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: 'mealie-pak', quantity: 1 }));
+    });
   });
 
   // -----------------------------------------------------------------------
