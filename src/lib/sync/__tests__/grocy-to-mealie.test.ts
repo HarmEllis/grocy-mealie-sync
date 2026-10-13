@@ -161,7 +161,7 @@ describe('pollGrocyForMissingStock', () => {
     mockedGetVolatileStock.mockResolvedValue({ missing_products: [] });
     mockedGetCurrentStock.mockResolvedValue([]);
     mockedGetGrocyEntities.mockResolvedValue([
-      { id: 101, name: 'Milk', qu_id_purchase: 10 },
+      { id: 101, name: 'Milk', qu_id_stock: 10, qu_id_purchase: 10 },
     ] as any);
 
     // Default DB: mapping exists, no unit mapping
@@ -318,6 +318,50 @@ describe('pollGrocyForMissingStock', () => {
       expect(mockedCreate).not.toHaveBeenCalled();
       expect(mockedUpdate).not.toHaveBeenCalled();
       expect(mockedDelete).not.toHaveBeenCalled();
+    });
+
+    it('does not add a second row when the unchanged shortage is already listed in another unit', async () => {
+      mockedResolveEnsureLowStockOnMealieList.mockResolvedValue(true);
+      setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 3, mealieUnitId: 'mealie-pak' })]);
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Milk', qu_id_stock: 3, qu_id_purchase: 3 },
+      ] as any);
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 1 } }));
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 1 })],
+      });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'user-row', foodId: 'food-1', unitId: 'mealie-ml', quantity: 1000, checked: false }),
+      ]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedCreate).not.toHaveBeenCalled();
+      expect(mockedUpdate).not.toHaveBeenCalled();
+      expect(mockedDelete).not.toHaveBeenCalled();
+    });
+
+    it('still adds the unchanged shortage when only a recipe row in another unit is listed', async () => {
+      mockedResolveEnsureLowStockOnMealieList.mockResolvedValue(true);
+      setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 3, mealieUnitId: 'mealie-pak' })]);
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Milk', qu_id_stock: 3, qu_id_purchase: 3 },
+      ] as any);
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 1 } }));
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 1 })],
+      });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({
+          id: 'recipe-row', foodId: 'food-1', unitId: 'mealie-ml', quantity: 250, checked: false,
+          recipeReferences: [{ id: 'ref-1', shoppingListItemId: 'recipe-row', recipeId: 'recipe-1' }] as any,
+        }),
+      ]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedUpdate).not.toHaveBeenCalled();
+      expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: 'mealie-pak', quantity: 1 }));
     });
   });
 
@@ -487,6 +531,10 @@ describe('pollGrocyForMissingStock', () => {
           syncRestockedProducts: { '101': new Date().toISOString() },
         }),
       );
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Milk', qu_id_stock: 10, qu_id_purchase: 10 },
+        { id: 202, name: 'Butter', qu_id_stock: 10, qu_id_purchase: 10 },
+      ] as any);
       mockedGetVolatileStock.mockResolvedValue({ missing_products: [] });
       mockedFetchItems.mockResolvedValue([
         mockMealieShoppingItem({ id: 'mealie-item-1', foodId: 'food-1', quantity: 2, checked: false }),
@@ -732,9 +780,12 @@ describe('pollGrocyForMissingStock', () => {
       expect(mockedDelete).not.toHaveBeenCalled();
     });
 
-    it('resolves unitId from the current Grocy purchase unit mapping', async () => {
-      setupDbMock([DEFAULT_MAPPING], [DEFAULT_UNIT_MAPPING]);
-
+    it('labels the row with the Mealie unit of the Grocy stock unit, not the purchase unit', async () => {
+      const stockUnitMapping = mockUnitMapping({ grocyUnitId: 10 });
+      setupDbMock([DEFAULT_MAPPING], [stockUnitMapping]);
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Milk', qu_id_stock: 10, qu_id_purchase: 20 },
+      ] as any);
       mockedGetVolatileStock.mockResolvedValue({
         missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })],
       });
@@ -752,53 +803,132 @@ describe('pollGrocyForMissingStock', () => {
       });
     });
 
-    it('falls back to the stored product mapping unit when Grocy product lookup has no purchase unit', async () => {
+    it('writes no unit when the stock unit counts pieces, even if the product mapping has a unit', async () => {
       const mappingWithUnit = mockProductMapping({ unitMappingId: 'unit-mapping-1' });
-      setupDbMock([mappingWithUnit], [DEFAULT_UNIT_MAPPING]);
-      mockedGetGrocyEntities.mockResolvedValue([
-        { id: 101, name: 'Milk', qu_id_purchase: null },
-      ] as any);
-
+      setupDbMock([mappingWithUnit], []);
+      mockedGetGrocyEntities.mockImplementation((async (entity: string) => entity === 'quantity_units'
+        ? [{ id: 2, name: 'Stuk' }, { id: 11, name: 'Doos' }]
+        : [{ id: 101, name: 'Eggs', qu_id_stock: 2, qu_id_purchase: 11 }]) as any);
       mockedGetVolatileStock.mockResolvedValue({
-        missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })],
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 10 })],
       });
       mockedFetchItems.mockResolvedValue([]);
 
       await pollGrocyForMissingStock();
 
-      expect(mockedCreate).toHaveBeenCalledOnce();
-      expect(mockedCreate).toHaveBeenCalledWith({
-        shoppingListId: SHOPPING_LIST_ID,
-        foodId: 'food-1',
-        unitId: 'mealie-unit-1',
-        quantity: 2,
-        checked: false,
-      });
+      expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: undefined, quantity: 10 }));
     });
 
-    it('prefers the current Grocy purchase unit over a stale product mapping unit', async () => {
-      const staleUnitMapping = mockUnitMapping({
-        id: 'unit-mapping-stale',
-        mealieUnitId: 'mealie-unit-stale',
-        mealieUnitName: 'Cup',
-        mealieUnitAbbreviation: 'cup',
-        grocyUnitId: 11,
-        grocyUnitName: 'Cup',
-      });
-      const currentUnitMapping = mockUnitMapping({
-        id: 'unit-mapping-current',
-        mealieUnitId: 'mealie-unit-current',
-        mealieUnitName: 'Bottle',
-        mealieUnitAbbreviation: 'btl',
-        grocyUnitId: 20,
-        grocyUnitName: 'Bottle',
-      });
-      const staleMapping = mockProductMapping({ unitMappingId: 'unit-mapping-stale' });
-      setupDbMock([staleMapping], [currentUnitMapping, staleUnitMapping]);
-      mockedGetGrocyEntities.mockResolvedValue([
-        { id: 101, name: 'Milk', qu_id_purchase: 20 },
-      ] as any);
+    it('removes an unlabelled count row once the product is restocked', async () => {
+      setupDbMock([DEFAULT_MAPPING], []);
+      mockedGetGrocyEntities.mockImplementation((async (entity: string) => entity === 'quantity_units'
+        ? [{ id: 2, name: 'Stuk' }, { id: 11, name: 'Doos' }]
+        : [{ id: 101, name: 'Eggs', qu_id_stock: 2, qu_id_purchase: 11 }]) as any);
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 10 } }));
+      mockedGetVolatileStock.mockResolvedValue({ missing_products: [] });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'eggs-row', foodId: 'food-1', quantity: 10, checked: false }),
+      ]);
 
+      await pollGrocyForMissingStock();
+
+      expect(mockedDelete).toHaveBeenCalledWith('eggs-row');
+    });
+
+    it('does not write a shortage whose stock unit has no Mealie unit and does not count pieces', async () => {
+      setupDbMock([DEFAULT_MAPPING], []);
+      mockedGetGrocyEntities.mockImplementation((async (entity: string) => entity === 'quantity_units'
+        ? [{ id: 14, name: 'kilogram' }, { id: 9, name: 'zak' }]
+        : [{ id: 101, name: 'Flour', qu_id_stock: 14, qu_id_purchase: 9 }]) as any);
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })],
+      });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'unlabelled', foodId: 'food-1', quantity: 1, checked: false }),
+      ]);
+
+      const result = await pollGrocyForMissingStock();
+
+      expect(mockedCreate).not.toHaveBeenCalled();
+      expect(mockedUpdate).not.toHaveBeenCalled();
+      expect(result.events).toEqual(expect.arrayContaining([
+        expect.objectContaining({ level: 'warning', message: 'Did not add "Milk" to the Mealie shopping list: its Grocy stock unit is unknown or has no Mealie unit.' }),
+      ]));
+    });
+
+    it('leaves the list untouched when Grocy products cannot be loaded', async () => {
+      setupDbMock([DEFAULT_MAPPING], []);
+      mockedGetGrocyEntities.mockRejectedValue(new Error('Grocy down'));
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 1 } }));
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 3 })],
+      });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'unlabelled', foodId: 'food-1', quantity: 1, checked: false }),
+      ]);
+
+      const result = await pollGrocyForMissingStock();
+
+      expect(result.status).toBe('error');
+      expect(mockedCreate).not.toHaveBeenCalled();
+      expect(mockedUpdate).not.toHaveBeenCalled();
+      expect(mockedDelete).not.toHaveBeenCalled();
+      expect(mockedSaveSyncState).not.toHaveBeenCalled();
+    });
+
+    it('keeps an unwritable shortage eligible so it is written once the unit is mapped', async () => {
+      const flourEntities = (async (entity: string) => entity === 'quantity_units'
+        ? [{ id: 14, name: 'kilogram' }, { id: 9, name: 'zak' }]
+        : [{ id: 101, name: 'Flour', qu_id_stock: 14, qu_id_purchase: 9 }]) as any;
+      mockedGetGrocyEntities.mockImplementation(flourEntities);
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })],
+      });
+      mockedFetchItems.mockResolvedValue([]);
+      setupDbMock([DEFAULT_MAPPING], []);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedCreate).not.toHaveBeenCalled();
+      const firstState = mockedSaveSyncState.mock.calls.at(-1)![0];
+      expect(firstState.grocyBelowMinStock[101]).toBeUndefined();
+
+      // The user maps kilogram; the next poll still sees the shortage as new and writes it.
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: firstState.grocyBelowMinStock }));
+      setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 14, mealieUnitId: 'mealie-kg' })]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: 'mealie-kg', quantity: 2 }));
+    });
+
+    it('changes nothing when Grocy unit names cannot be loaded', async () => {
+      setupDbMock([DEFAULT_MAPPING], []);
+      mockedGetGrocyEntities.mockImplementation((async (entity: string) => {
+        if (entity === 'quantity_units') throw new Error('Grocy hiccup');
+        return [{ id: 101, name: 'Milk', qu_id_stock: 10, qu_id_purchase: 10 }];
+      }) as any);
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 1 } }));
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 3 })],
+      });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'own-row', foodId: 'food-1', quantity: 1, checked: false }),
+      ]);
+
+      const result = await pollGrocyForMissingStock();
+
+      expect(result.status).toBe('error');
+      expect(mockedUpdate).not.toHaveBeenCalled();
+      expect(mockedCreate).not.toHaveBeenCalled();
+      expect(mockedSaveSyncState).not.toHaveBeenCalled();
+    });
+
+    it('treats an invalid unit mapping factor like a missing mapping', async () => {
+      setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 10, conversionFactor: 0 })]);
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Milk', qu_id_stock: 10, qu_id_purchase: 10 },
+      ] as any);
       mockedGetVolatileStock.mockResolvedValue({
         missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })],
       });
@@ -806,14 +936,222 @@ describe('pollGrocyForMissingStock', () => {
 
       await pollGrocyForMissingStock();
 
-      expect(mockedCreate).toHaveBeenCalledOnce();
-      expect(mockedCreate).toHaveBeenCalledWith({
-        shoppingListId: SHOPPING_LIST_ID,
-        foodId: 'food-1',
-        unitId: 'mealie-unit-current',
-        quantity: 2,
-        checked: false,
+      // Purchase and stock agree, so an unlabelled row still means the stock unit.
+      expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: undefined, quantity: 2 }));
+    });
+
+    it('expresses the shortage in the Mealie unit using the unit mapping factor', async () => {
+      // 1 Mealie unit holds 2 Grocy stock units.
+      setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 10, conversionFactor: 2 })]);
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Milk', qu_id_stock: 10, qu_id_purchase: 10 },
+      ] as any);
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 4 })],
       });
+      mockedFetchItems.mockResolvedValue([]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: 'mealie-unit-1', quantity: 2 }));
+    });
+
+    it('keeps small changes when the unit mapping factor is large', async () => {
+      setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 10, conversionFactor: 1000 })]);
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Saffron', qu_id_stock: 10, qu_id_purchase: 10 },
+      ] as any);
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 1 } }));
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 1.0001 })],
+      });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'own-row', foodId: 'food-1', unitId: 'mealie-unit-1', quantity: 0.001, checked: false }),
+      ]);
+
+      await pollGrocyForMissingStock();
+
+      const update = mockedUpdate.mock.calls[0]?.[1] as { quantity: number } | undefined;
+      expect(update?.quantity).toBeCloseTo(0.0010001, 10);
+    });
+
+    it('recognises its own row when Mealie only sends the nested unit', async () => {
+      setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 10 })]);
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Milk', qu_id_stock: 10, qu_id_purchase: 10 },
+      ] as any);
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 2 } }));
+      mockedGetVolatileStock.mockResolvedValue({ missing_products: [] });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'own-row', foodId: 'food-1', unit: { id: 'mealie-unit-1', name: 'Liter' } as any, quantity: 2, checked: false }),
+      ]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedDelete).toHaveBeenCalledWith('own-row');
+      expect(mockedCreate).not.toHaveBeenCalled();
+    });
+
+    it('adopts its unlabelled count row after the count unit gets a Mealie unit', async () => {
+      setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 2, mealieUnitId: 'mealie-stuk' })]);
+      mockedGetGrocyEntities.mockImplementation((async (entity: string) => entity === 'quantity_units'
+        ? [{ id: 2, name: 'Stuk' }, { id: 11, name: 'Doos' }]
+        : [{ id: 101, name: 'Eggs', qu_id_stock: 2, qu_id_purchase: 11 }]) as any);
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 1 } }));
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 3 })],
+      });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'legacy-row', foodId: 'food-1', quantity: 1, checked: false }),
+      ]);
+
+      await pollGrocyForMissingStock();
+
+      // The row written before the mapping existed is updated and labelled, not duplicated.
+      expect(mockedCreate).not.toHaveBeenCalled();
+      expect(mockedUpdate).toHaveBeenCalledWith('legacy-row', expect.objectContaining({ unitId: 'mealie-stuk', quantity: 3 }));
+    });
+
+    it('prefers a labelled row over an unlabelled one when both exist', async () => {
+      setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 2, mealieUnitId: 'mealie-stuk' })]);
+      mockedGetGrocyEntities.mockImplementation((async (entity: string) => entity === 'quantity_units'
+        ? [{ id: 2, name: 'Stuk' }, { id: 11, name: 'Doos' }]
+        : [{ id: 101, name: 'Eggs', qu_id_stock: 2, qu_id_purchase: 11 }]) as any);
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 1 } }));
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })],
+      });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'legacy-row', foodId: 'food-1', quantity: 1, checked: false }),
+        mockMealieShoppingItem({ id: 'own-row', foodId: 'food-1', unitId: 'mealie-stuk', quantity: 1, checked: false }),
+      ]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedUpdate).toHaveBeenCalledOnce();
+      expect(mockedUpdate).toHaveBeenCalledWith('own-row', expect.objectContaining({ quantity: 2 }));
+    });
+
+    it('does not adopt an unlabelled row whose empty unit does not mean one stock unit', async () => {
+      // Stock in kilogram, bought per bag: an unlabelled "1" could mean a bag.
+      setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 14, mealieUnitId: 'mealie-kg' })]);
+      mockedGetGrocyEntities.mockImplementation((async (entity: string) => entity === 'quantity_units'
+        ? [{ id: 14, name: 'kilogram' }, { id: 9, name: 'zak' }]
+        : [{ id: 101, name: 'Flour', qu_id_stock: 14, qu_id_purchase: 9 }]) as any);
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 1 } }));
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })],
+      });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'user-row', foodId: 'food-1', quantity: 1, checked: false }),
+      ]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedUpdate).not.toHaveBeenCalled();
+      expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: 'mealie-kg', quantity: 2 }));
+    });
+
+    it('does not adopt an unlabelled row when the mapped unit holds several stock units', async () => {
+      setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 2, mealieUnitId: 'mealie-pair', conversionFactor: 2 })]);
+      mockedGetGrocyEntities.mockImplementation((async (entity: string) => entity === 'quantity_units'
+        ? [{ id: 2, name: 'Stuk' }]
+        : [{ id: 101, name: 'Socks', qu_id_stock: 2, qu_id_purchase: 2 }]) as any);
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 2 } }));
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 4 })],
+      });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'legacy-row', foodId: 'food-1', quantity: 2, checked: false }),
+      ]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedUpdate).not.toHaveBeenCalled();
+      expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: 'mealie-pair', quantity: 2 }));
+    });
+
+    it('never merges a shortage into a recipe row in another unit', async () => {
+      setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 13, mealieUnitId: 'mealie-blik' })]);
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Chickpeas', qu_id_stock: 13, qu_id_purchase: 13 },
+      ] as any);
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 1 } }));
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })],
+      });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'recipe-row', foodId: 'food-1', unitId: 'mealie-gram', quantity: 400, checked: false }),
+      ]);
+
+      await pollGrocyForMissingStock();
+
+      // The 400 g row stays as it is; the sync writes its own row with the full shortage.
+      expect(mockedUpdate).not.toHaveBeenCalled();
+      expect(mockedDelete).not.toHaveBeenCalled();
+      expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: 'mealie-blik', quantity: 2 }));
+    });
+
+    it('never adjusts a same-unit row that came from a recipe', async () => {
+      setupDbMock([DEFAULT_MAPPING], []);
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 3 } }));
+      mockedGetVolatileStock.mockResolvedValue({ missing_products: [] });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({
+          id: 'recipe-row', foodId: 'food-1', quantity: 3, checked: false,
+          recipeReferences: [{ id: 'ref-1', shoppingListItemId: 'recipe-row', recipeId: 'recipe-1' }] as any,
+        }),
+      ]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedDelete).not.toHaveBeenCalled();
+      expect(mockedUpdate).not.toHaveBeenCalled();
+    });
+
+    it('does not create a row when a shortage decreases and the sync has no row', async () => {
+      setupDbMock([DEFAULT_MAPPING], []);
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 5 } }));
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })],
+      });
+      mockedFetchItems.mockResolvedValue([]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedCreate).not.toHaveBeenCalled();
+    });
+
+    it('creates the full shortage when an increase finds no row of the sync (legacy purchase-unit row)', async () => {
+      setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 3, mealieUnitId: 'mealie-pak' })]);
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Coconut milk', qu_id_stock: 3, qu_id_purchase: 8 },
+      ] as any);
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 10 } }));
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 11 })],
+      });
+      mockedFetchItems.mockResolvedValue([
+        mockMealieShoppingItem({ id: 'legacy-row', foodId: 'food-1', unitId: 'mealie-verpakking', quantity: 10, checked: false }),
+      ]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedUpdate).not.toHaveBeenCalled();
+      expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: 'mealie-pak', quantity: 11 }));
+    });
+
+    it('creates nothing for an unchanged shortage without a row when presence is not enforced', async () => {
+      setupDbMock([DEFAULT_MAPPING], []);
+      mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 2 } }));
+      mockedGetVolatileStock.mockResolvedValue({
+        missing_products: [mockMissingProduct({ id: 101, amount_missing: 2 })],
+      });
+      mockedFetchItems.mockResolvedValue([]);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedCreate).not.toHaveBeenCalled();
     });
 
     it('passes unitId as undefined when mapping has no unitMappingId', async () => {
@@ -1081,6 +1419,10 @@ describe('pollGrocyForMissingStock', () => {
         };
       });
 
+      mockedGetGrocyEntities.mockResolvedValue([
+        { id: 101, name: 'Milk', qu_id_stock: 10, qu_id_purchase: 10 },
+        { id: 202, name: 'Butter', qu_id_stock: 10, qu_id_purchase: 10 },
+      ] as any);
       mockedGetVolatileStock.mockResolvedValue({
         missing_products: [
           mockMissingProduct({ id: 101, amount_missing: 2 }),
@@ -1107,8 +1449,8 @@ describe('pollGrocyForMissingStock', () => {
       mockedResolveSyncParentOwnStock.mockResolvedValue(true);
       setupDbMock([DEFAULT_MAPPING], []);
       mockedGetGrocyEntities.mockResolvedValue([
-        { id: 101, name: 'Milk', qu_id_purchase: null, parent_product_id: null, min_stock_amount: 2 },
-        { id: 104, name: 'Volle Melk', qu_id_purchase: null, parent_product_id: 101, min_stock_amount: 0 },
+        { id: 101, name: 'Milk', qu_id_stock: 10, qu_id_purchase: null, parent_product_id: null, min_stock_amount: 2 },
+        { id: 104, name: 'Volle Melk', qu_id_stock: 10, qu_id_purchase: null, parent_product_id: 101, min_stock_amount: 0 },
       ] as any);
     });
 
@@ -1123,6 +1465,23 @@ describe('pollGrocyForMissingStock', () => {
       expect(mockedCreate).toHaveBeenCalledWith(
         expect.objectContaining({ foodId: 'food-1', quantity: 2 }),
       );
+    });
+
+    it('keeps the previous parent deficit when the parent shortage cannot be written', async () => {
+      mockedGetGrocyEntities.mockImplementation((async (entity: string) => entity === 'quantity_units'
+        ? [{ id: 14, name: 'kilogram' }, { id: 9, name: 'zak' }]
+        : [
+          { id: 101, name: 'Flour', qu_id_stock: 14, qu_id_purchase: 9, parent_product_id: null, min_stock_amount: 2 },
+          { id: 104, name: 'Wheat flour', qu_id_stock: 14, qu_id_purchase: 9, parent_product_id: 101, min_stock_amount: 0 },
+        ]) as any);
+      mockedGetVolatileStock.mockResolvedValue({ missing_products: [] });
+      mockedGetCurrentStock.mockResolvedValue([{ product_id: 101, amount: 0 }] as any);
+
+      await pollGrocyForMissingStock();
+
+      expect(mockedCreate).not.toHaveBeenCalled();
+      const saved = mockedSaveSyncState.mock.calls.at(-1)![0];
+      expect(saved.grocyParentOwnStockDeficit).toEqual({});
     });
 
     it('applies cross-poll delta using previous grocyParentOwnStockDeficit', async () => {
@@ -1207,8 +1566,8 @@ describe('pollGrocyForMissingStock', () => {
 
     it('logs "resolved to parent" when sub-product is newly missing', async () => {
       mockedGetGrocyEntities.mockResolvedValue([
-        { id: 101, name: 'Milk', qu_id_purchase: null, parent_product_id: null },
-        { id: 104, name: 'Volle Melk', qu_id_purchase: null, parent_product_id: 101 },
+        { id: 101, name: 'Milk', qu_id_stock: 10, qu_id_purchase: null, parent_product_id: null },
+        { id: 104, name: 'Volle Melk', qu_id_stock: 10, qu_id_purchase: null, parent_product_id: 101 },
       ] as any);
       mockedGetVolatileStock.mockResolvedValue({
         missing_products: [{ id: 104, name: 'Volle Melk', amount_missing: 1, is_partly_in_stock: 0 }],
@@ -1225,8 +1584,8 @@ describe('pollGrocyForMissingStock', () => {
 
     it('does not log "resolved to parent" when sub-product was already missing with same parent', async () => {
       mockedGetGrocyEntities.mockResolvedValue([
-        { id: 101, name: 'Milk', qu_id_purchase: null, parent_product_id: null },
-        { id: 104, name: 'Volle Melk', qu_id_purchase: null, parent_product_id: 101 },
+        { id: 101, name: 'Milk', qu_id_stock: 10, qu_id_purchase: null, parent_product_id: null },
+        { id: 104, name: 'Volle Melk', qu_id_stock: 10, qu_id_purchase: null, parent_product_id: 101 },
       ] as any);
       mockedGetVolatileStock.mockResolvedValue({
         missing_products: [{ id: 104, name: 'Volle Melk', amount_missing: 1, is_partly_in_stock: 0 }],
@@ -1246,9 +1605,9 @@ describe('pollGrocyForMissingStock', () => {
 
     it('logs "combined" message only when the shopping list item is created', async () => {
       mockedGetGrocyEntities.mockResolvedValue([
-        { id: 101, name: 'Milk', qu_id_purchase: null, parent_product_id: null },
-        { id: 103, name: 'Koffiemelk', qu_id_purchase: null, parent_product_id: 101 },
-        { id: 104, name: 'Volle Melk', qu_id_purchase: null, parent_product_id: 101 },
+        { id: 101, name: 'Milk', qu_id_stock: 10, qu_id_purchase: null, parent_product_id: null },
+        { id: 103, name: 'Koffiemelk', qu_id_stock: 10, qu_id_purchase: null, parent_product_id: 101 },
+        { id: 104, name: 'Volle Melk', qu_id_stock: 10, qu_id_purchase: null, parent_product_id: 101 },
       ] as any);
       mockedGetVolatileStock.mockResolvedValue({
         missing_products: [
@@ -1269,8 +1628,8 @@ describe('pollGrocyForMissingStock', () => {
 
     it('includes parent product in note when parent and sub-product are both missing (parent first in list)', async () => {
       mockedGetGrocyEntities.mockResolvedValue([
-        { id: 101, name: 'Milk', qu_id_purchase: null, parent_product_id: null },
-        { id: 104, name: 'Volle Melk', qu_id_purchase: null, parent_product_id: 101 },
+        { id: 101, name: 'Milk', qu_id_stock: 10, qu_id_purchase: null, parent_product_id: null },
+        { id: 104, name: 'Volle Melk', qu_id_stock: 10, qu_id_purchase: null, parent_product_id: 101 },
       ] as any);
       mockedGetVolatileStock.mockResolvedValue({
         missing_products: [
@@ -1295,8 +1654,8 @@ describe('pollGrocyForMissingStock', () => {
 
     it('includes parent product in note when parent and sub-product are both missing (sub-product first in list)', async () => {
       mockedGetGrocyEntities.mockResolvedValue([
-        { id: 101, name: 'Milk', qu_id_purchase: null, parent_product_id: null },
-        { id: 104, name: 'Volle Melk', qu_id_purchase: null, parent_product_id: 101 },
+        { id: 101, name: 'Milk', qu_id_stock: 10, qu_id_purchase: null, parent_product_id: null },
+        { id: 104, name: 'Volle Melk', qu_id_stock: 10, qu_id_purchase: null, parent_product_id: 101 },
       ] as any);
       mockedGetVolatileStock.mockResolvedValue({
         missing_products: [
@@ -1327,9 +1686,9 @@ describe('pollGrocyForMissingStock', () => {
         quantity: 2,
       });
       mockedGetGrocyEntities.mockResolvedValue([
-        { id: 101, name: 'Milk', qu_id_purchase: null, parent_product_id: null },
-        { id: 103, name: 'Koffiemelk', qu_id_purchase: null, parent_product_id: 101 },
-        { id: 104, name: 'Volle Melk', qu_id_purchase: null, parent_product_id: 101 },
+        { id: 101, name: 'Milk', qu_id_stock: 10, qu_id_purchase: null, parent_product_id: null },
+        { id: 103, name: 'Koffiemelk', qu_id_stock: 10, qu_id_purchase: null, parent_product_id: 101 },
+        { id: 104, name: 'Volle Melk', qu_id_stock: 10, qu_id_purchase: null, parent_product_id: 101 },
       ] as any);
       mockedGetVolatileStock.mockResolvedValue({
         missing_products: [

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { productMappings } from '../../db/schema';
-import { mockMealieShoppingItem, mockMissingProduct, mockProductMapping, mockSyncState } from './helpers/mocks';
+import { mockMealieShoppingItem,
+  mockUnitMapping, mockMissingProduct, mockProductMapping, mockSyncState } from './helpers/mocks';
 
 // Receipt bookings must reduce the Mealie list exactly once: the reconciler
 // reduces the row, and the next low-stock poll must not reduce it again, while
@@ -95,6 +96,41 @@ describe('low-stock sync with receipt bookings', () => {
     expect(mockedDelete).not.toHaveBeenCalled();
     expect(mockedConsumingSave).toHaveBeenCalledWith(expect.anything(), ['effect-101']);
     expect(savedState().grocyBelowMinStock).toEqual({ 101: 2 });
+  });
+
+  it('keeps receipt restocks of a skipped product for its retry', async () => {
+    const flour = (mapped: boolean) => {
+      vi.mocked(getGrocyEntities).mockImplementation((async (entity: string) => entity === 'quantity_units'
+        ? [{ id: 14, name: 'kilogram' }, { id: 9, name: 'zak' }]
+        : [{ id: 101, name: 'Flour', qu_id_stock: 14, qu_id_purchase: 9 }]) as any);
+      mockFrom.mockImplementation((table: unknown) => {
+        mockWhere.mockImplementation(() => {
+          mockLimit.mockImplementation(() => Promise.resolve(table === productMappings
+            ? [mockProductMapping()]
+            : mapped ? [mockUnitMapping({ grocyUnitId: 14, mealieUnitId: 'mealie-kg' })] : []));
+          return { limit: mockLimit };
+        });
+        return { where: mockWhere };
+      });
+    };
+    vi.mocked(fetchAllMealieShoppingItems).mockResolvedValue([mockMealieShoppingItem({ id: 'row', unitId: 'mealie-kg', quantity: 10 })]);
+    vi.mocked(getVolatileStock).mockResolvedValue({ missing_products: [mockMissingProduct({ id: 101, amount_missing: 7 })] });
+    setAdjustments([restock(101, 2)]);
+
+    // Poll 1: kilogram has no Mealie unit, so nothing is written or consumed.
+    flour(false);
+    vi.mocked(getSyncState).mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 10 } }));
+    await pollGrocyForMissingStock();
+    expect(mockedUpdate).not.toHaveBeenCalled();
+    expect(mockedConsumingSave).not.toHaveBeenCalled();
+    expect(savedState().grocyBelowMinStock).toEqual({ 101: 10 });
+
+    // Poll 2: kilogram is mapped; the receipt's 2 is subtracted once: 10 - 2 -> 7 is -1.
+    flour(true);
+    vi.mocked(getSyncState).mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 10 } }));
+    await pollGrocyForMissingStock();
+    expect(mockedUpdate).toHaveBeenCalledWith('row', expect.objectContaining({ quantity: 9 }));
+    expect(mockedConsumingSave).toHaveBeenCalledWith(expect.anything(), ['effect-101']);
   });
 
   it('is a no-op when the receipt covered the whole previous shortage', async () => {

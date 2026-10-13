@@ -346,8 +346,9 @@ Late or missing receipts book nothing; manual checking keeps working as before.
 
 ## Limits
 
-- Rows created by the low-stock sync carry stock amounts with the purchase unit
-  label when purchase and stock units differ. Such rows are sent to review
+- Rows created by the low-stock sync carry stock amounts labelled with the
+  stock unit. Rows written by older versions may still carry the purchase unit
+  label when purchase and stock units differ; such rows are sent to review
   instead of being converted.
 - Sub-product rows are matched to receipts through their single child or their
   parent product.

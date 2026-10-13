@@ -17,7 +17,8 @@ import {
   updateInstallationSettings,
 } from '@/lib/plugins/installations';
 import type { HelloParams, Receipt } from '@/lib/plugins/protocol/v1';
-import { bookCheckStock, guardReceiptFulfillment, openCheckLifecycle, setLifecycleStatus } from '../check-lifecycles';
+import { bookCheckStock, guardReceiptFulfillment, openCheckLifecycle, reconcileCheckLifecycles, setLifecycleStatus } from '../check-lifecycles';
+import { resolveUnknownEffect } from '../effect-resolution';
 import { observeDemand } from '../demand-observer';
 import { listDiscrepancies, resolveDiscrepancy, substituteReceiptLine } from '../discrepancies';
 import { defaultEffectRunnerDeps, type EffectRunnerDeps } from '../effect-runners';
@@ -385,6 +386,31 @@ describe('receipt reconciliation', () => {
     expect(run.addStock).not.toHaveBeenCalled();
     expect(db.select().from(schema.reconciliationLinks).all()).toEqual([expect.objectContaining({ kind: 'credit', lifecycleId: lifecycle.id, baseAmount: 2 })]);
     expect(listReceipts()[0].status).toBe('processed');
+  });
+
+  it('still credits the applied part of a check whose other booking was skipped', async () => {
+    const installation = setupInstallation();
+    mapMilk();
+    observeDemand('list', [row({ quantity: 2 })], new Date('2026-10-04T10:00:00Z'));
+    const revisionId = db.select().from(schema.demandRevisions).get()!.id;
+    exportRow(installation.id, revisionId, new Date('2026-10-04T10:00:00Z'), 2);
+    const lifecycle = openCheckLifecycle({ id: 'row-milk', foodId: 'food-milk', quantity: 2 }, 1, new Date('2026-10-05T09:55:00Z'));
+    await bookCheckStock(lifecycle, 1, 2, 'Milk', { addStock: vi.fn(async () => [{ id: 5, transaction_id: 'tx-check' }]) });
+    await expect(bookCheckStock(lifecycle, 2, 1, 'Other', { addStock: vi.fn(async () => { throw Object.assign(new Error('HTTP 502'), { status: 502 }); }) }))
+      .rejects.toThrow();
+    const uncertain = listEffects({ sourceKind: 'check' }).find(effect => effect.status === 'unknown')!;
+    setLifecycleStatus(lifecycle.id, 'blocked');
+    expect(resolveUnknownEffect(uncertain.id, { action: 'skip' })).toBe(true);
+    const settled = await reconcileCheckLifecycles(new Set(['row-milk']));
+    expect(settled.completedItemIds).not.toContain('row-milk');
+    await pullReceipts(installation, pullDeps([receipt({ lines: [receipt().lines[0]] })]));
+
+    const items = { current: [] as MealieShoppingItem[] };
+    const run = runner(items);
+    await runShopReconcile(reconcileDeps(items, run));
+    // The applied Milk booking is credited; the receipt does not book it again.
+    expect(run.addStock).not.toHaveBeenCalled();
+    expect(db.select().from(schema.reconciliationLinks).all()).toEqual([expect.objectContaining({ kind: 'credit', lifecycleId: lifecycle.id, baseAmount: 2 })]);
   });
 
   it('flags a manual check that booked more than the receipt shows', async () => {
