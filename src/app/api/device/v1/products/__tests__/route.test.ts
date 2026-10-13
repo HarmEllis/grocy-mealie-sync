@@ -75,6 +75,12 @@ describe('GET /api/device/v1/products?labelId=', () => {
     expect((await res.json()).error).toMatch(/offset/i);
   });
 
+  it.each(['1e300', '9007199254740992'])('rejects an unsafe integer offset (%s)', async (offset) => {
+    const res = await GET(request(`?labelId=L1&offset=${offset}`));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/offset/i);
+  });
+
   it('rejects a limit above the browse max', async () => {
     const res = await GET(request('?labelId=L1&limit=21'));
     expect(res.status).toBe(400);

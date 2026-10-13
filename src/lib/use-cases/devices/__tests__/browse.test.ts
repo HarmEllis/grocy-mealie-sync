@@ -12,6 +12,7 @@ import {
   type DeviceBrowseDeps,
   type DeviceBrowseMealieFood,
   type DeviceBrowseProductMapping,
+  toDeviceName,
 } from '../browse';
 
 function product(id: number, name: string): Product {
@@ -198,75 +199,6 @@ describe('listDeviceLabels cap', () => {
     expect(realIds).not.toContain('L20');
     expect(realIds).not.toContain('L25');
   });
-
-  it('keeps a worst-case 20-item label response safely under the firmware wire budget', async () => {
-    // Genuinely unbounded-length label names (not an "assumed realistic"
-    // size) — Mealie/Grocy names have no server-enforced max, so this proves
-    // the hard ceiling is actually *enforced* (via truncateUtf8), not just
-    // incidentally satisfied by a plausible fixture size.
-    const longName = '🥐'.repeat(200) + 'x'.repeat(300); // ~1.1KB, multi-byte heavy
-    const products: Product[] = [];
-    const mappings: DeviceBrowseProductMapping[] = [];
-    const foods: DeviceBrowseMealieFood[] = [];
-    const labels: MultiPurposeLabelSummary[] = [];
-    let productId = 1;
-
-    for (let labelIndex = 1; labelIndex <= 19; labelIndex++) {
-      const labelId = `L${labelIndex}-${'x'.repeat(32)}`; // long UUID-like id
-      labels.push(label(labelId, `${longName}${labelIndex}`));
-      const foodId = `food-${productId}`;
-      products.push(product(productId, 'Product'));
-      mappings.push(mapping(productId, foodId));
-      foods.push(food(foodId, 'Product', labelId));
-      productId += 1;
-    }
-    products.push(product(productId, 'Unmapped')); // ensures a non-empty unlabeled bucket
-
-    const deps = createDeps({
-      listGrocyProducts: vi.fn().mockResolvedValue(products),
-      listProductMappings: vi.fn().mockResolvedValue(mappings),
-      listMealieFoods: vi.fn().mockResolvedValue(foods),
-      listMealieLabels: vi.fn().mockResolvedValue(labels),
-    });
-
-    const result = await listDeviceLabels(deps);
-    const bytes = Buffer.byteLength(JSON.stringify(result), 'utf8');
-
-    expect(result.labels.length).toBeLessThanOrEqual(20);
-    expect(bytes).toBeLessThan(3584); // 3.5KB, safely under firmware MAX_RESPONSE (4096)
-    for (const l of result.labels) {
-      expect(Buffer.byteLength(l.name, 'utf8')).toBeLessThanOrEqual(63);
-    }
-  });
-
-  it('truncates an oversized name to the UTF-8-safe byte cap without splitting a codepoint', async () => {
-    const longName = '🥐'.repeat(40); // 160 bytes, way over the 63-byte cap
-    const deps = createDeps({
-      listGrocyProducts: vi.fn().mockResolvedValue([product(1, 'Product')]),
-      listProductMappings: vi.fn().mockResolvedValue([mapping(1, 'food-1')]),
-      listMealieFoods: vi.fn().mockResolvedValue([food('food-1', 'Product', 'L1')]),
-      listMealieLabels: vi.fn().mockResolvedValue([label('L1', longName)]),
-    });
-
-    const result = await listDeviceLabels(deps);
-    const truncated = result.labels[0].name;
-
-    expect(Buffer.byteLength(truncated, 'utf8')).toBeLessThanOrEqual(63);
-    expect(truncated).not.toContain('�'); // no split multi-byte codepoint
-  });
-
-  it('truncates an oversized product name the same way', async () => {
-    const longName = 'x'.repeat(500);
-    const deps = createDeps({
-      listGrocyProducts: vi.fn().mockResolvedValue([product(1, longName)]),
-      listProductMappings: vi.fn().mockResolvedValue([mapping(1, 'food-1')]),
-      listMealieFoods: vi.fn().mockResolvedValue([food('food-1', longName, 'L1')]),
-      listMealieLabels: vi.fn().mockResolvedValue([label('L1', 'Fruit')]),
-    });
-
-    const result = await listDeviceProductsByLabel({ labelId: 'L1' }, deps);
-    expect(Buffer.byteLength(result.results[0].name, 'utf8')).toBeLessThanOrEqual(63);
-  });
 });
 
 describe('snapshot build deadline', () => {
@@ -327,42 +259,293 @@ describe('listDeviceProductsByLabel / listDeviceProductsByLetter', () => {
     const result = await listDeviceProductsByLetter({ letter: 'A' }, deps);
     expect(result.results.map(r => r.name).sort()).toEqual(['Appel', 'appelmoes']);
   });
+});
 
-  it('keeps a worst-case 20-item product-list response safely under the firmware wire budget', async () => {
-    // 25 candidates (only the first page of 20 is returned) with genuinely
-    // oversized, multi-byte-heavy names, large numeric ids, and large stock
-    // values, proving the full end-to-end response payload — not just a
-    // single name field — stays under the firmware's hard 4096-byte
-    // MAX_RESPONSE ceiling.
-    const longName = '🥐'.repeat(200) + 'x'.repeat(300);
-    const bigProducts: Product[] = [];
-    const bigMappings: DeviceBrowseProductMapping[] = [];
-    const bigFoods: DeviceBrowseMealieFood[] = [];
-    const bigStocks: CurrentStockResponse[] = [];
+// ---------------------------------------------------------------------------
+// Firmware wire budget (docs/DEVICE-API.md, "Firmware-driven design
+// constraints"): the serialized body, measured as encoded UTF-8 JSON bytes
+// including escaping, must stay under MAX_RESPONSE (4096). Names must fit
+// API_NAME_LEN (63 decoded bytes), label ids API_LABEL_ID_LEN (39 chars).
+// ---------------------------------------------------------------------------
 
-    for (let i = 1; i <= 25; i++) {
-      const id = 1_000_000 + i;
-      bigProducts.push(product(id, `${longName}${i}`));
-      bigMappings.push(mapping(id, `food-${i}`));
-      bigFoods.push(food(`food-${i}`, `${longName}${i}`, 'L1'));
-      bigStocks.push(stock(id, 999_999.75));
+const MAX_RESPONSE = 4096;
+const CONTROLS = '\u0001\u0002\u0007\u0008\u000B\u000C\u001B\u001F\u007F\u0085\u009F\t\n\r';
+// eslint-disable-next-line no-control-regex
+const CONTROL_PATTERN = /[\u0000-\u001F\u007F-\u009F]/;
+
+const HOSTILE_NAMES = {
+  // Controls interleaved with letters; each control would be up to 6 bytes
+  // escaped (\u0001) if it reached the wire.
+  controlOnly: Array.from({ length: 100 }, (_, i) => `${CONTROLS[i % CONTROLS.length]}x`).join(''),
+  // Every character escapes to 2 bytes, so the encoded cap must be the one
+  // that bites.
+  quoteBackslash: '"\\'.repeat(100),
+  // 4-byte emoji and 3-byte CJK: the decoded 63-byte cap must bite without
+  // splitting a code point.
+  multibyte: '🥐漢'.repeat(100),
+} as const;
+
+function serializedBytes(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value), 'utf8');
+}
+
+function encodedNameBytes(name: string): number {
+  return Buffer.byteLength(JSON.stringify(name), 'utf8') - 2;
+}
+
+function expectDeviceSafeName(name: string): void {
+  expect(Buffer.byteLength(name, 'utf8')).toBeLessThanOrEqual(63);
+  expect(encodedNameBytes(name)).toBeLessThanOrEqual(96);
+  expect(name).not.toMatch(CONTROL_PATTERN);
+  expect(name).not.toContain('\uFFFD');
+  expect(name.length).toBeGreaterThan(0);
+}
+
+describe('toDeviceName', () => {
+  it('replaces control characters with single spaces and trims', () => {
+    expect(toDeviceName('\u0001Melk\u0000\u0000\t halfvol\u009F\n')).toBe('Melk halfvol');
+  });
+
+  it('returns an empty string when only control characters are left', () => {
+    expect(toDeviceName('\u0001\u0002\n\t')).toBe('');
+    expect(toDeviceName(undefined)).toBe('');
+  });
+
+  it('applies the encoded cap to escape-heavy names', () => {
+    const name = toDeviceName(HOSTILE_NAMES.quoteBackslash);
+    expect(name).toBe('"\\'.repeat(24));
+    expect(name).toHaveLength(48);
+    expect(encodedNameBytes(name)).toBe(96);
+    expect(Buffer.byteLength(name, 'utf8')).toBe(48); // under the 63-byte decoded cap
+  });
+
+  it('applies the decoded cap to multi-byte names without splitting a code point', () => {
+    const name = toDeviceName(HOSTILE_NAMES.multibyte);
+    // 🥐 (4) + 漢 (3) = 7 bytes per pair; 9 pairs = 63 bytes exactly.
+    expect(name).toBe('🥐漢'.repeat(9));
+    expect(Buffer.byteLength(name, 'utf8')).toBe(63);
+  });
+
+  it('turns a lone surrogate into U+FFFD instead of an escaped surrogate', () => {
+    const name = toDeviceName('Kaas \uD83E');
+    expect(name).toBe('Kaas \uFFFD');
+    expect(JSON.stringify(name)).not.toContain('\\u');
+  });
+
+  it('keeps ordinary names unchanged', () => {
+    expect(toDeviceName('Étoile Product')).toBe('Étoile Product');
+  });
+});
+
+describe.each(Object.entries(HOSTILE_NAMES))('wire budget with %s names', (_fixture, hostile) => {
+  it('keeps a full 19+1 label list under MAX_RESPONSE', async () => {
+    const products: Product[] = [];
+    const mappings: DeviceBrowseProductMapping[] = [];
+    const foods: DeviceBrowseMealieFood[] = [];
+    const labels: MultiPurposeLabelSummary[] = [];
+    let productId = Number.MAX_SAFE_INTEGER - 1000;
+
+    // 25 labels with 39-char ids, so the 19-label cap applies; counts 25..1.
+    for (let labelIndex = 1; labelIndex <= 25; labelIndex++) {
+      const labelId = `${String(labelIndex).padStart(3, '0')}-${'f'.repeat(35)}`;
+      expect(labelId).toHaveLength(39);
+      labels.push(label(labelId, `${labelIndex}${hostile}`));
+      for (let n = 0; n < 26 - labelIndex; n++) {
+        const foodId = `food-${productId}`;
+        products.push(product(productId, `${hostile}${productId}`));
+        mappings.push(mapping(productId, foodId));
+        foods.push(food(foodId, 'food', labelId));
+        productId += 1;
+      }
     }
+    products.push(product(productId, hostile)); // unmapped -> unlabeled
 
-    const bigDeps = createDeps({
-      listGrocyProducts: vi.fn().mockResolvedValue(bigProducts),
-      listProductMappings: vi.fn().mockResolvedValue(bigMappings),
-      listMealieFoods: vi.fn().mockResolvedValue(bigFoods),
-      listMealieLabels: vi.fn().mockResolvedValue([label('L1', 'Fruit')]),
-      getCurrentStock: vi.fn().mockResolvedValue(bigStocks),
+    const deps = createDeps({
+      listGrocyProducts: vi.fn().mockResolvedValue(products),
+      listProductMappings: vi.fn().mockResolvedValue(mappings),
+      listMealieFoods: vi.fn().mockResolvedValue(foods),
+      listMealieLabels: vi.fn().mockResolvedValue(labels),
     });
 
-    const result = await listDeviceProductsByLabel({ labelId: 'L1' }, bigDeps);
-    const bytes = Buffer.byteLength(JSON.stringify(result), 'utf8');
+    const result = await listDeviceLabels(deps);
 
-    expect(result.results.length).toBeLessThanOrEqual(20);
-    expect(bytes).toBeLessThan(4096);
-    for (const r of result.results) {
-      expect(Buffer.byteLength(r.name, 'utf8')).toBeLessThanOrEqual(63);
+    expect(result.labels).toHaveLength(20);
+    expect(result.labels[19]).toEqual({ id: UNLABELED_ID, name: 'Overig', count: 1 });
+    expect(serializedBytes(result)).toBeLessThan(MAX_RESPONSE);
+    for (const bucket of result.labels) {
+      expectDeviceSafeName(bucket.name);
+      expect(bucket.id.length).toBeLessThanOrEqual(39);
     }
+  });
+
+  function bigCatalogueDeps(namePrefix: string): DeviceBrowseDeps {
+    const products: Product[] = [];
+    const mappings: DeviceBrowseProductMapping[] = [];
+    const foods: DeviceBrowseMealieFood[] = [];
+    const stocks: CurrentStockResponse[] = [];
+    // 25 matching products at the top of the safe-integer range, with
+    // stock amounts that serialize to the longest finite number forms.
+    for (let i = 0; i < 25; i++) {
+      const id = Number.MAX_SAFE_INTEGER - i;
+      products.push(product(id, `${namePrefix}${hostile}${i}`));
+      mappings.push(mapping(id, `food-${i}`));
+      foods.push(food(`food-${i}`, 'food', 'L1'));
+      stocks.push(stock(id, -Number.MAX_VALUE / (i + 1)));
+    }
+    return createDeps({
+      listGrocyProducts: vi.fn().mockResolvedValue(products),
+      listProductMappings: vi.fn().mockResolvedValue(mappings),
+      listMealieFoods: vi.fn().mockResolvedValue(foods),
+      listMealieLabels: vi.fn().mockResolvedValue([label('L1', 'Fruit')]),
+      getCurrentStock: vi.fn().mockResolvedValue(stocks),
+    });
+  }
+
+  function expectFullPage(result: Awaited<ReturnType<typeof listDeviceProductsByLabel>>): void {
+    expect(result.results).toHaveLength(20);
+    expect(result.total).toBe(25);
+    expect(result.hasMore).toBe(true);
+    expect(serializedBytes(result)).toBeLessThan(MAX_RESPONSE);
+    for (const row of result.results) {
+      expectDeviceSafeName(row.name);
+      expect(Number.isSafeInteger(row.id)).toBe(true);
+    }
+  }
+
+  it('keeps a full label product page under MAX_RESPONSE', async () => {
+    expectFullPage(await listDeviceProductsByLabel({ labelId: 'L1' }, bigCatalogueDeps('')));
+  });
+
+  it('keeps a full letter product page under MAX_RESPONSE', async () => {
+    expectFullPage(await listDeviceProductsByLetter({ letter: 'A' }, bigCatalogueDeps('A')));
+  });
+
+  it('keeps a full # product page under MAX_RESPONSE', async () => {
+    expectFullPage(await listDeviceProductsByLetter({ letter: '#' }, bigCatalogueDeps('7')));
+  });
+});
+
+describe('letters wire budget', () => {
+  it('keeps all 27 buckets under MAX_RESPONSE', async () => {
+    const products = Array.from({ length: 30 }, (_, i) => product(Number.MAX_SAFE_INTEGER - i, `${'ABC'[i % 3]}x`));
+    const result = await listDeviceLetters(createDeps({ listGrocyProducts: vi.fn().mockResolvedValue(products) }));
+    expect(result.letters).toHaveLength(27);
+    expect(serializedBytes(result)).toBeLessThan(MAX_RESPONSE);
+  });
+});
+
+describe('device-addressable labels', () => {
+  it('drops labels whose id the firmware cannot hold or echo and counts their products as unlabeled', async () => {
+    const deps = createDeps({
+      listGrocyProducts: vi.fn().mockResolvedValue([
+        product(1, 'Appel'),
+        product(2, 'Banaan'),
+        product(3, 'Cassis'),
+        product(4, 'Dadel'),
+      ]),
+      listProductMappings: vi.fn().mockResolvedValue([
+        mapping(1, 'food-1'),
+        mapping(2, 'food-2'),
+        mapping(3, 'food-3'),
+        mapping(4, 'food-4'),
+      ]),
+      listMealieFoods: vi.fn().mockResolvedValue([
+        food('food-1', 'Appel', 'ok-label'),
+        food('food-2', 'Banaan', 'x'.repeat(40)), // too long for API_LABEL_ID_LEN
+        food('food-3', 'Cassis', 'needs space'), // needs URL encoding
+        food('food-4', 'Dadel', 'no-name'), // name is only control characters
+      ]),
+      listMealieLabels: vi.fn().mockResolvedValue([
+        label('ok-label', 'Fruit'),
+        label('x'.repeat(40), 'Lang'),
+        label('needs space', 'Spatie'),
+        label('no-name', '\u0001\u0002'),
+      ]),
+    });
+
+    const result = await listDeviceLabels(deps);
+    expect(result.labels).toEqual([
+      { id: 'ok-label', name: 'Fruit', count: 1 },
+      { id: UNLABELED_ID, name: 'Overig', count: 3 },
+    ]);
+
+    const unlabeled = await listDeviceProductsByLabel({ labelId: UNLABELED_ID }, deps);
+    expect(unlabeled.results.map(r => r.id)).toEqual([2, 3, 4]);
+  });
+
+  it('never lets a real label claim the reserved unlabeled id', async () => {
+    const deps = createDeps({
+      listGrocyProducts: vi.fn().mockResolvedValue([
+        product(1, 'Appel'),
+        product(2, 'Banaan'),
+        product(3, 'Cassis'),
+      ]),
+      listProductMappings: vi.fn().mockResolvedValue([
+        mapping(1, 'food-1'),
+        mapping(2, 'food-2'),
+        // product 3: unmapped
+      ]),
+      listMealieFoods: vi.fn().mockResolvedValue([
+        food('food-1', 'Appel', UNLABELED_ID),
+        food('food-2', 'Banaan', 'L1'),
+      ]),
+      listMealieLabels: vi.fn().mockResolvedValue([
+        label(UNLABELED_ID, 'Echte label'),
+        label('L1', 'Fruit'),
+      ]),
+    });
+
+    const result = await listDeviceLabels(deps);
+    expect(result.labels).toEqual([
+      { id: 'L1', name: 'Fruit', count: 1 },
+      { id: UNLABELED_ID, name: 'Overig', count: 2 },
+    ]);
+    expect(result.labels.filter(b => b.id === UNLABELED_ID)).toHaveLength(1);
+
+    const unlabeled = await listDeviceProductsByLabel({ labelId: UNLABELED_ID }, deps);
+    expect(unlabeled.results.map(r => r.id)).toEqual([1, 3]);
+  });
+});
+
+describe('product ids, names and stock the device can use', () => {
+  const deps = createDeps({
+    listGrocyProducts: vi.fn().mockResolvedValue([
+      product(1, 'Appel'),
+      product(0, 'Zero id'),
+      { id: -5, name: 'Negative id' } as Product,
+      { id: 1.5, name: 'Fraction id' } as Product,
+      { id: Number.MAX_SAFE_INTEGER + 2, name: 'Unsafe id' } as Product,
+      product(2, '\u0001Bloem'),
+      product(3, '\u0002\u0003'),
+    ]),
+    getCurrentStock: vi.fn().mockResolvedValue([
+      stock(1, Number.NaN),
+      stock(2, Number.POSITIVE_INFINITY),
+      stock(3, 2.5),
+    ]),
+  });
+
+  it('leaves out products without a positive safe-integer id everywhere', async () => {
+    const labels = await listDeviceLabels(deps);
+    expect(labels.labels).toEqual([{ id: UNLABELED_ID, name: 'Overig', count: 3 }]);
+
+    const letters = await listDeviceLetters(deps);
+    expect(letters.letters.reduce((sum, bucket) => sum + bucket.count, 0)).toBe(3);
+
+    const unlabeled = await listDeviceProductsByLabel({ labelId: UNLABELED_ID }, deps);
+    expect(unlabeled.results.map(r => r.id).sort()).toEqual([1, 2, 3]);
+  });
+
+  it('buckets on the first visible character and falls back for an empty name', async () => {
+    const byB = await listDeviceProductsByLetter({ letter: 'B' }, deps);
+    expect(byB.results).toEqual([{ id: 2, name: 'Bloem', stockAmount: 0 }]);
+
+    const byU = await listDeviceProductsByLetter({ letter: 'U' }, deps);
+    expect(byU.results).toEqual([{ id: 3, name: 'Unknown', stockAmount: 2.5 }]);
+  });
+
+  it('reports non-finite stock as 0', async () => {
+    const byA = await listDeviceProductsByLetter({ letter: 'A' }, deps);
+    expect(byA.results).toEqual([{ id: 1, name: 'Appel', stockAmount: 0 }]);
   });
 });
