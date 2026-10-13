@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CurrentStockResponse, Product } from '@/lib/grocy/types';
 import type { MultiPurposeLabelSummary } from '@/lib/mealie/client/models/MultiPurposeLabelSummary';
 import {
@@ -69,6 +69,15 @@ describe('drainPages', () => {
     expect(fetchPage).toHaveBeenNthCalledWith(1, 1, 500);
     expect(fetchPage).toHaveBeenNthCalledWith(2, 2, 500);
     expect(fetchPage).toHaveBeenNthCalledWith(3, 3, 500);
+  });
+
+  it('requests no page once the signal is aborted', async () => {
+    const controller = new AbortController();
+    controller.abort(new Error('abandoned'));
+    const fetchPage = vi.fn().mockResolvedValue({ items: [] });
+
+    await expect(drainPages(fetchPage, controller.signal)).rejects.toThrow('abandoned');
+    expect(fetchPage).not.toHaveBeenCalled();
   });
 
   it('stops immediately on an empty first page', async () => {
@@ -216,6 +225,130 @@ describe('snapshot build deadline', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+describe('shared snapshot build', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    invalidateBrowseSnapshot();
+    vi.useRealTimers();
+  });
+
+  it('lets concurrent callers share one build', async () => {
+    const products = deferred<Product[]>();
+    const deps = createDeps({ listGrocyProducts: vi.fn(() => products.promise) });
+
+    const first = listDeviceLabels(deps);
+    const second = listDeviceLetters(deps);
+    products.resolve([product(1, 'Appel')]);
+
+    expect((await first).labels).toEqual([{ id: UNLABELED_ID, name: 'Overig', count: 1 }]);
+    expect((await second).letters.find(b => b.letter === 'A')?.count).toBe(1);
+    expect(deps.listGrocyProducts).toHaveBeenCalledTimes(1);
+    expect(deps.listMealieFoods).toHaveBeenCalledTimes(1);
+  });
+
+  it('serves the cached snapshot within the TTL and rebuilds after it', async () => {
+    const deps = createDeps({ listGrocyProducts: vi.fn().mockResolvedValue([product(1, 'Appel')]) });
+
+    await listDeviceLabels(deps);
+    await vi.advanceTimersByTimeAsync(29_000);
+    await listDeviceLabels(deps);
+    expect(deps.listGrocyProducts).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await listDeviceLabels(deps);
+    expect(deps.listGrocyProducts).toHaveBeenCalledTimes(2);
+  });
+
+  it('rebuilds on the next call after an upstream failure', async () => {
+    const deps = createDeps({
+      listGrocyProducts: vi.fn()
+        .mockRejectedValueOnce(new Error('Grocy down'))
+        .mockResolvedValueOnce([product(1, 'Appel')]),
+    });
+
+    await expect(listDeviceLabels(deps)).rejects.toThrow('Grocy down');
+    expect((await listDeviceLabels(deps)).labels).toHaveLength(1);
+    expect(deps.listGrocyProducts).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a build that outlives one caller deadline and lets the retry reuse it', async () => {
+    const products = deferred<Product[]>();
+    const deps = createDeps({ listGrocyProducts: vi.fn(() => products.promise) });
+
+    const first = listDeviceLabels(deps);
+    const firstExpectation = expect(first).rejects.toThrow(/timed out/i);
+    await vi.advanceTimersByTimeAsync(6_000);
+    await firstExpectation;
+
+    // The retry joins the still-running build instead of starting another.
+    const retry = listDeviceLabels(deps);
+    products.resolve([product(1, 'Appel')]);
+    expect((await retry).labels).toHaveLength(1);
+    expect(deps.listGrocyProducts).toHaveBeenCalledTimes(1);
+
+    // And its result was cached.
+    await listDeviceLetters(deps);
+    expect(deps.listGrocyProducts).toHaveBeenCalledTimes(1);
+  });
+
+  it('caches a build that finishes after every caller gave up', async () => {
+    const products = deferred<Product[]>();
+    const deps = createDeps({ listGrocyProducts: vi.fn(() => products.promise) });
+
+    const first = listDeviceLabels(deps);
+    const firstExpectation = expect(first).rejects.toThrow(/timed out/i);
+    await vi.advanceTimersByTimeAsync(6_000);
+    await firstExpectation;
+
+    products.resolve([product(1, 'Appel')]);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect((await listDeviceLabels(deps)).labels).toHaveLength(1);
+    expect(deps.listGrocyProducts).toHaveBeenCalledTimes(1);
+  });
+
+  it('abandons a build after 60s: no further page is fetched and the next call starts fresh', async () => {
+    const firstPage = deferred<{ items: DeviceBrowseMealieFood[] }>();
+    const fetchPage = vi.fn()
+      .mockImplementationOnce(() => firstPage.promise)
+      .mockResolvedValue({ items: [] });
+    const deps = createDeps({
+      listMealieFoods: vi.fn((signal: AbortSignal) => drainPages<DeviceBrowseMealieFood>(fetchPage, signal)),
+    });
+
+    for (let elapsed = 0; elapsed < 60_000; elapsed += 6_000) {
+      const call = listDeviceLabels(deps);
+      const expectation = expect(call).rejects.toThrow(/timed out/i);
+      await vi.advanceTimersByTimeAsync(6_000);
+      await expectation;
+    }
+    // Ten callers gave up across the 60s; they all shared one build.
+    expect(deps.listGrocyProducts).toHaveBeenCalledTimes(1);
+
+    // The first page finally arrives as a full page after the abandonment.
+    firstPage.resolve({ items: Array.from({ length: 500 }, (_, i) => food(`f${i}`, 'x', null)) });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchPage).toHaveBeenCalledTimes(1);
+
+    // The slot was released, so the next call builds again.
+    await listDeviceLabels(deps);
+    expect(deps.listGrocyProducts).toHaveBeenCalledTimes(2);
   });
 });
 
