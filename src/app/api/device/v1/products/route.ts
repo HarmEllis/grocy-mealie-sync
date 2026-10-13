@@ -20,7 +20,9 @@ function parseOffset(raw: string | null): number | { error: string } {
     return 0;
   }
   const value = Number(raw);
-  if (!Number.isInteger(value) || value < 0) {
+  // Safe integers only: the device echoes `offset` back, and an unsafe value
+  // such as 1e300 would serialize as an exponent outside the wire budget.
+  if (!Number.isSafeInteger(value) || value < 0) {
     return { error: 'Offset must be a non-negative integer' };
   }
   return value;
@@ -31,7 +33,7 @@ function parseBrowseLimit(raw: string | null): number | { error: string } {
     return BROWSE_MAX_LIMIT;
   }
   const value = Number(raw);
-  if (!Number.isInteger(value) || value < 1 || value > BROWSE_MAX_LIMIT) {
+  if (!Number.isSafeInteger(value) || value < 1 || value > BROWSE_MAX_LIMIT) {
     return { error: `Limit must be an integer between 1 and ${BROWSE_MAX_LIMIT}` };
   }
   return value;

@@ -1,8 +1,17 @@
 /**
  * Use-cases behind the device "Bladeren" (browse) API: browse products by
  * Mealie label or by an A-Z index. See docs/DEVICE-API.md (firmware repo) for
- * the wire contract. Responses must stay small (< 2 KB) and flat, same
- * constraint as the rest of the device API (see scanner.ts's header comment).
+ * the wire contract. Responses stay flat, target < 2 KB for realistic
+ * households, and must never serialize past the firmware's hard 4096-byte
+ * MAX_RESPONSE buffer, measured as encoded UTF-8 JSON bytes including
+ * escaping (larger bodies are cut off and fail to parse on the device).
+ *
+ * Worst-case budget enforced below: every name is at most 96 encoded bytes,
+ * every integer field (ids, counts, total, offset) is a safe integer (<= 16
+ * characters), and stockAmount is a finite number (<= 24 characters,
+ * e.g. -1.7976931348623157e+308). That bounds a 20-item product page at ~3.5
+ * KB and the 19+1 label list at ~3.5 KB; the tests assert the serialized size
+ * for boundary fixtures.
  */
 
 import { db } from '@/lib/db';
@@ -53,8 +62,8 @@ const UNLABELED_NAME = 'Overig';
 
 /**
  * `/labels` is not paginated in v1. Real labels are ranked by product count
- * and capped so the response stays well under the firmware's 4096-byte
- * MAX_RESPONSE and the documented ~2KB budget; `unlabeled` is always appended
+ * and capped so the response stays under the firmware's 4096-byte
+ * MAX_RESPONSE (see the budget in the header); `unlabeled` is always appended
  * as an extra item outside this cap so unlabeled products stay reachable via
  * label-browse regardless of how many other labels exist.
  */
@@ -75,12 +84,25 @@ const SNAPSHOT_BUILD_TIMEOUT_MS = 6_000;
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 20;
 
-/* Matches the firmware's API_NAME_LEN (64 bytes incl. NUL, so 63 usable) —
- * caps any externally-sourced name (Mealie label, Grocy/Mealie product) so a
- * single unusually long or multi-byte-heavy name cannot inflate a response
- * past the firmware's hard 4096-byte MAX_RESPONSE buffer despite the item-
- * count caps below. */
+/* Matches the firmware's API_NAME_LEN (64 bytes incl. NUL, so 63 usable):
+ * the decoded UTF-8 size of any externally-sourced name (Mealie label,
+ * Grocy product) the device has to store. */
 const MAX_NAME_BYTES = 63;
+/* The decoded cap alone does not bound the wire size, because JSON escaping
+ * grows characters. Control characters are stripped first, leaving only `"`
+ * and `\` to escape (2 bytes each), and every name is also capped at this
+ * many bytes as it appears inside the serialized JSON string. */
+const MAX_ENCODED_NAME_BYTES = 96;
+const FALLBACK_PRODUCT_NAME = 'Unknown';
+
+/* C0 controls, DEL and C1 controls: escaped (C0) or meaningless on the
+ * device display (DEL, C1). */
+const CONTROL_CHARS = /[\u0000-\u001F\u007F-\u009F]+/g;
+
+/* Matches the firmware's API_LABEL_ID_LEN (40 bytes incl. NUL, so 39 usable).
+ * The device echoes the id back as the `labelId` query parameter, so it must
+ * also need no JSON escaping or URL encoding. Mealie label ids are UUIDs. */
+const LABEL_ID_PATTERN = /^[A-Za-z0-9_-]{1,39}$/;
 
 // ---------------------------------------------------------------------------
 // Dependencies (injected for tests)
@@ -188,14 +210,25 @@ const defaultDeps: DeviceBrowseDeps = {
 // burst of requests doesn't trigger duplicate simultaneous builds.
 // ---------------------------------------------------------------------------
 
+/** One Grocy product as the device sees it, computed once per snapshot so
+ * labels, letters and both product lists agree on name, bucket and stock. */
+interface BrowseEntry {
+  id: number;
+  /** Device-safe display name (see toDeviceName); also the sort key. */
+  name: string;
+  letter: string;
+  /** A real, registered label id or UNLABELED_ID. */
+  labelId: string;
+  stockAmount: number;
+}
+
 interface BrowseSnapshot {
   builtAt: number;
-  products: Product[];
+  /** Only Grocy products with a positive safe-integer id. */
+  entries: BrowseEntry[];
+  /** Only labels the device can address (see isDeviceLabelId) with a
+   * non-empty device-safe name, keyed by id, values already device-safe. */
   labelNameById: Map<string, string>;
-  /** Every valid Grocy product id maps to exactly one entry: a real label id
-   * or UNLABELED_ID. Never absent for a product present in `products`. */
-  labelIdByGrocyProductId: Map<number, string>;
-  stockByGrocyProductId: Map<number, number>;
 }
 
 let cachedSnapshot: BrowseSnapshot | null = null;
@@ -203,8 +236,8 @@ let inFlightBuild: Promise<BrowseSnapshot> | null = null;
 
 /**
  * Force the next browse call to rebuild the snapshot instead of serving a
- * cached one. Not wired to any mutation path yet in v1 (see plan) — exported
- * now as a safe integration point for a follow-up.
+ * cached one. Not wired to any mutation path yet in v1 (the 30s TTL bounds
+ * staleness); exported as an integration point for a follow-up.
  */
 export function invalidateBrowseSnapshot(): void {
   cachedSnapshot = null;
@@ -212,10 +245,19 @@ export function invalidateBrowseSnapshot(): void {
 }
 
 function buildCurrentStockMap(currentStock: CurrentStockResponse[]): Map<number, number> {
-  return new Map(currentStock.map(entry => [
-    Number(entry.product_id),
-    Number(entry.amount_aggregated ?? entry.amount ?? 0),
-  ]));
+  return new Map(currentStock.map(entry => {
+    const amount = Number(entry.amount_aggregated ?? entry.amount ?? 0);
+    return [Number(entry.product_id), Number.isFinite(amount) ? amount : 0];
+  }));
+}
+
+function toGrocyProductId(id: Product['id']): number | null {
+  const value = Number(id);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function isDeviceLabelId(id: string): boolean {
+  return LABEL_ID_PATTERN.test(id) && id !== UNLABELED_ID;
 }
 
 async function buildSnapshot(deps: DeviceBrowseDeps): Promise<BrowseSnapshot> {
@@ -227,33 +269,49 @@ async function buildSnapshot(deps: DeviceBrowseDeps): Promise<BrowseSnapshot> {
     deps.getCurrentStock(),
   ]);
 
-  const labelNameById = new Map(labels.map(label => [label.id, label.name]));
+  // A label the device cannot address (over-long or unsafe id, or the
+  // reserved UNLABELED_ID sentinel) or that has no printable name is treated
+  // as nonexistent, so its products fall back to the synthetic unlabeled
+  // bucket below and stay reachable.
+  const labelNameById = new Map<string, string>();
+  for (const label of labels) {
+    const name = toDeviceName(label.name);
+    if (isDeviceLabelId(label.id) && name) {
+      labelNameById.set(label.id, name);
+    }
+  }
   const foodById = new Map(foods.map(food => [food.id, food]));
   const mealieFoodIdByGrocyProductId = new Map(mappings.map(m => [m.grocyProductId, m.mealieFoodId]));
+  const stockByGrocyProductId = buildCurrentStockMap(currentStock);
 
   // Every valid Grocy product resolves to exactly one bucket: mapping ->
-  // existing food -> existing label, else unlabeled. This also covers a
+  // existing food -> registered label, else unlabeled. This also covers a
   // stale mapping (deleted food) and a food whose labelId no longer exists
   // among the fetched labels, not just "no mapping".
-  const labelIdByGrocyProductId = new Map<number, string>();
+  const entries: BrowseEntry[] = [];
   for (const product of products) {
-    if (!product.id) {
+    const id = toGrocyProductId(product.id);
+    if (id === null) {
       continue;
     }
-    const grocyProductId = Number(product.id);
-    const mealieFoodId = mealieFoodIdByGrocyProductId.get(grocyProductId);
+    const mealieFoodId = mealieFoodIdByGrocyProductId.get(id);
     const food = mealieFoodId ? foodById.get(mealieFoodId) : undefined;
-    const labelId = food?.labelId;
-    const resolved = labelId && labelNameById.has(labelId) ? labelId : UNLABELED_ID;
-    labelIdByGrocyProductId.set(grocyProductId, resolved);
+    const foodLabelId = food?.labelId;
+    const name = toDeviceName(product.name) || FALLBACK_PRODUCT_NAME;
+    entries.push({
+      id,
+      name,
+      letter: letterBucketFor(name),
+      labelId: foodLabelId && labelNameById.has(foodLabelId) ? foodLabelId : UNLABELED_ID,
+      stockAmount: stockByGrocyProductId.get(id) ?? 0,
+    });
   }
+  entries.sort((a, b) => compareNormalizedNames(a.name, b.name) || (a.id - b.id));
 
   return {
     builtAt: Date.now(),
-    products,
+    entries,
     labelNameById,
-    labelIdByGrocyProductId,
-    stockByGrocyProductId: buildCurrentStockMap(currentStock),
   };
 }
 
@@ -300,18 +358,35 @@ async function getSnapshot(deps: DeviceBrowseDeps): Promise<BrowseSnapshot> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Truncate to at most `maxBytes` UTF-8 bytes without splitting a multi-byte
- * codepoint (backs off over continuation bytes 0x80-0xBF). */
-function truncateUtf8(value: string, maxBytes: number): string {
-  const buf = Buffer.from(value, 'utf8');
-  if (buf.length <= maxBytes) {
-    return value;
+/**
+ * Make an externally-sourced name safe for the device: well-formed (a lone
+ * UTF-16 surrogate becomes U+FFFD instead of a 6-byte `\udXXX` escape),
+ * control characters replaced by a single space, and truncated on a code
+ * point boundary to at most MAX_NAME_BYTES decoded UTF-8 bytes and at most
+ * MAX_ENCODED_NAME_BYTES bytes inside a serialized JSON string. Returns ''
+ * when nothing printable is left; callers pick the fallback.
+ */
+export function toDeviceName(raw: string | null | undefined): string {
+  const cleaned = Buffer.from(raw ?? '', 'utf8').toString('utf8')
+    .replace(CONTROL_CHARS, ' ')
+    .replace(/ {2,}/g, ' ')
+    .trim();
+
+  let decodedBytes = 0;
+  let encodedBytes = 0;
+  let result = '';
+  for (const char of cleaned) {
+    const charBytes = Buffer.byteLength(char, 'utf8');
+    // JSON.stringify(char) adds the two surrounding quotes.
+    const charEncodedBytes = Buffer.byteLength(JSON.stringify(char), 'utf8') - 2;
+    if (decodedBytes + charBytes > MAX_NAME_BYTES || encodedBytes + charEncodedBytes > MAX_ENCODED_NAME_BYTES) {
+      break;
+    }
+    decodedBytes += charBytes;
+    encodedBytes += charEncodedBytes;
+    result += char;
   }
-  let end = maxBytes;
-  while (end > 0 && (buf[end] & 0xc0) === 0x80) {
-    end -= 1;
-  }
-  return buf.subarray(0, end).toString('utf8');
+  return result.trimEnd();
 }
 
 /** 'a'-'z' -> uppercase; anything else (digits, symbols, non-Latin, empty) -> '#'. */
@@ -332,6 +407,10 @@ function clampOffset(offset: number | undefined): number {
   return Math.max(offset ?? 0, 0);
 }
 
+function toProductRef(entry: BrowseEntry): DeviceBrowseProductsResult['results'][number] {
+  return { id: entry.id, name: entry.name, stockAmount: entry.stockAmount };
+}
+
 function paginate<T>(items: T[], offset: number, limit: number): { page: T[]; total: number; hasMore: boolean } {
   const total = items.length;
   const page = items.slice(offset, offset + limit);
@@ -346,12 +425,8 @@ export async function listDeviceLabels(deps: DeviceBrowseDeps = defaultDeps): Pr
   const snapshot = await getSnapshot(deps);
 
   const countByLabelId = new Map<string, number>();
-  for (const product of snapshot.products) {
-    if (!product.id) {
-      continue;
-    }
-    const labelId = snapshot.labelIdByGrocyProductId.get(Number(product.id)) ?? UNLABELED_ID;
-    countByLabelId.set(labelId, (countByLabelId.get(labelId) ?? 0) + 1);
+  for (const entry of snapshot.entries) {
+    countByLabelId.set(entry.labelId, (countByLabelId.get(entry.labelId) ?? 0) + 1);
   }
 
   const realBuckets: DeviceLabelBucket[] = [];
@@ -361,7 +436,7 @@ export async function listDeviceLabels(deps: DeviceBrowseDeps = defaultDeps): Pr
     }
     const name = snapshot.labelNameById.get(labelId);
     if (name) {
-      realBuckets.push({ id: labelId, name: truncateUtf8(name, MAX_NAME_BYTES), count });
+      realBuckets.push({ id: labelId, name, count });
     }
   }
 
@@ -389,12 +464,8 @@ export async function listDeviceLetters(deps: DeviceBrowseDeps = defaultDeps): P
   const snapshot = await getSnapshot(deps);
 
   const countByLetter = new Map<string, number>();
-  for (const product of snapshot.products) {
-    if (!product.id || !product.name) {
-      continue;
-    }
-    const letter = letterBucketFor(product.name);
-    countByLetter.set(letter, (countByLetter.get(letter) ?? 0) + 1);
+  for (const entry of snapshot.entries) {
+    countByLetter.set(entry.letter, (countByLetter.get(entry.letter) ?? 0) + 1);
   }
 
   const letters: DeviceLetterBucket[] = [...LETTERS, OTHER_LETTER].map(letter => ({
@@ -419,20 +490,9 @@ export async function listDeviceProductsByLabel(
   const offset = clampOffset(params.offset);
   const limit = clampLimit(params.limit);
 
-  const matching = snapshot.products
-    .filter(product => {
-      if (!product.id) {
-        return false;
-      }
-      const labelId = snapshot.labelIdByGrocyProductId.get(Number(product.id)) ?? UNLABELED_ID;
-      return labelId === params.labelId;
-    })
-    .map(product => ({
-      id: Number(product.id),
-      name: truncateUtf8(product.name || 'Unknown', MAX_NAME_BYTES),
-      stockAmount: snapshot.stockByGrocyProductId.get(Number(product.id)) ?? 0,
-    }))
-    .sort((a, b) => compareNormalizedNames(a.name, b.name) || (a.id - b.id));
+  const matching = snapshot.entries
+    .filter(entry => entry.labelId === params.labelId)
+    .map(toProductRef);
 
   const { page, total, hasMore } = paginate(matching, offset, limit);
   return { results: page, total, offset, hasMore };
@@ -453,14 +513,9 @@ export async function listDeviceProductsByLetter(
   const limit = clampLimit(params.limit);
   const letter = params.letter.toUpperCase();
 
-  const matching = snapshot.products
-    .filter(product => product.id && product.name && letterBucketFor(product.name) === letter)
-    .map(product => ({
-      id: Number(product.id),
-      name: truncateUtf8(product.name || 'Unknown', MAX_NAME_BYTES),
-      stockAmount: snapshot.stockByGrocyProductId.get(Number(product.id)) ?? 0,
-    }))
-    .sort((a, b) => compareNormalizedNames(a.name, b.name) || (a.id - b.id));
+  const matching = snapshot.entries
+    .filter(entry => entry.letter === letter)
+    .map(toProductRef);
 
   const { page, total, hasMore } = paginate(matching, offset, limit);
   return { results: page, total, offset, hasMore };
