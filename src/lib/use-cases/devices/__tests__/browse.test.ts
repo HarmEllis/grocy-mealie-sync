@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CurrentStockResponse, Product } from '@/lib/grocy/types';
+import { CancelablePromise, CancelError } from '@/lib/mealie';
 import type { MultiPurposeLabelSummary } from '@/lib/mealie/client/models/MultiPurposeLabelSummary';
+import { DeviceUpstreamTimeoutError } from '../scanner';
 import {
+  cancelOnAbort,
   drainPages,
   invalidateBrowseSnapshot,
   listDeviceLabels,
@@ -349,6 +352,57 @@ describe('shared snapshot build', () => {
     // The slot was released, so the next call builds again.
     await listDeviceLabels(deps);
     expect(deps.listGrocyProducts).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('cancelOnAbort', () => {
+  it('cancels the request on abort and rejects with the abort reason', async () => {
+    const onCancelHandler = vi.fn();
+    const request = new CancelablePromise<string>((_resolve, _reject, onCancel) => {
+      onCancel(onCancelHandler);
+    });
+    const controller = new AbortController();
+    const reason = new DeviceUpstreamTimeoutError('Browse snapshot build', 60_000);
+
+    const pending = cancelOnAbort(request, controller.signal);
+    controller.abort(reason);
+
+    await expect(pending).rejects.toBe(reason);
+    expect(onCancelHandler).toHaveBeenCalledTimes(1);
+    expect(request.isCancelled).toBe(true);
+  });
+
+  it('passes through the error of a request that fails without an abort', async () => {
+    const error = new CancelError('Request aborted');
+    const request = new CancelablePromise<string>((_resolve, reject) => reject(error));
+    await expect(cancelOnAbort(request, new AbortController().signal)).rejects.toBe(error);
+  });
+});
+
+describe('snapshot abandonment with a cancelled generated request', () => {
+  afterEach(() => {
+    invalidateBrowseSnapshot();
+    vi.useRealTimers();
+  });
+
+  it('rejects a caller joining near the 60s mark with the timeout error, not CancelError', async () => {
+    vi.useFakeTimers();
+    const deps = createDeps({
+      // A Mealie request that never answers on its own, like a hung upstream.
+      listMealieFoods: vi.fn((signal: AbortSignal) => cancelOnAbort(new CancelablePromise<DeviceBrowseMealieFood[]>(() => {}), signal)),
+    });
+
+    const first = listDeviceLabels(deps);
+    const firstExpectation = expect(first).rejects.toBeInstanceOf(DeviceUpstreamTimeoutError);
+    await vi.advanceTimersByTimeAsync(55_000);
+    await firstExpectation;
+
+    // Joins the same build 5s before it is abandoned, inside its own 6s wait.
+    const late = listDeviceLabels(deps);
+    const lateExpectation = expect(late).rejects.toBeInstanceOf(DeviceUpstreamTimeoutError);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await lateExpectation;
+    expect(deps.listGrocyProducts).toHaveBeenCalledTimes(1);
   });
 });
 

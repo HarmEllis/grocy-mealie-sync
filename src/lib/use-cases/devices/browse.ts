@@ -162,8 +162,11 @@ export async function drainPages<TItem>(
   return items;
 }
 
-/** Await a generated-client request, cancelling it when `signal` aborts. */
-async function cancelOnAbort<T>(request: CancelablePromise<T>, signal: AbortSignal): Promise<T> {
+/** Await a generated-client request, cancelling it when `signal` aborts.
+ * A request that fails because of the abort rejects with the abort reason
+ * (e.g. the abandonment timeout, a 504) rather than the client's generic
+ * CancelError. */
+export async function cancelOnAbort<T>(request: CancelablePromise<T>, signal: AbortSignal): Promise<T> {
   const cancel = () => request.cancel();
   if (signal.aborted) {
     cancel();
@@ -171,6 +174,9 @@ async function cancelOnAbort<T>(request: CancelablePromise<T>, signal: AbortSign
   signal.addEventListener('abort', cancel, { once: true });
   try {
     return await request;
+  } catch (error) {
+    signal.throwIfAborted();
+    throw error;
   } finally {
     signal.removeEventListener('abort', cancel);
   }
