@@ -18,7 +18,7 @@ import { db } from '@/lib/db';
 import { productMappings } from '@/lib/db/schema';
 import { normalizeMatchText } from '@/lib/fuzzy-match';
 import { getCurrentStock, getGrocyEntities, type CurrentStockResponse, type Product } from '@/lib/grocy/types';
-import { GroupsMultiPurposeLabelsService, RecipesFoodsService } from '@/lib/mealie';
+import { GroupsMultiPurposeLabelsService, RecipesFoodsService, type CancelablePromise } from '@/lib/mealie';
 import type { MultiPurposeLabelSummary } from '@/lib/mealie/client/models/MultiPurposeLabelSummary';
 import { DeviceUpstreamTimeoutError } from './scanner';
 
@@ -75,11 +75,16 @@ const OTHER_LETTER = '#';
 
 const DRAIN_PAGE_SIZE = 500;
 const SNAPSHOT_TTL_MS = 30_000;
-/* Leaves margin under the firmware's fixed 8s HTTP timeout for the request
- * round-trip itself; the snapshot build (page-draining Mealie foods/labels +
- * two Grocy calls) must not be allowed to run unbounded for a large catalogue
- * or a slow upstream. */
+/* How long one request waits for the snapshot. Leaves margin under the
+ * firmware's fixed 8s HTTP timeout for the request round-trip itself. A
+ * request that gives up does not stop the build: it keeps running as the one
+ * shared build and caches its result, so a retry can reuse that work instead
+ * of starting an overlapping build. */
 const SNAPSHOT_BUILD_TIMEOUT_MS = 6_000;
+/* A build still running after this long is abandoned: its page loops stop
+ * before the next page, its in-flight Mealie request is cancelled, and the
+ * next request starts a fresh build instead of waiting on a hung one. */
+const SNAPSHOT_BUILD_ABANDON_MS = 60_000;
 
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 20;
@@ -122,8 +127,10 @@ export interface DeviceBrowseProductMapping {
 export interface DeviceBrowseDeps {
   listGrocyProducts: () => Promise<Product[]>;
   listProductMappings: () => Promise<DeviceBrowseProductMapping[]>;
-  listMealieFoods: () => Promise<DeviceBrowseMealieFood[]>;
-  listMealieLabels: () => Promise<MultiPurposeLabelSummary[]>;
+  /** Paginated; must stop paging once `signal` is aborted. */
+  listMealieFoods: (signal: AbortSignal) => Promise<DeviceBrowseMealieFood[]>;
+  /** Paginated; must stop paging once `signal` is aborted. */
+  listMealieLabels: (signal: AbortSignal) => Promise<MultiPurposeLabelSummary[]>;
   getCurrentStock: () => Promise<CurrentStockResponse[]>;
 }
 
@@ -132,15 +139,18 @@ export interface DeviceBrowseDeps {
  * src/lib/use-cases/units/manage.ts (listAllMealieShoppingItems /
  * listAllMealieRecipeSummaries): fixed page size, stop once a page comes back
  * shorter than requested. This is robust even if `total_pages` is absent or
- * wrong, unlike relying on a single very-large `perPage` request.
+ * wrong, unlike relying on a single very-large `perPage` request. Once
+ * `signal` is aborted no further page is requested.
  */
 export async function drainPages<TItem>(
   fetchPage: (page: number, perPage: number) => Promise<{ items?: TItem[] }>,
+  signal?: AbortSignal,
 ): Promise<TItem[]> {
   const items: TItem[] = [];
   let page = 1;
   // eslint-disable-next-line no-constant-condition
   while (true) {
+    signal?.throwIfAborted();
     const response = await fetchPage(page, DRAIN_PAGE_SIZE);
     const pageItems = response.items ?? [];
     items.push(...pageItems);
@@ -152,25 +162,23 @@ export async function drainPages<TItem>(
   return items;
 }
 
-async function fetchAllMealieLabels(): Promise<MultiPurposeLabelSummary[]> {
-  return drainPages(async (page, perPage) => {
-    const response = await GroupsMultiPurposeLabelsService.getAllApiGroupsLabelsGet(
-      undefined,
-      undefined,
-      undefined,
-      'asc',
-      undefined,
-      undefined,
-      page,
-      perPage,
-    );
-    return { items: response.items };
-  });
+/** Await a generated-client request, cancelling it when `signal` aborts. */
+async function cancelOnAbort<T>(request: CancelablePromise<T>, signal: AbortSignal): Promise<T> {
+  const cancel = () => request.cancel();
+  if (signal.aborted) {
+    cancel();
+  }
+  signal.addEventListener('abort', cancel, { once: true });
+  try {
+    return await request;
+  } finally {
+    signal.removeEventListener('abort', cancel);
+  }
 }
 
-async function fetchAllMealieFoods(): Promise<DeviceBrowseMealieFood[]> {
-  const rawFoods = await drainPages(async (page, perPage) => {
-    const response = await RecipesFoodsService.getAllApiFoodsGet(
+async function fetchAllMealieLabels(signal: AbortSignal): Promise<MultiPurposeLabelSummary[]> {
+  return drainPages(async (page, perPage) => {
+    const response = await cancelOnAbort(GroupsMultiPurposeLabelsService.getAllApiGroupsLabelsGet(
       undefined,
       undefined,
       undefined,
@@ -179,9 +187,25 @@ async function fetchAllMealieFoods(): Promise<DeviceBrowseMealieFood[]> {
       undefined,
       page,
       perPage,
-    );
+    ), signal);
     return { items: response.items };
-  });
+  }, signal);
+}
+
+async function fetchAllMealieFoods(signal: AbortSignal): Promise<DeviceBrowseMealieFood[]> {
+  const rawFoods = await drainPages(async (page, perPage) => {
+    const response = await cancelOnAbort(RecipesFoodsService.getAllApiFoodsGet(
+      undefined,
+      undefined,
+      undefined,
+      'asc',
+      undefined,
+      undefined,
+      page,
+      perPage,
+    ), signal);
+    return { items: response.items };
+  }, signal);
 
   return rawFoods
     .filter((food): food is typeof food & { id: string } => typeof food.id === 'string' && food.id.length > 0)
@@ -206,8 +230,8 @@ const defaultDeps: DeviceBrowseDeps = {
 // labels, current stock). Rebuilding it per request would run this cost at
 // least twice per browse session inside the firmware's 8s HTTP timeout, so a
 // short-TTL in-process snapshot is shared across all four use-cases below.
-// Concurrent callers during a rebuild share the same in-flight promise so a
-// burst of requests doesn't trigger duplicate simultaneous builds.
+// At most one build runs at a time: concurrent callers, and callers arriving
+// after an earlier caller's deadline expired, all wait on the same build.
 // ---------------------------------------------------------------------------
 
 /** One Grocy product as the device sees it, computed once per snapshot so
@@ -232,7 +256,7 @@ interface BrowseSnapshot {
 }
 
 let cachedSnapshot: BrowseSnapshot | null = null;
-let inFlightBuild: Promise<BrowseSnapshot> | null = null;
+let inFlightBuild: { promise: Promise<BrowseSnapshot>; controller: AbortController } | null = null;
 
 /**
  * Force the next browse call to rebuild the snapshot instead of serving a
@@ -241,6 +265,7 @@ let inFlightBuild: Promise<BrowseSnapshot> | null = null;
  */
 export function invalidateBrowseSnapshot(): void {
   cachedSnapshot = null;
+  inFlightBuild?.controller.abort();
   inFlightBuild = null;
 }
 
@@ -260,12 +285,12 @@ function isDeviceLabelId(id: string): boolean {
   return LABEL_ID_PATTERN.test(id) && id !== UNLABELED_ID;
 }
 
-async function buildSnapshot(deps: DeviceBrowseDeps): Promise<BrowseSnapshot> {
+async function buildSnapshot(deps: DeviceBrowseDeps, signal: AbortSignal): Promise<BrowseSnapshot> {
   const [products, mappings, foods, labels, currentStock] = await Promise.all([
     deps.listGrocyProducts(),
     deps.listProductMappings(),
-    deps.listMealieFoods(),
-    deps.listMealieLabels(),
+    deps.listMealieFoods(signal),
+    deps.listMealieLabels(signal),
     deps.getCurrentStock(),
   ]);
 
@@ -316,9 +341,8 @@ async function buildSnapshot(deps: DeviceBrowseDeps): Promise<BrowseSnapshot> {
 }
 
 /** Same shape as scanner.ts's withTimeout: races the operation against a
- * timer and throws DeviceUpstreamTimeoutError (-> 504) on expiry. The
- * underlying network calls are not cancelled, only the wait — identical
- * caveat to the existing precedent in scanner.ts. */
+ * timer and throws DeviceUpstreamTimeoutError (-> 504) on expiry. Only the
+ * wait ends; the shared build keeps running (see startSnapshotBuild). */
 async function withDeadline<T>(operation: Promise<T>, timeoutMs: number, upstream: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -337,21 +361,50 @@ async function withDeadline<T>(operation: Promise<T>, timeoutMs: number, upstrea
   }
 }
 
+function startSnapshotBuild(deps: DeviceBrowseDeps): NonNullable<typeof inFlightBuild> {
+  const controller = new AbortController();
+  const abandonTimer = setTimeout(() => {
+    controller.abort(new DeviceUpstreamTimeoutError('Browse snapshot build', SNAPSHOT_BUILD_ABANDON_MS));
+  }, SNAPSHOT_BUILD_ABANDON_MS);
+  abandonTimer.unref?.();
+
+  const build: NonNullable<typeof inFlightBuild> = {
+    controller,
+    promise: buildSnapshot(deps, controller.signal)
+      .then(snapshot => {
+        // An abandoned or invalidated build no longer owns the slot and must
+        // not overwrite what a newer build caches.
+        if (inFlightBuild === build) {
+          cachedSnapshot = snapshot;
+        }
+        return snapshot;
+      })
+      .catch((error: unknown) => {
+        // Stop the sibling page loops of a build that already failed.
+        controller.abort(error);
+        throw error;
+      })
+      .finally(() => {
+        clearTimeout(abandonTimer);
+        if (inFlightBuild === build) {
+          inFlightBuild = null;
+        }
+      }),
+  };
+  controller.signal.addEventListener('abort', () => {
+    if (inFlightBuild === build) {
+      inFlightBuild = null;
+    }
+  }, { once: true });
+  return build;
+}
+
 async function getSnapshot(deps: DeviceBrowseDeps): Promise<BrowseSnapshot> {
   if (cachedSnapshot && Date.now() - cachedSnapshot.builtAt < SNAPSHOT_TTL_MS) {
     return cachedSnapshot;
   }
-  if (!inFlightBuild) {
-    inFlightBuild = withDeadline(buildSnapshot(deps), SNAPSHOT_BUILD_TIMEOUT_MS, 'Browse snapshot build')
-      .then(snapshot => {
-        cachedSnapshot = snapshot;
-        return snapshot;
-      })
-      .finally(() => {
-        inFlightBuild = null;
-      });
-  }
-  return inFlightBuild;
+  inFlightBuild ??= startSnapshotBuild(deps);
+  return withDeadline(inFlightBuild.promise, SNAPSHOT_BUILD_TIMEOUT_MS, 'Browse snapshot build');
 }
 
 // ---------------------------------------------------------------------------
