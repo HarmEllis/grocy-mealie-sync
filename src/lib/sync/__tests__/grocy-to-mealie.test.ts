@@ -49,6 +49,10 @@ vi.mock('../../shop/low-stock-accounting', () => ({
   loadLowStockAdjustments: vi.fn(() => ({ accounted: [], frozenProductIds: new Set() })),
 }));
 
+vi.mock('../../shop/context', () => ({
+  loadUnitContext: vi.fn(),
+}));
+
 vi.mock('../state', () => ({
   getSyncState: vi.fn(),
   saveSyncState: vi.fn(),
@@ -93,9 +97,12 @@ import { getSyncState, saveSyncState } from '../state';
 import { fetchAllMealieShoppingItems } from '../helpers';
 import { syncMealieInPossessionFromGrocy } from '../mealie-in-possession';
 import { log } from '../../logger';
+import { loadUnitContext } from '../../shop/context';
+import { emptyUnitContext, type UnitContext } from '../../shop/units';
 
 // Type-safe mock accessors
 const mockedGetGrocyEntities = vi.mocked(getGrocyEntities);
+const mockedLoadUnitContext = vi.mocked(loadUnitContext);
 const mockedGetVolatileStock = vi.mocked(getVolatileStock);
 const mockedGetCurrentStock = vi.mocked(getCurrentStock);
 const mockedResolveShoppingListId = vi.mocked(resolveShoppingListId);
@@ -163,6 +170,8 @@ describe('pollGrocyForMissingStock', () => {
     mockedGetGrocyEntities.mockResolvedValue([
       { id: 101, name: 'Milk', qu_id_stock: 10, qu_id_purchase: 10 },
     ] as any);
+    // No conversion metadata: rows in other units cannot be converted.
+    mockedLoadUnitContext.mockResolvedValue(emptyUnitContext());
 
     // Default DB: mapping exists, no unit mapping
     setupDbMock([DEFAULT_MAPPING], []);
@@ -372,6 +381,73 @@ describe('pollGrocyForMissingStock', () => {
         expect(mockedCreate).toHaveBeenCalledTimes(1);
         expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: 'mealie-pak', quantity: created }));
       }
+    });
+
+    describe('with a conversion for the row in another unit', () => {
+      // Milk counted in packs; 1 pak = 1000 ml for this product.
+      const milkContext = (): UnitContext => {
+        const ctx = emptyUnitContext();
+        ctx.grocyProducts.set(101, { id: 101, name: 'Milk', quIdStock: 3, quIdPurchase: 3, parentProductId: null, noOwnStock: false });
+        ctx.unitMappings.set('mealie-pak', { grocyUnitId: 3, factor: 1 });
+        ctx.unitMappings.set('mealie-ml', { grocyUnitId: 17, factor: 1 });
+        ctx.grocyConversions.push({ fromQuId: 3, toQuId: 17, factor: 1000, productId: 101 });
+        return ctx;
+      };
+      const pollWith = async (options: { ensureAllPresent: boolean; previous: number; current: number; ml: number }) => {
+        mockedResolveEnsureLowStockOnMealieList.mockResolvedValue(options.ensureAllPresent);
+        mockedLoadUnitContext.mockResolvedValue(milkContext());
+        setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 3, mealieUnitId: 'mealie-pak' })]);
+        mockedGetGrocyEntities.mockResolvedValue([
+          { id: 101, name: 'Milk', qu_id_stock: 3, qu_id_purchase: 3 },
+        ] as any);
+        mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: options.previous } }));
+        mockedGetVolatileStock.mockResolvedValue({
+          missing_products: [mockMissingProduct({ id: 101, amount_missing: options.current })],
+        });
+        mockedFetchItems.mockResolvedValue([
+          mockMealieShoppingItem({ id: 'user-row', foodId: 'food-1', unitId: 'mealie-ml', quantity: options.ml, checked: false }),
+        ]);
+        await pollGrocyForMissingStock();
+        expect(mockedUpdate).not.toHaveBeenCalled();
+        expect(mockedDelete).not.toHaveBeenCalled();
+      };
+
+      it.each([true, false])('adds what 1000 ml leaves missing when the shortage grows to 2 packs (presence %s)', async ensureAllPresent => {
+        await pollWith({ ensureAllPresent, previous: 1, current: 2, ml: 1000 });
+        expect(mockedCreate).toHaveBeenCalledTimes(1);
+        expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: 'mealie-pak', quantity: 1 }));
+      });
+
+      it('adds nothing when 1000 ml covers a shrinking shortage', async () => {
+        await pollWith({ ensureAllPresent: true, previous: 2, current: 1, ml: 1000 });
+        expect(mockedCreate).not.toHaveBeenCalled();
+      });
+
+      it('recreates what an unrelated small row leaves missing after the sync row was removed', async () => {
+        await pollWith({ ensureAllPresent: false, previous: 10, current: 11, ml: 100 });
+        expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: 'mealie-pak', quantity: 10.9 }));
+      });
+
+      it('restores an unchanged shortage that an unrelated small row does not cover', async () => {
+        await pollWith({ ensureAllPresent: true, previous: 2, current: 2, ml: 100 });
+        expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: 'mealie-pak', quantity: 1.9 }));
+      });
+
+      it('falls back to adding only the increase when the conversions cannot be loaded', async () => {
+        mockedResolveEnsureLowStockOnMealieList.mockResolvedValue(true);
+        setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 3, mealieUnitId: 'mealie-pak' })]);
+        mockedGetGrocyEntities.mockResolvedValue([{ id: 101, name: 'Milk', qu_id_stock: 3, qu_id_purchase: 3 }] as any);
+        mockedLoadUnitContext.mockRejectedValue(new Error('Grocy down'));
+        mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 10 } }));
+        mockedGetVolatileStock.mockResolvedValue({ missing_products: [mockMissingProduct({ id: 101, amount_missing: 11 })] });
+        mockedFetchItems.mockResolvedValue([
+          mockMealieShoppingItem({ id: 'user-row', foodId: 'food-1', unitId: 'mealie-ml', quantity: 100, checked: false }),
+        ]);
+
+        await pollGrocyForMissingStock();
+
+        expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: 'mealie-pak', quantity: 1 }));
+      });
     });
 
     it('still adds the unchanged shortage when only a recipe row in another unit is listed', async () => {

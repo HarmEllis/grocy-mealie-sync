@@ -248,6 +248,21 @@ describe('scanDeviceBarcode', () => {
       expect((await scanAmount(eggs)).shoppingListAmount).toBe(6);
     });
 
+    it.each([
+      ['fails', () => Promise.reject(new Error('Grocy down'))],
+      ['is too slow', () => new Promise<never>(() => {})],
+    ])('keeps the list check and directly convertible rows when loading conversions %s', async (_label, listGrocyConversions) => {
+      const deps = createDeps({
+        getStockByBarcode: vi.fn().mockResolvedValue(milk()),
+        findMealieFoodIdForGrocyProduct: vi.fn().mockResolvedValue('food-milk'),
+        checkShoppingListProduct: listed([{ quantity: 1000, unitId: 'mealie-ml' }, { quantity: 2, unitId: 'mealie-pak' }]),
+        listUnitMappings: vi.fn().mockResolvedValue(milkMappings),
+        listGrocyConversions: vi.fn(listGrocyConversions),
+      });
+
+      expect(await scanAmount(deps)).toMatchObject({ onShoppingList: true, shoppingListAmount: 2 });
+    });
+
     it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])('skips rows whose unit mapping has factor %s', async factor => {
       const deps = createDeps({
         getStockByBarcode: vi.fn().mockResolvedValue(milk()),

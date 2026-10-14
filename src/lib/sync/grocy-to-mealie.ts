@@ -15,6 +15,8 @@ import { syncMealieInPossessionFromGrocy, type MealieInPossessionSyncResult } fr
 import { getSyncState, saveSyncState, saveSyncStateConsumingRestocks } from './state';
 import { loadLowStockAdjustments, type LowStockAdjustments } from '../shop/low-stock-accounting';
 import { fetchAllMealieShoppingItems } from './helpers';
+import { loadUnitContext } from '../shop/context';
+import { resolveCheckOffAmount, type UnitContext } from '../shop/units';
 import { resolveStockUnitLabelFor, shoppingItemUnitId, toStockLabelQuantity, type StockUnitLabel } from './shopping-item';
 import { eq } from 'drizzle-orm';
 import type { HistoryEventInput } from '../history-store';
@@ -47,6 +49,8 @@ interface AdjustMealieShoppingItemOptions {
   subProducts?: SubProductItem[];
   /** Grocy quantity unit names, loaded at most once per poll. Required so no caller can skip the count-unit rule. */
   unitNames: () => Promise<Map<number, string>>;
+  /** Unit metadata for converting rows in other units, loaded at most once per poll and only when needed. */
+  unitContext?: () => Promise<UnitContext>;
 }
 
 interface EffectiveMissingEntry {
@@ -152,6 +156,8 @@ export async function pollGrocyForMissingStock(
         throw error;
       }
       const unitNames = async () => grocyUnitNames;
+      let unitContextPromise: Promise<UnitContext> | null = null;
+      const unitContext = () => (unitContextPromise ??= loadUnitContext([...grocyProductsById.values()]));
 
       // Build parent lookup from current products
       const parentByProductId = new Map<number, number>();
@@ -325,6 +331,7 @@ export async function pollGrocyForMissingStock(
           {
             grocyProductName: entry.effectiveName,
             unitNames,
+            unitContext,
             history: { events, recordedErrors, reason: `Grocy stock is below the minimum; ${entry.amount_missing} missing.`, deficit: entry.amount_missing },
             ...(syncSubProducts ? { subProducts: entry.subProducts } : {}),
           },
@@ -350,6 +357,7 @@ export async function pollGrocyForMissingStock(
           {
             grocyProductName: entry.effectiveName,
             unitNames,
+            unitContext,
             history: { events, recordedErrors, reason: `Grocy's stock shortage changed from ${effectivePreviousMap.get(entry.effectiveId)} to ${entry.amount_missing}.`, deficit: entry.amount_missing },
             createQuantityWhenMissing: ensureAllPresent ? entry.amount_missing : undefined,
             fullShortage: entry.amount_missing,
@@ -378,6 +386,7 @@ export async function pollGrocyForMissingStock(
           {
             grocyProductName: entry.effectiveName,
             unitNames,
+            unitContext,
             history: { events, recordedErrors, reason: `Grocy stock is still below the minimum; ensuring ${entry.amount_missing} missing are on the Mealie list.`, deficit: entry.amount_missing },
             createQuantityWhenMissing: entry.amount_missing,
             logWhenMappingMissing: logUnmappedPresenceCheckProducts,
@@ -423,6 +432,7 @@ export async function pollGrocyForMissingStock(
           {
             ...(syncSubProducts ? { subProducts: [] } : {}),
             unitNames,
+            unitContext,
             history: { events, recordedErrors, reason: 'Grocy stock reached its minimum again; removing its previous shopping list contribution.', deficit: 0 },
           },
         );
@@ -669,6 +679,7 @@ async function applyMealieShoppingAdjustment(
   const unitId = label.unitId;
   // Significant digits, not decimals: a small change with a large factor never rounds to zero.
   const toLabelQuantity = (stockAmount: number) => toStockLabelQuantity(label, stockAmount);
+  const stockDelta = delta;
   delta = toLabelQuantity(delta);
 
   // Only a row in the same unit without recipe references belongs to the sync:
@@ -763,21 +774,25 @@ async function applyMealieShoppingAdjustment(
       recordChange(`Changed "${mapping.mealieFoodName}" on the Mealie shopping list: ${currentQty} → ${newQty}.`, currentQty, newQty, existingItem.id);
     }
   } else {
-    // A row in another unit that is not from a recipe ("1000 ml" where stock
-    // counts packs) already shows the previous shortage. An unchanged or smaller
-    // shortage needs nothing more; a larger one adds only the change in the stock
-    // unit next to it, never the full shortage, and that row stays untouched.
-    const otherUnitRowListsShortage = ownRows.length > 0;
-    if (otherUnitRowListsShortage && delta <= 0) {
-      return 'ensured';
-    }
     // A positive change without any row of the sync's own (removed) recreates the
     // full shortage instead of only the change.
-    const createQuantity = otherUnitRowListsShortage
-      ? delta
-      : options.createQuantityWhenMissing !== undefined
-        ? toLabelQuantity(options.createQuantityWhenMissing)
-        : delta > 0 && options.fullShortage !== undefined ? toLabelQuantity(options.fullShortage) : delta;
+    let createQuantity = options.createQuantityWhenMissing !== undefined
+      ? toLabelQuantity(options.createQuantityWhenMissing)
+      : delta > 0 && options.fullShortage !== undefined ? toLabelQuantity(options.fullShortage) : delta;
+    // Rows in another unit that are not from a recipe ("1000 ml" where stock
+    // counts packs) stay untouched, but count towards the shortage: the sync's own
+    // row holds only what they leave missing. When a row cannot be converted
+    // exactly, they are taken to show the previous shortage, so only an increase
+    // is added.
+    if (ownRows.length > 0 && createQuantity > 0) {
+      const listed = await listedStockAmount(ownRows, mapping.grocyProductId, options.unitContext);
+      const shortage = options.createQuantityWhenMissing ?? options.fullShortage ?? stockDelta;
+      if (listed !== null) {
+        createQuantity = toLabelQuantity(shortage - listed);
+      } else {
+        createQuantity = delta;
+      }
+    }
     if (createQuantity <= 0) {
       return 'ensured';
     }
@@ -797,6 +812,33 @@ async function applyMealieShoppingAdjustment(
     recordChange(`Added "${mapping.mealieFoodName}" to the Mealie shopping list (quantity ${createQuantity}).`, 0, createQuantity, created?.createdItems?.[0]?.id);
   }
   return 'ensured';
+}
+
+/**
+ * The stock amount listed by rows in other units, converted like check-off
+ * converts them, or null when any row cannot be converted exactly (or the unit
+ * metadata cannot be loaded).
+ */
+async function listedStockAmount(
+  rows: MealieShoppingItem[],
+  grocyProductId: number,
+  unitContext: (() => Promise<UnitContext>) | undefined,
+): Promise<number | null> {
+  if (!unitContext) return null;
+  let ctx: UnitContext;
+  try {
+    ctx = await unitContext();
+  } catch (error) {
+    log.warn('[Grocy→Mealie] Could not load unit conversions; counting rows in other units as the previous shortage:', error);
+    return null;
+  }
+  let listed = 0;
+  for (const row of rows) {
+    const converted = resolveCheckOffAmount(ctx, grocyProductId, Number(row.quantity), shoppingItemUnitId(row));
+    if (!converted.ok) return null;
+    listed += converted.amount;
+  }
+  return Number.isFinite(listed) ? listed : null;
 }
 
 /** Products whose unwritable shortage was already reported in this process. */

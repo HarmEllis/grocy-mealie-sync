@@ -322,12 +322,14 @@ function resolveDeviceStockUnitLabel(
  * to stock and minimum: "1000 ml" and "2 pak" are 3 pak when 1 pak is 1000 ml.
  * Rows are converted like check-off converts them; a row that cannot be
  * converted exactly does not count. Grocy conversions are only fetched when a
- * row's unit maps to a unit other than the stock or purchase unit.
+ * row's unit maps to a unit other than the stock or purchase unit; when that
+ * fetch fails or exceeds `timeoutMs`, only rows that need no conversion count.
  */
 async function shoppingListAmountInStockUnit(
   details: ProductDetailsResponse,
   rows: Array<{ quantity: number; unitId: string | null }>,
   deps: DeviceScannerDeps,
+  timeoutMs: number,
 ): Promise<number> {
   const productId = Number(details.product?.id ?? 0);
   const { quIdStock, quIdPurchase } = stockUnitIds(details);
@@ -352,7 +354,16 @@ async function shoppingListAmountInStockUnit(
     return mapping !== undefined && mapping.grocyUnitId !== quIdStock && mapping.grocyUnitId !== quIdPurchase;
   });
   if (needsConversions) {
-    ctx.grocyConversions = grocyConversionInfos(await deps.listGrocyConversions());
+    try {
+      ctx.grocyConversions = grocyConversionInfos(
+        await withTimeout(deps.listGrocyConversions(), Math.max(timeoutMs, 0), 'Grocy unit conversions'),
+      );
+    } catch (error) {
+      log.warn('[DeviceAPI] Unit conversions unavailable; counting only rows without a conversion:', {
+        grocyProductId: productId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   let sum = 0;
@@ -383,15 +394,10 @@ async function getShoppingListState(
     return empty;
   }
   const startedAt = Date.now();
+  let check: Awaited<ReturnType<DeviceScannerDeps['checkShoppingListProduct']>>;
   try {
-    return await withTimeout(
-      (async () => {
-        const check = await deps.checkShoppingListProduct({ foodId: mealieFoodId });
-        // Keep the boolean from the check itself: a matching row with quantity 0 is
-        // still "on the list", so it must not be derived from the summed amount.
-        const shoppingListAmount = await shoppingListAmountInStockUnit(details, check.matches, deps);
-        return { onShoppingList: check.alreadyOnList, shoppingListAmount };
-      })(),
+    check = await withTimeout(
+      deps.checkShoppingListProduct({ foodId: mealieFoodId }),
       SCAN_SHOPPING_LIST_TIMEOUT_MS,
       'Mealie shopping list check',
     );
@@ -403,6 +409,21 @@ async function getShoppingListState(
     });
     return empty;
   }
+  // Keep the boolean from the check itself: a matching row with quantity 0 is
+  // still "on the list", so it must not be derived from the summed amount. The
+  // amount is cosmetic too: a failure converting it keeps the confirmed check.
+  let shoppingListAmount = 0;
+  try {
+    shoppingListAmount = await shoppingListAmountInStockUnit(
+      details, check.matches, deps, SCAN_SHOPPING_LIST_TIMEOUT_MS - elapsedSince(startedAt),
+    );
+  } catch (error) {
+    log.warn('[DeviceAPI] Shopping list amount skipped:', {
+      grocyProductId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return { onShoppingList: check.alreadyOnList, shoppingListAmount };
 }
 
 async function toDeviceProduct(
