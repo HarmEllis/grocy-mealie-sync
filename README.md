@@ -428,7 +428,7 @@ For the default unit, the dropdown only shows units that were synced from Mealie
 - Newly missing products are added to the configured Mealie shopping list
 - The missing amount is a Grocy stock amount, so the row is labelled with the Mealie unit mapped to the Grocy stock unit (`qu_id_stock`); without such a mapping the row has no unit and shows a count
 - If an unchecked row for the product already exists in that same unit and did not come from a recipe, its quantity is updated instead of creating a duplicate. Recipe rows and rows in another unit (such as "400 g") are never changed; the sync adds its own row next to them
-- A row in another unit that did not come from a recipe (such as "1000 ml" for a product counted in packs) is taken to show the shortage that was already there. When the shortage grows, the sync's own row holds only the increase; when it stays the same or shrinks, nothing is added
+- A row in another unit that did not come from a recipe (such as "1000 ml" for a product counted in packs) counts towards the shortage, converted like a checked-off row: the sync's own row only holds what it leaves missing. When such a row cannot be converted exactly, it is taken to show the shortage that was already there, and the sync's own row holds only an increase
 
 ### Mealie → Grocy (checked items)
 - A checked row is booked in the Grocy stock unit. Rows in the stock unit are booked as they are; other units are converted through the app's unit mappings and Grocy's unit conversions, including one intermediate step (`1 kg` → `1000 g` → `1 bag` with a `1 bag = 1000 g` product conversion)
