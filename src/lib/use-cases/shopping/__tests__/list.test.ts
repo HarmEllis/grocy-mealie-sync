@@ -199,6 +199,87 @@ describe('shopping list use-cases', () => {
     });
   });
 
+  describe('merging by unit', () => {
+    const milkRows = () => [
+      mockMealieShoppingItem({ id: 'row-ml', shoppingListId: 'list-1', foodId: 'food-milk', quantity: 1000, checked: false, unitId: 'unit-ml' }),
+      mockMealieShoppingItem({
+        id: 'row-recipe', shoppingListId: 'list-1', foodId: 'food-milk', quantity: 1, checked: false, unitId: 'unit-pak',
+        recipeReferences: [{ id: 'ref-1', shoppingListItemId: 'row-recipe', recipeId: 'recipe-1' }] as never,
+      }),
+      // Mealie may send only the nested unit.
+      mockMealieShoppingItem({ id: 'row-pak', shoppingListId: 'list-1', foodId: 'food-milk', quantity: 2, checked: false, unitId: null as never, unit: { id: 'unit-pak', name: 'pak' } as never }),
+    ];
+
+    it('merges a requested unit only into a row in that unit without recipe references', async () => {
+      const updates: Array<{ itemId: string; quantity?: number; unitId?: string }> = [];
+      const deps = createDeps({ fetchShoppingItems: async () => milkRows() });
+      const result = await addShoppingListItem({ foodId: 'food-milk', quantity: 1, unitId: 'unit-pak' }, {
+        ...deps,
+        updateShoppingItem: async (itemId, body) => {
+          updates.push({ itemId, quantity: body.quantity, unitId: body.unitId ?? undefined });
+          return deps.updateShoppingItem(itemId, body);
+        },
+      });
+
+      expect(updates).toEqual([{ itemId: 'row-pak', quantity: 3, unitId: 'unit-pak' }]);
+      expect(result.item).toMatchObject({ id: 'row-pak', quantity: 3, unitId: 'unit-pak' });
+    });
+
+    it('creates a row in the requested unit when only other units or recipe rows are listed', async () => {
+      const created: Array<{ quantity?: number; unitId?: string | null }> = [];
+      const deps = createDeps({ fetchShoppingItems: async () => milkRows().filter(row => row.id !== 'row-pak') });
+      const result = await addShoppingListItem({ foodId: 'food-milk', quantity: 1, unitId: 'unit-pak' }, {
+        ...deps,
+        updateShoppingItem: async () => { throw new Error('must not update'); },
+        createShoppingItem: async body => {
+          created.push({ quantity: body.quantity, unitId: body.unitId });
+          return deps.createShoppingItem(body);
+        },
+      });
+
+      expect(created).toEqual([{ quantity: 1, unitId: 'unit-pak' }]);
+      expect(result.action).toBe('created');
+    });
+
+    it('treats a null unit as "no unit" when choosing the row to merge into', async () => {
+      const created: Array<{ unitId?: string | null }> = [];
+      const deps = createDeps({ fetchShoppingItems: async () => milkRows() });
+      await addShoppingListItem({ foodId: 'food-milk', quantity: 1, unitId: null }, {
+        ...deps,
+        updateShoppingItem: async () => { throw new Error('must not update'); },
+        createShoppingItem: async body => {
+          created.push({ unitId: body.unitId });
+          return deps.createShoppingItem(body);
+        },
+      });
+
+      expect(created).toEqual([{ unitId: undefined }]);
+    });
+
+    it('keeps the merged row\'s unit when no unit is requested', async () => {
+      const updates: Array<{ itemId: string; unitId?: string | null }> = [];
+      const deps = createDeps({ fetchShoppingItems: async () => milkRows().filter(row => row.id === 'row-pak') });
+      await addShoppingListItem({ foodId: 'food-milk', quantity: 1 }, {
+        ...deps,
+        updateShoppingItem: async (itemId, body) => {
+          updates.push({ itemId, unitId: body.unitId });
+          return deps.updateShoppingItem(itemId, body);
+        },
+      });
+
+      expect(updates).toEqual([{ itemId: 'row-pak', unitId: 'unit-pak' }]);
+    });
+
+    it('reports the nested unit id of a row', async () => {
+      const result = await checkShoppingListProduct(
+        { foodId: 'food-milk' },
+        createDeps({ fetchShoppingItems: async () => milkRows().filter(row => row.id === 'row-pak') }),
+      );
+
+      expect(result.matches[0]).toMatchObject({ id: 'row-pak', unitId: 'unit-pak' });
+    });
+  });
+
   it('creates a new shopping list item when there is no unchecked duplicate', async () => {
     const result = await addShoppingListItem(
       { foodId: 'food-3', quantity: 2 },
