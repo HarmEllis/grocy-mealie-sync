@@ -433,20 +433,31 @@ describe('pollGrocyForMissingStock', () => {
         expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: 'mealie-pak', quantity: 1.9 }));
       });
 
-      it('falls back to adding only the increase when the conversions cannot be loaded', async () => {
-        mockedResolveEnsureLowStockOnMealieList.mockResolvedValue(true);
+      it('retries instead of guessing when the conversions cannot be loaded, then writes the full gap', async () => {
+        mockedResolveEnsureLowStockOnMealieList.mockResolvedValue(false);
         setupDbMock([DEFAULT_MAPPING], [mockUnitMapping({ grocyUnitId: 3, mealieUnitId: 'mealie-pak' })]);
         mockedGetGrocyEntities.mockResolvedValue([{ id: 101, name: 'Milk', qu_id_stock: 3, qu_id_purchase: 3 }] as any);
-        mockedLoadUnitContext.mockRejectedValue(new Error('Grocy down'));
-        mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 10 } }));
         mockedGetVolatileStock.mockResolvedValue({ missing_products: [mockMissingProduct({ id: 101, amount_missing: 11 })] });
         mockedFetchItems.mockResolvedValue([
           mockMealieShoppingItem({ id: 'user-row', foodId: 'food-1', unitId: 'mealie-ml', quantity: 100, checked: false }),
         ]);
 
+        // First poll: Grocy conversions are down. Nothing is written and the
+        // previous shortage stays the snapshot.
+        mockedGetSyncState.mockResolvedValue(mockSyncState({ grocyBelowMinStock: { 101: 10 } }));
+        mockedLoadUnitContext.mockRejectedValue(new Error('Grocy down'));
         await pollGrocyForMissingStock();
+        expect(mockedCreate).not.toHaveBeenCalled();
+        const saved = mockedSaveSyncState.mock.calls.at(-1)?.[0];
+        expect(saved?.grocyBelowMinStock).toEqual({ 101: 10 });
 
-        expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: 'mealie-pak', quantity: 1 }));
+        // Second poll: conversions are back, so the gap the 100 ml leaves is written.
+        mockedGetSyncState.mockResolvedValue(saved!);
+        mockedLoadUnitContext.mockResolvedValue(milkContext());
+        await pollGrocyForMissingStock();
+        expect(mockedCreate).toHaveBeenCalledTimes(1);
+        expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ unitId: 'mealie-pak', quantity: 10.9 }));
+        expect(mockedSaveSyncState.mock.calls.at(-1)?.[0].grocyBelowMinStock).toEqual({ 101: 11 });
       });
     });
 
