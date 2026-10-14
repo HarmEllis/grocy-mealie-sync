@@ -18,6 +18,7 @@ import {
   type ProductBarcode,
   type ProductDetailsResponse,
   type QuantityUnit,
+  type QuantityUnitConversion,
 } from '@/lib/grocy/types';
 import { resolveDefaultUnit } from '@/lib/settings';
 import { addStock, consumeStock, defaultInventoryDeps, markStockOpened } from '@/lib/use-cases/inventory/manage';
@@ -31,6 +32,9 @@ import {
 } from '@/lib/use-cases/shared/sync-lock';
 import { addShoppingListItem, checkShoppingListProduct } from '@/lib/use-cases/shopping/list';
 import { log } from '@/lib/logger';
+import { grocyConversionInfos } from '@/lib/shop/context';
+import { emptyUnitContext, resolveCheckOffAmount } from '@/lib/shop/units';
+import { resolveStockUnitLabelFor, toStockLabelQuantity, type StockUnitLabel } from '@/lib/sync/shopping-item';
 import { recordHistoryRun, type HistoryEventInput, type HistoryRunAction } from '@/lib/history-store';
 import { activityEvent, describeSyncError } from '@/lib/sync/activity';
 
@@ -128,6 +132,12 @@ export interface DeviceSearchResult {
 // Dependencies (injected for tests)
 // ---------------------------------------------------------------------------
 
+export interface DeviceUnitMapping {
+  mealieUnitId: string;
+  grocyUnitId: number;
+  conversionFactor: number;
+}
+
 export interface DeviceScannerDeps extends SyncLockDeps {
   recordHistory: typeof recordHistoryRun;
   getStockByBarcode: (barcode: string) => Promise<ProductDetailsResponse>;
@@ -140,6 +150,8 @@ export interface DeviceScannerDeps extends SyncLockDeps {
   findMealieFoodIdForGrocyProduct: (grocyProductId: number) => Promise<string | null>;
   checkShoppingListProduct: typeof checkShoppingListProduct;
   addShoppingListItem: typeof addShoppingListItem;
+  listUnitMappings: () => Promise<DeviceUnitMapping[]>;
+  listGrocyConversions: () => Promise<QuantityUnitConversion[]>;
   addStock: typeof addStock;
   consumeStock: typeof consumeStock;
   markStockOpened: typeof markStockOpened;
@@ -231,6 +243,10 @@ const defaultDeps: DeviceScannerDeps = {
   findMealieFoodIdForGrocyProduct,
   checkShoppingListProduct,
   addShoppingListItem,
+  listUnitMappings: async () => db
+    .select({ mealieUnitId: unitMappings.mealieUnitId, grocyUnitId: unitMappings.grocyUnitId, conversionFactor: unitMappings.conversionFactor })
+    .from(unitMappings),
+  listGrocyConversions: () => getGrocyEntities('quantity_unit_conversions'),
   addStock: params => addStock(params, lockedInventoryDeps),
   consumeStock: params => consumeStock(params, lockedInventoryDeps),
   markStockOpened: params => markStockOpened(params, lockedInventoryDeps),
@@ -278,33 +294,107 @@ interface ShoppingListState {
   shoppingListAmount: number;
 }
 
+const SHOPPING_LIST_AMOUNT_DECIMALS = 6;
+
+function stockUnitIds(details: ProductDetailsResponse): { quIdStock: number; quIdPurchase: number } {
+  return {
+    quIdStock: Number(details.product?.qu_id_stock ?? 0),
+    quIdPurchase: Number(details.product?.qu_id_purchase ?? 0),
+  };
+}
+
+/** The Mealie unit the product's stock amounts are written in on the shopping list. */
+function resolveDeviceStockUnitLabel(
+  details: ProductDetailsResponse,
+  mappings: DeviceUnitMapping[],
+): Promise<StockUnitLabel | null> {
+  const { quIdStock, quIdPurchase } = stockUnitIds(details);
+  return resolveStockUnitLabelFor({
+    quIdStock,
+    quIdPurchase,
+    stockUnitName: async () => details.quantity_unit_stock?.name,
+    mapping: mappings.find(mapping => mapping.grocyUnitId === quIdStock),
+  });
+}
+
+/**
+ * The listed amount in the product's stock unit, so the scanner can show it next
+ * to stock and minimum: "1000 ml" and "2 pak" are 3 pak when 1 pak is 1000 ml.
+ * Rows are converted like check-off converts them; a row that cannot be
+ * converted exactly does not count. Grocy conversions are only fetched when a
+ * row's unit maps to a unit other than the stock or purchase unit.
+ */
+async function shoppingListAmountInStockUnit(
+  details: ProductDetailsResponse,
+  rows: Array<{ quantity: number; unitId: string | null }>,
+  deps: DeviceScannerDeps,
+): Promise<number> {
+  const productId = Number(details.product?.id ?? 0);
+  const { quIdStock, quIdPurchase } = stockUnitIds(details);
+  if (rows.length === 0 || !(productId > 0) || !(quIdStock > 0)) return 0;
+
+  const ctx = emptyUnitContext();
+  ctx.grocyProducts.set(productId, {
+    id: productId,
+    name: details.product?.name ?? `Product #${productId}`,
+    quIdStock,
+    quIdPurchase: quIdPurchase > 0 ? quIdPurchase : null,
+    parentProductId: null,
+    noOwnStock: false,
+  });
+  const stockUnitName = details.quantity_unit_stock?.name;
+  if (stockUnitName) ctx.grocyUnitNames.set(quIdStock, stockUnitName);
+  for (const mapping of await deps.listUnitMappings()) {
+    ctx.unitMappings.set(mapping.mealieUnitId, { grocyUnitId: mapping.grocyUnitId, factor: mapping.conversionFactor });
+  }
+  const needsConversions = rows.some(row => {
+    const mapping = row.unitId ? ctx.unitMappings.get(row.unitId) : undefined;
+    return mapping !== undefined && mapping.grocyUnitId !== quIdStock && mapping.grocyUnitId !== quIdPurchase;
+  });
+  if (needsConversions) {
+    ctx.grocyConversions = grocyConversionInfos(await deps.listGrocyConversions());
+  }
+
+  let sum = 0;
+  for (const row of rows) {
+    const converted = resolveCheckOffAmount(ctx, productId, Number(row.quantity), row.unitId ?? null);
+    if (converted.ok) sum += converted.amount;
+  }
+  const amount = Number(sum.toFixed(SHOPPING_LIST_AMOUNT_DECIMALS));
+  if (!Number.isFinite(amount)) {
+    log.warn('[DeviceAPI] Shopping list amount is not finite; reporting 0:', { grocyProductId: productId });
+    return 0;
+  }
+  return amount;
+}
+
 // Both shopping-list fields come from a single timed Mealie check so the scan
 // path makes one call, not two. Both fields are cosmetic on the product screen,
 // so any failure (no food mapping, timeout, Mealie down) degrades to the empty
 // state rather than failing the scan.
 async function getShoppingListState(
-  grocyProductId: number,
+  details: ProductDetailsResponse,
   deps: DeviceScannerDeps,
 ): Promise<ShoppingListState> {
   const empty: ShoppingListState = { onShoppingList: false, shoppingListAmount: 0 };
+  const grocyProductId = Number(details.product?.id ?? 0);
   const mealieFoodId = await deps.findMealieFoodIdForGrocyProduct(grocyProductId);
   if (!mealieFoodId) {
     return empty;
   }
   const startedAt = Date.now();
   try {
-    const check = await withTimeout(
-      deps.checkShoppingListProduct({ foodId: mealieFoodId }),
+    return await withTimeout(
+      (async () => {
+        const check = await deps.checkShoppingListProduct({ foodId: mealieFoodId });
+        // Keep the boolean from the check itself: a matching row with quantity 0 is
+        // still "on the list", so it must not be derived from the summed amount.
+        const shoppingListAmount = await shoppingListAmountInStockUnit(details, check.matches, deps);
+        return { onShoppingList: check.alreadyOnList, shoppingListAmount };
+      })(),
       SCAN_SHOPPING_LIST_TIMEOUT_MS,
       'Mealie shopping list check',
     );
-    // Keep the boolean from the check itself: a matching row with quantity 0 is
-    // still "on the list", so it must not be derived from the summed amount.
-    const shoppingListAmount = check.matches.reduce((sum, match) => {
-      const quantity = Number(match.quantity);
-      return Number.isFinite(quantity) && quantity > 0 ? sum + quantity : sum;
-    }, 0);
-    return { onShoppingList: check.alreadyOnList, shoppingListAmount };
   } catch (error) {
     log.warn('[DeviceAPI] Shopping list check skipped:', {
       grocyProductId,
@@ -320,7 +410,7 @@ async function toDeviceProduct(
   deps: DeviceScannerDeps,
 ): Promise<DeviceProduct> {
   const id = Number(details.product?.id ?? 0);
-  const shoppingList = await getShoppingListState(id, deps);
+  const shoppingList = await getShoppingListState(details, deps);
   return {
     id,
     name: details.product?.name ?? 'Unknown',
@@ -472,20 +562,30 @@ async function applyDeviceAction(
     context.productName = before.product?.name;
     const stockBefore = Number(before.stock_amount ?? 0);
     const openedBefore = Number(before.stock_amount_opened ?? 0);
+    // The amount is in the stock unit, like stock and minimum on the scanner, so it
+    // is written in the stock unit's Mealie unit and only merged into a row in that
+    // unit. Without an unambiguous unit nothing is written, as in the low-stock sync.
+    const label = await resolveDeviceStockUnitLabel(before, await deps.listUnitMappings());
+    if (!label) {
+      throw new DeviceConflictError('Stock unit has no Mealie unit');
+    }
+    const quantity = toStockLabelQuantity(label, amount);
+    const unitId = label.unitId ?? null;
     const mealieFoodId = await deps.findMealieFoodIdForGrocyProduct(params.productId);
     // Without a mapping the grocy: ref lets addShoppingListItem resolve the
     // Mealie food itself (and produce a clear error when none is linked).
     const result = await deps.addShoppingListItem(
       mealieFoodId
-        ? { foodId: mealieFoodId, quantity: amount }
-        : { query: productRef, quantity: amount },
+        ? { foodId: mealieFoodId, quantity, unitId }
+        : { query: productRef, quantity, unitId },
     );
+    const rowStockAmount = Number((Number(result.item.quantity ?? quantity) * label.factor).toPrecision(12));
     events.push(activityEvent({
       source: 'Scanner', target: 'Mealie', productName: before.product?.name,
       category: 'shopping', entityRef: productRef,
       message: `Added ${amount} of "${before.product?.name ?? productRef}" to the Mealie shopping list.`,
       reason: 'Add to shopping list requested on the scanner.',
-      details: { grocyProductId: params.productId, mealieFoodId, mealieItemId: result.item.id, amount, quantity: result.item.quantity, action: result.action },
+      details: { grocyProductId: params.productId, mealieFoodId, mealieItemId: result.item.id, amount, mealieUnitId: unitId, mealieQuantity: quantity, quantity: result.item.quantity, action: result.action },
     }));
 
     return {
@@ -494,7 +594,7 @@ async function applyDeviceAction(
       product: { id: params.productId, name: before.product?.name ?? 'Unknown' },
       stock: { before: stockBefore, after: stockBefore },
       opened: { before: openedBefore, after: openedBefore },
-      shoppingList: { itemId: result.item.id, quantity: Number(result.item.quantity ?? amount) },
+      shoppingList: { itemId: result.item.id, quantity: rowStockAmount },
     };
   }
 

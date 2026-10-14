@@ -14,9 +14,8 @@ import {
 import { syncMealieInPossessionFromGrocy, type MealieInPossessionSyncResult } from './mealie-in-possession';
 import { getSyncState, saveSyncState, saveSyncStateConsumingRestocks } from './state';
 import { loadLowStockAdjustments, type LowStockAdjustments } from '../shop/low-stock-accounting';
-import { isCountUnitName } from '../shop/units';
 import { fetchAllMealieShoppingItems } from './helpers';
-import { shoppingItemUnitId } from './shopping-item';
+import { resolveStockUnitLabelFor, shoppingItemUnitId, toStockLabelQuantity, type StockUnitLabel } from './shopping-item';
 import { eq } from 'drizzle-orm';
 import type { HistoryEventInput } from '../history-store';
 import { activityEvent, describeSyncError } from './activity';
@@ -669,7 +668,7 @@ async function applyMealieShoppingAdjustment(
   unwritableShortageWarned.delete(grocyProductId);
   const unitId = label.unitId;
   // Significant digits, not decimals: a small change with a large factor never rounds to zero.
-  const toLabelQuantity = (stockAmount: number) => label.factor === 1 ? stockAmount : Number((stockAmount / label.factor).toPrecision(12));
+  const toLabelQuantity = (stockAmount: number) => toStockLabelQuantity(label, stockAmount);
   delta = toLabelQuantity(delta);
 
   // Only a row in the same unit without recipe references belongs to the sync:
@@ -764,17 +763,21 @@ async function applyMealieShoppingAdjustment(
       recordChange(`Changed "${mapping.mealieFoodName}" on the Mealie shopping list: ${currentQty} → ${newQty}.`, currentQty, newQty, existingItem.id);
     }
   } else {
-    // An unchanged shortage only has to be visible. A row in another unit that is
-    // not from a recipe ("1000 ml" where stock counts packs) already shows it, so
-    // the presence check does not add a second row next to it.
-    if (delta === 0 && ownRows.length > 0) {
+    // A row in another unit that is not from a recipe ("1000 ml" where stock
+    // counts packs) already shows the previous shortage. An unchanged or smaller
+    // shortage needs nothing more; a larger one adds only the change in the stock
+    // unit next to it, never the full shortage, and that row stays untouched.
+    const otherUnitRowListsShortage = ownRows.length > 0;
+    if (otherUnitRowListsShortage && delta <= 0) {
       return 'ensured';
     }
-    // A positive change without a row of the sync's own (removed, or a legacy row
-    // in another unit) recreates the full shortage instead of only the change.
-    const createQuantity = options.createQuantityWhenMissing !== undefined
-      ? toLabelQuantity(options.createQuantityWhenMissing)
-      : delta > 0 && options.fullShortage !== undefined ? toLabelQuantity(options.fullShortage) : delta;
+    // A positive change without any row of the sync's own (removed) recreates the
+    // full shortage instead of only the change.
+    const createQuantity = otherUnitRowListsShortage
+      ? delta
+      : options.createQuantityWhenMissing !== undefined
+        ? toLabelQuantity(options.createQuantityWhenMissing)
+        : delta > 0 && options.fullShortage !== undefined ? toLabelQuantity(options.fullShortage) : delta;
     if (createQuantity <= 0) {
       return 'ensured';
     }
@@ -802,32 +805,28 @@ const unwritableShortageWarned = new Set<number>();
 /**
  * The Mealie unit for a product's Grocy stock unit, and how many Grocy stock
  * units one of it holds. The purchase unit is never used, because the quantity
- * written is a stock amount. `emptyMeansStock` applies the rule check-off uses
- * for rows without a unit: purchase and stock unit agree, or the stock unit
- * counts pieces ("Stuk"). Without a valid mapping the row gets no unit, but only
- * where an empty unit means the stock unit. Returns null when no unambiguous
- * label exists, including when the product or its stock unit is unknown.
+ * written is a stock amount. See `resolveStockUnitLabelFor` for the rules.
+ * Returns null when no unambiguous label exists, including when the product or
+ * its stock unit is unknown.
  */
 async function resolveStockUnitLabel(
   grocyProductId: number,
   grocyProductsById: Map<number, GrocyProductWithParent>,
   unitNames?: () => Promise<Map<number, string>>,
-): Promise<{ unitId: string | undefined; factor: number; emptyMeansStock: boolean } | null> {
+): Promise<StockUnitLabel | null> {
   const product = grocyProductsById.get(grocyProductId);
   const grocyStockUnitId = Number(product?.qu_id_stock ?? 0);
   if (!product || !(grocyStockUnitId > 0)) return null;
-  const grocyPurchaseUnitId = Number(product.qu_id_purchase ?? 0);
-  const emptyMeansStock = !(grocyPurchaseUnitId > 0) || grocyPurchaseUnitId === grocyStockUnitId
-    || isCountUnitName((unitNames ? await unitNames() : new Map<number, string>()).get(grocyStockUnitId));
   const units = await db.select()
     .from(unitMappings)
     .where(eq(unitMappings.grocyUnitId, grocyStockUnitId))
     .limit(1);
-  const factor = Number(units[0]?.conversionFactor ?? 1);
-  if (units.length > 0 && units[0].mealieUnitId && Number.isFinite(factor) && factor > 0) {
-    return { unitId: units[0].mealieUnitId, factor, emptyMeansStock };
-  }
-  return emptyMeansStock ? { unitId: undefined, factor: 1, emptyMeansStock } : null;
+  return resolveStockUnitLabelFor({
+    quIdStock: grocyStockUnitId,
+    quIdPurchase: Number(product.qu_id_purchase ?? 0),
+    stockUnitName: async () => (unitNames ? await unitNames() : new Map<number, string>()).get(grocyStockUnitId),
+    mapping: units[0],
+  });
 }
 
 async function resolveGrocyProductName(grocyProductId: number): Promise<string> {

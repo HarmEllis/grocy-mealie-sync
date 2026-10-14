@@ -7,6 +7,7 @@ import { normalizeMatchText, rankVariantMatches } from '@/lib/fuzzy-match';
 import { splitShoppingNoteSegments, mergeShoppingNotes } from '@/lib/shopping-notes';
 import { resolveShoppingListId } from '@/lib/settings';
 import { fetchAllMealieShoppingItems } from '@/lib/sync/helpers';
+import { shoppingItemUnitId } from '@/lib/sync/shopping-item';
 import { getProductOverview, type ProductOverview } from '@/lib/use-cases/products/catalog';
 
 export interface ShoppingListItemSummary {
@@ -57,6 +58,12 @@ export interface AddShoppingListItemParams {
   foodId?: string;
   query?: string;
   quantity?: number;
+  /**
+   * The row's unit; `null` means no unit. When set (also to `null`), only an
+   * unchecked row of the food in that unit and without recipe references is
+   * merged into. When left out, the first unchecked row of the food is merged
+   * into and keeps its own unit.
+   */
   unitId?: string | null;
   note?: string | null;
   mergeIfExists?: boolean;
@@ -160,7 +167,7 @@ function toShoppingListItemSummary(item: MealieShoppingItem): ShoppingListItemSu
     shoppingListId: item.shoppingListId,
     foodId: item.foodId ?? null,
     foodName: item.food?.name ?? null,
-    unitId: item.unitId ?? null,
+    unitId: shoppingItemUnitId(item),
     unitName: item.unit?.name ?? null,
     quantity: Number(item.quantity ?? 1),
     checked: Boolean(item.checked),
@@ -407,17 +414,23 @@ export async function addShoppingListItem(
 
   const mergeIfExists = params.mergeIfExists ?? true;
   const items = await deps.fetchShoppingItems(shoppingListId);
+  // A quantity only adds up within one unit: "+1 pak" never lands on "1000 ml",
+  // and a recipe row keeps the amount its recipe asked for.
+  const requestedUnitId = params.unitId === undefined ? undefined : params.unitId ?? null;
   const existingItem = mergeIfExists
-    ? items.find(item => item.foodId === foodId && !item.checked)
+    ? items.find(item => item.foodId === foodId && !item.checked
+      && (requestedUnitId === undefined
+        || (shoppingItemUnitId(item) === requestedUnitId && (item.recipeReferences?.length ?? 0) === 0)))
     : undefined;
 
   if (existingItem) {
     const currentQuantity = Number(existingItem.quantity ?? 1);
     const mergedNote = mergeShoppingNotes(existingItem.note, note);
+    const existingUnitId = shoppingItemUnitId(existingItem);
     const collection = await deps.updateShoppingItem(existingItem.id, {
       shoppingListId,
       foodId,
-      unitId: params.unitId ?? undefined,
+      unitId: params.unitId ?? existingUnitId ?? undefined,
       note: mergedNote ?? undefined,
       quantity: currentQuantity + quantity,
       checked: false,
@@ -430,7 +443,7 @@ export async function addShoppingListItem(
       item: getUpdatedOrFallbackItem(collection, {
         ...toShoppingListItemSummary(existingItem),
         quantity: currentQuantity + quantity,
-        unitId: params.unitId ?? existingItem.unitId ?? null,
+        unitId: params.unitId ?? existingUnitId,
         unitName: existingItem.unit?.name ?? null,
         note: mergedNote,
       }),

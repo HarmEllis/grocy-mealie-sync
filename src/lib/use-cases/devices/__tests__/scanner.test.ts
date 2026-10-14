@@ -29,14 +29,19 @@ function productDetails(overrides: Partial<{
   opened: number;
   min: number;
   unit: string;
+  quStock: number;
+  quPurchase: number;
 }> = {}): ProductDetailsResponse {
+  const quStock = overrides.quStock ?? 7;
   return {
     product: {
       id: overrides.id ?? 42,
       name: overrides.name ?? 'Heinz Tomato Ketchup',
       min_stock_amount: overrides.min ?? 2,
+      qu_id_stock: quStock,
+      qu_id_purchase: overrides.quPurchase ?? quStock,
     },
-    quantity_unit_stock: { id: 7, name: overrides.unit ?? 'Bottle' },
+    quantity_unit_stock: { id: quStock, name: overrides.unit ?? 'Bottle' },
     stock_amount: overrides.stock ?? 3,
     stock_amount_opened: overrides.opened ?? 1,
   };
@@ -71,6 +76,8 @@ function createDeps(overrides: Partial<DeviceScannerDeps> = {}): DeviceScannerDe
       resolved: null,
       item: { id: 'item-1', quantity: 1 },
     }),
+    listUnitMappings: vi.fn().mockResolvedValue([]),
+    listGrocyConversions: vi.fn().mockResolvedValue([]),
     addStock: vi.fn().mockResolvedValue({}),
     consumeStock: vi.fn().mockResolvedValue({}),
     markStockOpened: vi.fn().mockResolvedValue({}),
@@ -144,6 +151,123 @@ describe('scanDeviceBarcode', () => {
     const result = await scanDeviceBarcode('8715700110622', deps);
     expect(result.status === 'found' && result.product.onShoppingList).toBe(true);
     expect(result.status === 'found' && result.product.shoppingListAmount).toBe(3.5);
+  });
+
+  describe('shoppingListAmount in the stock unit', () => {
+    // Milk counted in packs; 1 pak = 1000 ml for this product.
+    const milk = () => productDetails({ id: 27, name: 'Melk', unit: 'pak', quStock: 3, quPurchase: 3 });
+    const milkMappings = [
+      { mealieUnitId: 'mealie-pak', grocyUnitId: 3, conversionFactor: 1 },
+      { mealieUnitId: 'mealie-ml', grocyUnitId: 17, conversionFactor: 1 },
+    ];
+    const milkConversions = [
+      { id: 97, from_qu_id: 3, to_qu_id: 17, factor: 1000, product_id: 27 },
+      { id: 98, from_qu_id: 17, to_qu_id: 3, factor: 0.001, product_id: 27 },
+    ];
+    const listed = (matches: Array<{ quantity: number; unitId?: string | null }>) => vi.fn().mockResolvedValue({
+      shoppingListId: 'list-1', alreadyOnList: matches.length > 0, matchCount: matches.length, matches,
+    });
+    const scanAmount = async (deps: DeviceScannerDeps) => {
+      const result = await scanDeviceBarcode('8715700110622', deps);
+      if (result.status !== 'found') throw new Error('expected a found scan');
+      return result.product;
+    };
+
+    it('converts rows in other units, so 1000 ml and 2 pak are 3 pak', async () => {
+      const deps = createDeps({
+        getStockByBarcode: vi.fn().mockResolvedValue(milk()),
+        findMealieFoodIdForGrocyProduct: vi.fn().mockResolvedValue('food-milk'),
+        checkShoppingListProduct: listed([{ quantity: 1000, unitId: 'mealie-ml' }, { quantity: 2, unitId: 'mealie-pak' }]),
+        listUnitMappings: vi.fn().mockResolvedValue(milkMappings),
+        listGrocyConversions: vi.fn().mockResolvedValue(milkConversions),
+      });
+
+      const product = await scanAmount(deps);
+      expect(product).toMatchObject({ quantityUnit: 'pak', onShoppingList: true, shoppingListAmount: 3 });
+      expect(deps.listGrocyConversions).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not load Grocy conversions when every row is in the stock unit', async () => {
+      const deps = createDeps({
+        getStockByBarcode: vi.fn().mockResolvedValue(milk()),
+        findMealieFoodIdForGrocyProduct: vi.fn().mockResolvedValue('food-milk'),
+        checkShoppingListProduct: listed([{ quantity: 2, unitId: 'mealie-pak' }, { quantity: 1, unitId: null }]),
+        listUnitMappings: vi.fn().mockResolvedValue(milkMappings),
+      });
+
+      expect((await scanAmount(deps)).shoppingListAmount).toBe(3);
+      expect(deps.listGrocyConversions).not.toHaveBeenCalled();
+    });
+
+    it('leaves rows out that cannot be converted exactly but keeps the product on the list', async () => {
+      const deps = createDeps({
+        getStockByBarcode: vi.fn().mockResolvedValue(milk()),
+        findMealieFoodIdForGrocyProduct: vi.fn().mockResolvedValue('food-milk'),
+        // An unmapped Mealie unit, and a mapped unit without a Grocy conversion.
+        checkShoppingListProduct: listed([{ quantity: 1, unitId: 'mealie-fles' }, { quantity: 6, unitId: 'mealie-glas' }]),
+        listUnitMappings: vi.fn().mockResolvedValue([...milkMappings, { mealieUnitId: 'mealie-glas', grocyUnitId: 21, conversionFactor: 1 }]),
+        listGrocyConversions: vi.fn().mockResolvedValue(milkConversions),
+      });
+
+      expect(await scanAmount(deps)).toMatchObject({ onShoppingList: true, shoppingListAmount: 0 });
+    });
+
+    it('leaves rows in a purchase unit that differs from the stock unit out', async () => {
+      const deps = createDeps({
+        getStockByBarcode: vi.fn().mockResolvedValue(productDetails({ unit: 'gram', quStock: 5, quPurchase: 9 })),
+        findMealieFoodIdForGrocyProduct: vi.fn().mockResolvedValue('food-1'),
+        checkShoppingListProduct: listed([{ quantity: 2, unitId: 'mealie-zak' }, { quantity: 250, unitId: 'mealie-gram' }]),
+        listUnitMappings: vi.fn().mockResolvedValue([
+          { mealieUnitId: 'mealie-zak', grocyUnitId: 9, conversionFactor: 1 },
+          { mealieUnitId: 'mealie-gram', grocyUnitId: 5, conversionFactor: 1 },
+        ]),
+      });
+
+      expect((await scanAmount(deps)).shoppingListAmount).toBe(250);
+    });
+
+    it('follows each product\'s own stock unit', async () => {
+      // Stock in gram; a Mealie kilogram maps onto gram with factor 1000.
+      const flour = createDeps({
+        getStockByBarcode: vi.fn().mockResolvedValue(productDetails({ unit: 'gram', quStock: 5, quPurchase: 5 })),
+        findMealieFoodIdForGrocyProduct: vi.fn().mockResolvedValue('food-flour'),
+        checkShoppingListProduct: listed([{ quantity: 0.5, unitId: 'mealie-kg' }, { quantity: 250, unitId: 'mealie-gram' }]),
+        listUnitMappings: vi.fn().mockResolvedValue([
+          { mealieUnitId: 'mealie-kg', grocyUnitId: 5, conversionFactor: 1000 },
+          { mealieUnitId: 'mealie-gram', grocyUnitId: 5, conversionFactor: 1 },
+        ]),
+      });
+      expect((await scanAmount(flour)).shoppingListAmount).toBe(750);
+
+      // Stock in pieces bought per pack: an unlabelled row still counts pieces.
+      const eggs = createDeps({
+        getStockByBarcode: vi.fn().mockResolvedValue(productDetails({ unit: 'Stuk', quStock: 2, quPurchase: 11 })),
+        findMealieFoodIdForGrocyProduct: vi.fn().mockResolvedValue('food-eggs'),
+        checkShoppingListProduct: listed([{ quantity: 6, unitId: null }]),
+      });
+      expect((await scanAmount(eggs)).shoppingListAmount).toBe(6);
+    });
+
+    it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])('skips rows whose unit mapping has factor %s', async factor => {
+      const deps = createDeps({
+        getStockByBarcode: vi.fn().mockResolvedValue(milk()),
+        findMealieFoodIdForGrocyProduct: vi.fn().mockResolvedValue('food-milk'),
+        checkShoppingListProduct: listed([{ quantity: 2, unitId: 'mealie-pak' }, { quantity: 1, unitId: 'mealie-bad' }]),
+        listUnitMappings: vi.fn().mockResolvedValue([...milkMappings, { mealieUnitId: 'mealie-bad', grocyUnitId: 3, conversionFactor: factor }]),
+      });
+
+      expect((await scanAmount(deps)).shoppingListAmount).toBe(2);
+    });
+
+    it('reports 0 instead of an overflowing sum', async () => {
+      const deps = createDeps({
+        getStockByBarcode: vi.fn().mockResolvedValue(milk()),
+        findMealieFoodIdForGrocyProduct: vi.fn().mockResolvedValue('food-milk'),
+        checkShoppingListProduct: listed([{ quantity: 1e308, unitId: null }, { quantity: 1e308, unitId: null }]),
+      });
+
+      expect(await scanAmount(deps)).toMatchObject({ onShoppingList: true, shoppingListAmount: 0 });
+    });
   });
 
   it('falls back to no shopping-list state when no Mealie food is mapped', async () => {
@@ -376,7 +500,7 @@ describe('performDeviceAction', () => {
       deps,
     );
 
-    expect(deps.addShoppingListItem).toHaveBeenCalledWith({ foodId: 'food-1', quantity: 1 });
+    expect(deps.addShoppingListItem).toHaveBeenCalledWith({ foodId: 'food-1', quantity: 1, unitId: null });
     expect(result.shoppingList).toEqual({ itemId: 'item-9', quantity: 2 });
     expect(result.stock).toEqual({ before: 3, after: 3 });
   });
@@ -389,7 +513,51 @@ describe('performDeviceAction', () => {
     expect(deps.addShoppingListItem).toHaveBeenCalledWith({
       query: 'grocy:42',
       quantity: 1,
+      unitId: null,
     });
+  });
+
+  it('add_to_shopping_list adds in the stock unit\'s Mealie unit and reports the row in stock units', async () => {
+    const deps = createDeps({
+      getProductDetails: vi.fn().mockResolvedValue(productDetails({ id: 27, name: 'Melk', unit: 'pak', quStock: 3, quPurchase: 3 })),
+      findMealieFoodIdForGrocyProduct: vi.fn().mockResolvedValue('food-milk'),
+      listUnitMappings: vi.fn().mockResolvedValue([
+        { mealieUnitId: 'mealie-ml', grocyUnitId: 17, conversionFactor: 1 },
+        { mealieUnitId: 'mealie-pak', grocyUnitId: 3, conversionFactor: 1 },
+      ]),
+      addShoppingListItem: vi.fn().mockResolvedValue({ action: 'updated', merged: true, resolved: null, item: { id: 'row-pak', quantity: 3 } }),
+    });
+
+    const result = await performDeviceAction({ productId: 27, action: 'add_to_shopping_list' }, deps);
+
+    expect(deps.addShoppingListItem).toHaveBeenCalledWith({ foodId: 'food-milk', quantity: 1, unitId: 'mealie-pak' });
+    expect(result.shoppingList).toEqual({ itemId: 'row-pak', quantity: 3 });
+  });
+
+  it('add_to_shopping_list converts the amount when the Mealie unit holds several stock units', async () => {
+    const deps = createDeps({
+      getProductDetails: vi.fn().mockResolvedValue(productDetails({ name: 'Socks', unit: 'Stuk', quStock: 2, quPurchase: 2 })),
+      findMealieFoodIdForGrocyProduct: vi.fn().mockResolvedValue('food-socks'),
+      listUnitMappings: vi.fn().mockResolvedValue([{ mealieUnitId: 'mealie-pair', grocyUnitId: 2, conversionFactor: 2 }]),
+      addShoppingListItem: vi.fn().mockResolvedValue({ action: 'updated', merged: true, resolved: null, item: { id: 'row-pair', quantity: 2 } }),
+    });
+
+    const result = await performDeviceAction({ productId: 42, action: 'add_to_shopping_list', amount: 1 }, deps);
+
+    expect(deps.addShoppingListItem).toHaveBeenCalledWith({ foodId: 'food-socks', quantity: 0.5, unitId: 'mealie-pair' });
+    expect(result.shoppingList).toEqual({ itemId: 'row-pair', quantity: 4 });
+  });
+
+  it('add_to_shopping_list writes nothing when the stock unit has no unambiguous Mealie unit', async () => {
+    // Stock in kilogram, bought per bag, no unit mapping: an unlabelled "1" could mean a bag.
+    const deps = createDeps({
+      getProductDetails: vi.fn().mockResolvedValue(productDetails({ name: 'Flour', unit: 'kilogram', quStock: 14, quPurchase: 9 })),
+      findMealieFoodIdForGrocyProduct: vi.fn().mockResolvedValue('food-flour'),
+    });
+
+    await expect(performDeviceAction({ productId: 42, action: 'add_to_shopping_list' }, deps))
+      .rejects.toBeInstanceOf(DeviceConflictError);
+    expect(deps.addShoppingListItem).not.toHaveBeenCalled();
   });
 
   it('holds the sync lock across stock-mutating actions', async () => {
