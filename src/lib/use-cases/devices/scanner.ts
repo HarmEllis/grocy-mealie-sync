@@ -296,6 +296,18 @@ interface ShoppingListState {
 
 const SHOPPING_LIST_AMOUNT_DECIMALS = 6;
 
+/**
+ * Round a shown list amount up to one decimal, which is what the scanner
+ * displays: 0.25 pak shows as 0.3 rather than rounding down to 0.2. Floating
+ * point noise is dropped first, so 2.0000000001 stays 2. Null when the amount
+ * is not finite.
+ */
+function roundUpToTenth(value: number): number | null {
+  const normalised = Number(value.toFixed(SHOPPING_LIST_AMOUNT_DECIMALS));
+  if (!Number.isFinite(normalised)) return null;
+  return Number((Math.ceil(normalised * 10 - 1e-9) / 10).toFixed(1));
+}
+
 function stockUnitIds(details: ProductDetailsResponse): { quIdStock: number; quIdPurchase: number } {
   return {
     quIdStock: Number(details.product?.qu_id_stock ?? 0),
@@ -371,8 +383,9 @@ async function shoppingListAmountInStockUnit(
     const converted = resolveCheckOffAmount(ctx, productId, Number(row.quantity), row.unitId ?? null);
     if (converted.ok) sum += converted.amount;
   }
-  const amount = Number(sum.toFixed(SHOPPING_LIST_AMOUNT_DECIMALS));
-  if (!Number.isFinite(amount)) {
+  // Rounded once on the total, so three rows of 1/3 pak show as 1, not 1.2.
+  const amount = roundUpToTenth(sum);
+  if (amount === null) {
     log.warn('[DeviceAPI] Shopping list amount is not finite; reporting 0:', { grocyProductId: productId });
     return 0;
   }
@@ -600,7 +613,7 @@ async function applyDeviceAction(
         ? { foodId: mealieFoodId, quantity, unitId }
         : { query: productRef, quantity, unitId },
     );
-    const rowStockAmount = Number((Number(result.item.quantity ?? quantity) * label.factor).toPrecision(12));
+    const rowStockAmount = roundUpToTenth(Number(result.item.quantity ?? quantity) * label.factor) ?? 0;
     events.push(activityEvent({
       source: 'Scanner', target: 'Mealie', productName: before.product?.name,
       category: 'shopping', entityRef: productRef,

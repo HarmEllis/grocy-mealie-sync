@@ -90,6 +90,35 @@ describe('projection', () => {
       .toEqual([expect.objectContaining({ reason: 'missing_unit' })]);
   });
 
+  it.each([
+    { packs: 3, packages: 5, baseAmount: 4.5 },
+    { packs: 2, packages: 4, baseAmount: 3.5 },
+  ])('projects 1500 ml + $packs pak milk counted in packs to $packages AH packages', ({ packs, packages, baseAmount }) => {
+    // Production setup: Melk is stocked per pak, 1 pak = 1000 ml for this product, and
+    // the preferred AH product holds one pak.
+    const context = emptyUnitContext();
+    context.grocyProducts.set(27, { id: 27, name: 'Melk', quIdStock: 3, quIdPurchase: 3, parentProductId: null, noOwnStock: false });
+    context.unitMappings.set('m-pak', { grocyUnitId: 3, factor: 1 });
+    context.unitMappings.set('m-milliliter', { grocyUnitId: 17, factor: 1 });
+    context.grocyConversions.push(
+      { fromQuId: 3, toQuId: 17, factor: 1000, productId: 27 },
+      { fromQuId: 17, toQuId: 3, factor: 0.001, productId: 27 },
+    );
+    context.foodToGrocyProduct.set('food-melk', 27);
+    const mappings = new Map([[targetKey('grocy_product', 27), {
+      retailerProductId: '195653', targetKind: 'grocy_product' as const, targetId: '27', packageBaseAmount: 1, packageBaseUnitId: '3', confirmed: true,
+    }]]);
+
+    const projected = projectDemand([
+      demand({ revisionId: 'ml', mealieItemId: 'row-ml', foodId: 'food-melk', unitId: 'm-milliliter', quantity: 1500, label: 'Melk' }),
+      demand({ revisionId: 'pak', mealieItemId: 'row-pak', foodId: 'food-melk', unitId: 'm-pak', quantity: packs, label: 'Melk' }),
+    ], mappings, context);
+
+    expect(projected.review).toEqual([]);
+    expect(projected.lines).toEqual([expect.objectContaining({ retailerProductId: '195653', packages, baseAmount })]);
+    expect(projected.lines[0].allocations.map(allocation => allocation.baseAmount)).toEqual([1.5, packs]);
+  });
+
   it('sums compatible demand before rounding packages once', () => {
     const mappings = new Map([[targetKey('grocy_product', 1), { ...milkMapping, packageBaseAmount: 1.5 }]]);
     const { lines } = projectDemand([

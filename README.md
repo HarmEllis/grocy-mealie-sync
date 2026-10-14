@@ -318,7 +318,8 @@ scanner. Device tokens grant access only to `/api/device/*`.
 The amount the scanner shows as on the shopping list is in the product's Grocy
 stock unit: rows in other units are converted like checked-off rows ("1000 ml"
 and "2 packs" show as 3 when a pack holds 1000 ml), and rows that cannot be
-converted exactly are left out of the number. **Shopping** adds in the stock
+converted exactly are left out of the number. The total is rounded up to one
+decimal, as the scanner shows it ("250 ml" of a 1000 ml pack shows as 0.3). **Shopping** adds in the stock
 unit and only adds to a row in that unit.
 Scanner actions appear in History as **Scanner** actions. The scanner connects
 through HTTP rather than the shop-plugin WebSocket and uses a separate token.

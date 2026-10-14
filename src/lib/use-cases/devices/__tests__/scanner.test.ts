@@ -187,6 +187,29 @@ describe('scanDeviceBarcode', () => {
       expect(deps.listGrocyConversions).toHaveBeenCalledTimes(1);
     });
 
+    it.each([
+      { rows: [{ quantity: 1000, unitId: 'mealie-ml' }, { quantity: 1, unitId: 'mealie-pak' }], expected: 2 },
+      { rows: [{ quantity: 1500, unitId: 'mealie-ml' }, { quantity: 1, unitId: 'mealie-pak' }], expected: 2.5 },
+      { rows: [{ quantity: 1500, unitId: 'mealie-ml' }, { quantity: 2, unitId: 'mealie-pak' }], expected: 3.5 },
+      { rows: [{ quantity: 250, unitId: 'mealie-ml' }], expected: 0.3 },
+      { rows: [{ quantity: 1 / 3, unitId: null }], expected: 0.4 },
+      // Rounded once on the total, not per row.
+      { rows: [{ quantity: 1 / 3, unitId: null }, { quantity: 1 / 3, unitId: null }, { quantity: 1 / 3, unitId: null }], expected: 1 },
+      // Floating point noise (0.1 + 0.2) is not rounded up, a real excess is.
+      { rows: [{ quantity: 0.1, unitId: null }, { quantity: 0.2, unitId: null }], expected: 0.3 },
+      { rows: [{ quantity: 0.300001, unitId: null }], expected: 0.4 },
+    ])('rounds the amount up to one decimal ($expected)', async ({ rows, expected }) => {
+      const deps = createDeps({
+        getStockByBarcode: vi.fn().mockResolvedValue(milk()),
+        findMealieFoodIdForGrocyProduct: vi.fn().mockResolvedValue('food-milk'),
+        checkShoppingListProduct: listed(rows),
+        listUnitMappings: vi.fn().mockResolvedValue(milkMappings),
+        listGrocyConversions: vi.fn().mockResolvedValue(milkConversions),
+      });
+
+      expect((await scanAmount(deps)).shoppingListAmount).toBe(expected);
+    });
+
     it('does not load Grocy conversions when every row is in the stock unit', async () => {
       const deps = createDeps({
         getStockByBarcode: vi.fn().mockResolvedValue(milk()),
@@ -561,6 +584,21 @@ describe('performDeviceAction', () => {
 
     expect(deps.addShoppingListItem).toHaveBeenCalledWith({ foodId: 'food-socks', quantity: 0.5, unitId: 'mealie-pair' });
     expect(result.shoppingList).toEqual({ itemId: 'row-pair', quantity: 4 });
+  });
+
+  it('add_to_shopping_list rounds only the reported quantity up to one decimal', async () => {
+    const deps = createDeps({
+      getProductDetails: vi.fn().mockResolvedValue(productDetails({ id: 27, name: 'Melk', unit: 'pak', quStock: 3, quPurchase: 3 })),
+      findMealieFoodIdForGrocyProduct: vi.fn().mockResolvedValue('food-milk'),
+      listUnitMappings: vi.fn().mockResolvedValue([{ mealieUnitId: 'mealie-pak', grocyUnitId: 3, conversionFactor: 1 }]),
+      addShoppingListItem: vi.fn().mockResolvedValue({ action: 'created', merged: false, resolved: null, item: { id: 'row-pak', quantity: 0.25 } }),
+    });
+
+    const result = await performDeviceAction({ productId: 27, action: 'add_to_shopping_list', amount: 0.25 }, deps);
+
+    // Mealie gets the exact amount; only the number for the scanner is rounded.
+    expect(deps.addShoppingListItem).toHaveBeenCalledWith({ foodId: 'food-milk', quantity: 0.25, unitId: 'mealie-pak' });
+    expect(result.shoppingList).toEqual({ itemId: 'row-pak', quantity: 0.3 });
   });
 
   it('add_to_shopping_list writes nothing when the stock unit has no unambiguous Mealie unit', async () => {
