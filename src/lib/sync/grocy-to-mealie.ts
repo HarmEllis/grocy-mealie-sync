@@ -50,7 +50,7 @@ interface AdjustMealieShoppingItemOptions {
   /** Grocy quantity unit names, loaded at most once per poll. Required so no caller can skip the count-unit rule. */
   unitNames: () => Promise<Map<number, string>>;
   /** Unit metadata for converting rows in other units, loaded at most once per poll and only when needed. */
-  unitContext?: () => Promise<UnitContext>;
+  unitContext: () => Promise<UnitContext>;
 }
 
 interface EffectiveMissingEntry {
@@ -786,12 +786,13 @@ async function applyMealieShoppingAdjustment(
     // is added.
     if (ownRows.length > 0 && createQuantity > 0) {
       const listed = await listedStockAmount(ownRows, mapping.grocyProductId, options.unitContext);
-      const shortage = options.createQuantityWhenMissing ?? options.fullShortage ?? stockDelta;
-      if (listed !== null) {
-        createQuantity = toLabelQuantity(shortage - listed);
-      } else {
-        createQuantity = delta;
+      if (listed.kind === 'unavailable') {
+        // Writing a guess now would advance the snapshot past it for good; keep the
+        // previous snapshot and retry once the conversions can be loaded.
+        return 'skipped';
       }
+      const shortage = options.createQuantityWhenMissing ?? options.fullShortage ?? stockDelta;
+      createQuantity = listed.kind === 'listed' ? toLabelQuantity(shortage - listed.amount) : delta;
     }
     if (createQuantity <= 0) {
       return 'ensured';
@@ -814,31 +815,33 @@ async function applyMealieShoppingAdjustment(
   return 'ensured';
 }
 
-/**
- * The stock amount listed by rows in other units, converted like check-off
- * converts them, or null when any row cannot be converted exactly (or the unit
- * metadata cannot be loaded).
- */
+type ListedStockAmount =
+  | { kind: 'listed'; amount: number }
+  /** A row cannot be converted exactly with the current metadata. */
+  | { kind: 'unconvertible' }
+  /** The unit metadata could not be loaded; this may be temporary. */
+  | { kind: 'unavailable' };
+
+/** The stock amount listed by rows in other units, converted like check-off converts them. */
 async function listedStockAmount(
   rows: MealieShoppingItem[],
   grocyProductId: number,
-  unitContext: (() => Promise<UnitContext>) | undefined,
-): Promise<number | null> {
-  if (!unitContext) return null;
+  unitContext: () => Promise<UnitContext>,
+): Promise<ListedStockAmount> {
   let ctx: UnitContext;
   try {
     ctx = await unitContext();
   } catch (error) {
-    log.warn('[Grocy→Mealie] Could not load unit conversions; counting rows in other units as the previous shortage:', error);
-    return null;
+    log.warn('[Grocy→Mealie] Could not load unit conversions; retrying the shortage next to rows in other units on the next poll:', error);
+    return { kind: 'unavailable' };
   }
   let listed = 0;
   for (const row of rows) {
     const converted = resolveCheckOffAmount(ctx, grocyProductId, Number(row.quantity), shoppingItemUnitId(row));
-    if (!converted.ok) return null;
+    if (!converted.ok) return { kind: 'unconvertible' };
     listed += converted.amount;
   }
-  return Number.isFinite(listed) ? listed : null;
+  return Number.isFinite(listed) ? { kind: 'listed', amount: listed } : { kind: 'unconvertible' };
 }
 
 /** Products whose unwritable shortage was already reported in this process. */
