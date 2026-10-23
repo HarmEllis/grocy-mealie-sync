@@ -1,0 +1,1 @@
+ALTER TABLE `retailer_mappings` ADD `fulfils_all_demand` integer DEFAULT false NOT NULL;

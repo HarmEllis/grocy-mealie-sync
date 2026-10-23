@@ -20,7 +20,7 @@ import type { HelloParams, Receipt } from '@/lib/plugins/protocol/v1';
 import { bookCheckStock, guardReceiptFulfillment, openCheckLifecycle, reconcileCheckLifecycles, setLifecycleStatus } from '../check-lifecycles';
 import { resolveUnknownEffect } from '../effect-resolution';
 import { observeDemand } from '../demand-observer';
-import { listDiscrepancies, resolveDiscrepancy, substituteReceiptLine } from '../discrepancies';
+import { listDiscrepancies, replanExtraOnlyLine, resolveDiscrepancy, substituteReceiptLine } from '../discrepancies';
 import { defaultEffectRunnerDeps, type EffectRunnerDeps } from '../effect-runners';
 import { CheckDeferredError, ensureLedgerActivated, listEffects } from '../ledger';
 import { resetListOwnership } from '../list-sync';
@@ -287,6 +287,60 @@ describe('receipt reconciliation', () => {
 
     await runShopReconcile(reconcileDeps(items, run));
     expect(run.addStock).toHaveBeenCalledTimes(1);
+  });
+
+  it('fulfils a row through a Mealie-food mapping when the food is also linked to a Grocy product', async () => {
+    const installation = setupInstallation();
+    upsertRetailerProducts('demo-shop', [{ id: 'milk', name: 'Milk 1 L', packageAmount: 1, packageUnit: 'l', measure: 'unit' }]);
+    upsertRetailerMapping({
+      providerId: 'demo-shop', retailerProductId: 'milk', targetKind: 'mealie_food', targetId: 'food-milk', targetName: 'Milk',
+      role: 'preferred', baseUnitId: 'u-can', baseUnitName: 'can', packageBaseAmount: 1, confirm: true,
+    });
+    const canRow = row({ quantity: 2, unitId: 'u-can' });
+    const observedAt = new Date('2026-10-04T10:00:00Z');
+    observeDemand('list', [canRow], observedAt);
+    const revisionId = db.select().from(schema.demandRevisions).get()!.id;
+    persistExports(installation.id, 'demo-shop', [{
+      retailerProductId: 'milk', packages: 2, baseAmount: 2,
+      allocations: [{ revisionId, mealieItemId: canRow.id, targetKind: 'mealie_food', targetId: 'food-milk', baseAmount: 2, rowFactor: 1 }],
+    }], observedAt);
+    await pullReceipts(installation, pullDeps([receipt({ lines: [receipt().lines[0]] })]));
+    const items = { current: [canRow] };
+    const run = runner(items);
+    const ctx = unitContext();
+    ctx.mealieUnits.set('u-can', { id: 'u-can', name: 'can', abbreviation: null, standardUnit: null, standardQuantity: null });
+    await runShopReconcile({ ...reconcileDeps(items, run), loadUnitContext: async () => ctx });
+    expect(items.current).toEqual([]);
+    expect(run.deleteMealieItem).toHaveBeenCalledWith(canRow.id);
+    expect(db.select().from(schema.reconciliationLinks).all()).toEqual([expect.objectContaining({ kind: 'allocation', baseAmount: 2 })]);
+    expect(run.addStock).not.toHaveBeenCalled();
+  });
+
+  it('re-plans an effectless extra line once its mapping moved to the Grocy product', async () => {
+    const installation = setupInstallation();
+    upsertRetailerProducts('demo-shop', [{ id: 'milk', name: 'Milk 1 L', packageAmount: 1, packageUnit: 'l', measure: 'unit' }]);
+    upsertRetailerMapping({
+      providerId: 'demo-shop', retailerProductId: 'milk', targetKind: 'mealie_food', targetId: 'food-milk', targetName: 'Milk',
+      role: 'preferred', baseUnitId: null, baseUnitName: null, packageBaseAmount: 1, confirm: true,
+    });
+    await pullReceipts(installation, pullDeps([receipt({ lines: [receipt().lines[0]] })]));
+    const items = { current: [] as MealieShoppingItem[] };
+    const run = runner(items);
+    await runShopReconcile(reconcileDeps(items, run));
+    const line = getReceiptLines(listReceipts()[0].id)[0];
+    expect(db.select().from(schema.reconciliationLinks).all()).toEqual([expect.objectContaining({ kind: 'extra', baseAmount: 2 })]);
+    expect(run.addStock).not.toHaveBeenCalled();
+
+    expect(replanExtraOnlyLine(line.id)).toMatchObject({ ok: false });
+    mapMilk();
+    expect(replanExtraOnlyLine(line.id, { dryRun: true })).toMatchObject({ ok: true, removedLinks: [expect.objectContaining({ baseAmount: 2 })] });
+    expect(db.select().from(schema.reconciliationLinks).all()).toHaveLength(1);
+    expect(replanExtraOnlyLine(line.id)).toMatchObject({ ok: true });
+    await runShopReconcile(reconcileDeps(items, run));
+    await runShopReconcile(reconcileDeps(items, run));
+    expect(run.addStock).toHaveBeenCalledTimes(1);
+    expect(run.addStock).toHaveBeenCalledWith(1, expect.objectContaining({ amount: 2 }));
+    expect(replanExtraOnlyLine(line.id)).toMatchObject({ ok: false });
   });
 
   it('never books with an amount confirmed for a different stock unit', async () => {
