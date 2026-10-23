@@ -122,7 +122,7 @@ export interface SaveMappingInput {
   baseUnitName: string | null;
   packageBaseAmount?: number | null;
   confirm?: boolean;
-  /** A receipt line settles every open row of the target; omitted keeps the current value (new mappings of weighed products default on). */
+  /** A receipt line settles every open row of the target; omitted keeps the current value (off for a new mapping). */
   fulfilsAllDemand?: boolean;
   /** Explicitly authorize moving an existing retailer product to another target. */
   reassign?: boolean;

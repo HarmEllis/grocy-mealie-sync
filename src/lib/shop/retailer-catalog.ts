@@ -139,7 +139,7 @@ export interface UpsertMappingInput {
   /** Explicit amount per receipt quantity unit; confirms the mapping. */
   packageBaseAmount?: number | null;
   confirm?: boolean;
-  /** Receipt lines settle all open demand of the target; defaults to on for products sold by weight, else keeps the current value. */
+  /** Receipt lines settle all open demand of the target; keeps the current value, off for a new mapping. */
   fulfilsAllDemand?: boolean;
 }
 
@@ -195,7 +195,7 @@ export function upsertRetailerMapping(input: UpsertMappingInput, now = new Date(
       packageBaseUnitName: input.baseUnitName,
       packageSource,
       confirmed,
-      fulfilsAllDemand: input.fulfilsAllDemand ?? existing?.fulfilsAllDemand ?? product?.measure === 'weight',
+      fulfilsAllDemand: input.fulfilsAllDemand ?? existing?.fulfilsAllDemand ?? false,
       updatedAt: now,
     };
     tx.insert(retailerMappings)
