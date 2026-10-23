@@ -159,6 +159,17 @@ describe('validated mapping saves', () => {
     await expect(saveRetailerMapping({ ...input, confirm: true, packageBaseAmount: 500 })).resolves.toMatchObject({ mapping: { targetKind: 'grocy_product' } });
   });
 
+  it('keeps fulfilsAllDemand off until chosen and preserves the choice on re-save', async () => {
+    setup();
+    upsertRetailerProducts('demo-shop', [chicken({ measure: 'weight' })]);
+    const first = await saveRetailerMapping({ ...input, confirm: true, packageBaseAmount: 1000 });
+    expect(first.mapping.fulfilsAllDemand).toBe(false);
+    const on = await saveRetailerMapping({ ...input, confirm: true, packageBaseAmount: 1000, fulfilsAllDemand: true });
+    expect(on.mapping.fulfilsAllDemand).toBe(true);
+    expect((await saveRetailerMapping({ ...input, confirm: true, packageBaseAmount: 1000 })).mapping.fulfilsAllDemand).toBe(true);
+    expect((await updateRetailerMapping(on.mapping.id, { fulfilsAllDemand: false })).mapping.fulfilsAllDemand).toBe(false);
+  });
+
   it('refreshes stale availability first and refuses a new mapping for a discontinued product', async () => {
     setup();
     upsertRetailerProducts('demo-shop', [chicken({ availability: 'available' })], new Date('2026-01-01T00:00:00Z'));
