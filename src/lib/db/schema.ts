@@ -264,6 +264,8 @@ export const retailerMappings = sqliteTable('retailer_mappings', {
   packageBaseUnitName: text('package_base_unit_name'),
   packageSource: text('package_source'),
   confirmed: integer('confirmed', { mode: 'boolean' }).notNull().default(false),
+  /** A receipt line settles every open row of the target (loose produce sold by weight). */
+  fulfilsAllDemand: integer('fulfils_all_demand', { mode: 'boolean' }).notNull().default(false),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 }, (table) => [

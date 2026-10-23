@@ -148,6 +148,28 @@ describe('validated mapping saves', () => {
     expect(result.warnings).toEqual(['availability_unknown']);
   });
 
+  it('refuses a Mealie-food target when the food is linked to a Grocy product', async () => {
+    setup();
+    upsertRetailerProducts('demo-shop', [chicken()]);
+    const now = new Date();
+    db.insert(schema.productMappings).values({ id: 'link-1', mealieFoodId: 'food-chicken', mealieFoodName: 'Kipfilet', grocyProductId: 1, grocyProductName: 'Kipfilet', unitMappingId: null, createdAt: now, updatedAt: now }).run();
+    await expect(saveRetailerMapping({ ...input, targetKind: 'mealie_food', targetId: 'food-chicken', baseUnitId: null, baseUnitName: null }))
+      .rejects.toMatchObject({ status: 409, message: expect.stringContaining('Grocy product Kipfilet (#1)') });
+    expect(getRetailerMapping('demo-shop', 'chicken')).toBeNull();
+    await expect(saveRetailerMapping({ ...input, confirm: true, packageBaseAmount: 500 })).resolves.toMatchObject({ mapping: { targetKind: 'grocy_product' } });
+  });
+
+  it('keeps fulfilsAllDemand off until chosen and preserves the choice on re-save', async () => {
+    setup();
+    upsertRetailerProducts('demo-shop', [chicken({ measure: 'weight' })]);
+    const first = await saveRetailerMapping({ ...input, confirm: true, packageBaseAmount: 1000 });
+    expect(first.mapping.fulfilsAllDemand).toBe(false);
+    const on = await saveRetailerMapping({ ...input, confirm: true, packageBaseAmount: 1000, fulfilsAllDemand: true });
+    expect(on.mapping.fulfilsAllDemand).toBe(true);
+    expect((await saveRetailerMapping({ ...input, confirm: true, packageBaseAmount: 1000 })).mapping.fulfilsAllDemand).toBe(true);
+    expect((await updateRetailerMapping(on.mapping.id, { fulfilsAllDemand: false })).mapping.fulfilsAllDemand).toBe(false);
+  });
+
   it('refreshes stale availability first and refuses a new mapping for a discontinued product', async () => {
     setup();
     upsertRetailerProducts('demo-shop', [chicken({ availability: 'available' })], new Date('2026-01-01T00:00:00Z'));

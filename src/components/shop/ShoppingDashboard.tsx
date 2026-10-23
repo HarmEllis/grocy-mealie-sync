@@ -262,6 +262,7 @@ interface MappingRow {
   packageBaseUnitId: string | null;
   packageBaseUnitName: string | null;
   packageSource: string | null;
+  fulfilsAllDemand?: boolean;
   confirmed: boolean;
 }
 
@@ -294,6 +295,7 @@ function MappingEditor({ providerId, product, mapping, onClose }: { providerId: 
   const [mealieUnitId, setMealieUnitId] = useState(mapping?.targetKind === 'mealie_food' ? mapping.packageBaseUnitId ?? '' : '');
   const [role, setRole] = useState<'preferred' | 'alternative'>(mapping?.role === 'alternative' ? 'alternative' : 'preferred');
   const [amount, setAmount] = useState(mapping?.packageBaseAmount?.toString() ?? '');
+  const [fulfilsAll, setFulfilsAll] = useState(Boolean(mapping?.fulfilsAllDemand));
 
   useEffect(() => {
     const sequence = ++requestSequence.current;
@@ -360,6 +362,7 @@ function MappingEditor({ providerId, product, mapping, onClose }: { providerId: 
           baseUnitId: baseUnit.id,
           baseUnitName: baseUnit.name,
           packageBaseAmount: parsed,
+          fulfilsAllDemand: fulfilsAll,
           confirm: parsed !== null,
         }),
       });
@@ -404,6 +407,7 @@ function MappingEditor({ providerId, product, mapping, onClose }: { providerId: 
             {product.measure === 'weight' ? 'per kg' : 'per package'} in {selected?.kind === 'grocy_product' ? selected.baseUnitName ?? 'the stock unit' : 'the chosen unit'}
           </span>
         </div>
+        <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={fulfilsAll} onChange={event => setFulfilsAll(event.target.checked)} /> A receipt line settles all open rows of this product (loose produce sold by weight)</label>
         {selected ? <div className="space-y-1 rounded-md border bg-muted/30 p-3 text-xs">
           <p>1 {product.measure === 'weight' ? 'kg bought' : 'retailer package'} = {amount || '?'} {selected.kind === 'grocy_product' ? selected.baseUnitName ?? 'stock units' : mealieUnits.find(unit => unit.id === mealieUnitId)?.name ?? (mealieUnitId ? mapping?.packageBaseUnitName ?? 'units' : 'items')} in {selected.kind === 'grocy_product' ? 'Grocy' : 'Mealie'}.</p>
           {preview?.derivation ? <div className="space-y-1"><p>Suggested from catalogue: {preview.derivation.explanation}. Check before saving.</p><Button size="sm" variant="outline" onClick={() => setAmount(String(preview.derivation!.amount))}>Use suggested amount</Button></div> : <p>Enter and confirm the amount from the package or retailer catalogue.</p>}

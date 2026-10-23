@@ -38,6 +38,22 @@ describe('purchase-time safety', () => {
     expect(result.reductions).toEqual([{ mealieItemId: 'row', rowQuantityBefore: 5, rowQuantityAfter: 2, rowIdentity: 'milk-litre', lineIds: ['line'] }]);
     expect(result.lines[0]).toMatchObject({ bookAmount: 3, extraAmount: 0 });
   });
+  it('settles every open row when the mapping fulfils all demand, without extra stock', () => {
+    const source = input();
+    source.lines[0] = { ...source.lines[0], quantity: 1 };
+    source.mappings.get('milk')!.fulfilsAllDemand = true;
+    source.demand = [demand({ mealieItemId: 'a', rowQuantity: 4, purchaseRevision: { revisionId: 'ra', identity: 'milk-litre', quantity: 4, checked: false } }),
+      demand({ mealieItemId: 'b', rowQuantity: 2, purchaseRevision: { revisionId: 'rb', identity: 'milk-litre', quantity: 2, checked: false }, firstSeenAt: new Date('2026-10-01T11:00:00Z') })];
+    const result = planReceipt(source);
+    expect(result.reductions.map(r => [r.mealieItemId, r.rowQuantityAfter])).toEqual([['a', 0], ['b', 0]]);
+    expect(result.lines[0]).toMatchObject({ extraAmount: 0, bookAmount: 1 });
+  });
+  it('still leaves rows added after the purchase open when the mapping fulfils all demand', () => {
+    const source = input();
+    source.mappings.get('milk')!.fulfilsAllDemand = true;
+    source.demand = [demand({ purchaseRevision: null, firstSeenAt: new Date('2026-10-03T10:00:00Z') })];
+    expect(planReceipt(source).reductions).toEqual([]);
+  });
   it('converts a weighed gram receipt into the mapping amount per kilogram', () => {
     const source = input();
     source.lines[0] = { ...source.lines[0], quantity: 500, unit: 'g' };
