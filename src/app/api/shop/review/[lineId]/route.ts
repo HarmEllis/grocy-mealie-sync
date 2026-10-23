@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { resolveShoppingListId } from '@/lib/settings';
 import { fetchAllMealieShoppingItems } from '@/lib/sync/helpers';
 import { getGrocyEntities } from '@/lib/grocy/types';
-import { dismissReceiptLine, requeueReceiptLine, substituteReceiptLine } from '@/lib/shop/discrepancies';
+import { dismissReceiptLine, replanExtraOnlyLine, requeueReceiptLine, substituteReceiptLine } from '@/lib/shop/discrepancies';
 import { readJson, ShopApiError, shopRoute, withSyncLock } from '@/lib/shop/api-helpers';
 
 const bodySchema = z.discriminatedUnion('action', [
@@ -17,6 +17,7 @@ const bodySchema = z.discriminatedUnion('action', [
   }).strict(),
   z.object({ action: z.literal('dismiss') }).strict(),
   z.object({ action: z.literal('requeue') }).strict(),
+  z.object({ action: z.literal('replan'), dryRun: z.boolean().default(true) }).strict(),
 ]);
 
 /** Resolve a receipt line under review: one-off substitution, dismissal, or re-plan after mapping. */
@@ -32,6 +33,11 @@ export async function POST(request: Request, context: { params: Promise<{ lineId
       if (body.action === 'requeue') {
         if (!requeueReceiptLine(lineId)) throw new ShopApiError(404, 'Line is not under review');
         return { ok: true };
+      }
+      if (body.action === 'replan') {
+        const result = replanExtraOnlyLine(lineId, { dryRun: body.dryRun });
+        if (!result.ok) throw new ShopApiError(409, result.message ?? 'Line cannot be re-planned');
+        return { ...result, dryRun: body.dryRun };
       }
       const shoppingListId = await resolveShoppingListId();
       if (!shoppingListId) throw new ShopApiError(400, 'No Mealie shopping list configured');

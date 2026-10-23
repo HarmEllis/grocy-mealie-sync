@@ -17,6 +17,7 @@ const upsertSchema = z.object({
   baseUnitName: z.string().max(100).nullable().default(null),
   packageBaseAmount: z.number().positive().finite().nullable().optional(),
   confirm: z.boolean().default(false),
+  fulfilsAllDemand: z.boolean().optional(),
   expectedTargetKey: z.string().min(1).max(220).optional(), replacesMappingId: z.string().min(1).max(200).optional(), reassign: z.boolean().default(false),
 }).strict();
 

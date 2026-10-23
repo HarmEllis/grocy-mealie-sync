@@ -15,7 +15,7 @@ import {
   type GrocyUndoPayload,
   type MealieReducePayload,
 } from './effect-runners';
-import { ensureEffect, type EffectStatus } from './ledger';
+import { ensureEffect, getEffectByKey, listEffects, type EffectStatus } from './ledger';
 import { getReceiptLine } from './receipts';
 import { getRetailerMapping, upsertRetailerMapping } from './retailer-catalog';
 
@@ -308,4 +308,42 @@ export function requeueReceiptLine(receiptLineId: string): boolean {
     tx.update(receipts).set({ status: 'stored' }).where(eq(receipts.id, line.receiptId)).run();
   });
   return true;
+}
+
+export interface ReplanResult {
+  ok: boolean;
+  message?: string;
+  /** The "extra" links that were (or, in a dry run, would be) removed. */
+  removedLinks?: Array<{ id: string; baseAmount: number; targetKind: string | null; targetId: string | null }>;
+}
+
+/**
+ * Re-plan an already processed line that was only classified as extra stock
+ * for a Mealie-food target, after its mapping moved to another target. Nothing
+ * was booked for such a line, so the classification can be dropped and the
+ * line planned again. Refused when anything else touched the line.
+ */
+export function replanExtraOnlyLine(receiptLineId: string, options: { dryRun?: boolean } = {}): ReplanResult {
+  const line = getReceiptLine(receiptLineId);
+  if (!line) return { ok: false, message: 'Receipt line not found' };
+  if (line.status !== 'planned') return { ok: false, message: 'Only a planned line can be re-planned' };
+  const links = db.select().from(reconciliationLinks).where(eq(reconciliationLinks.receiptLineId, line.id)).all();
+  if (links.length === 0 || links.some(link => link.kind !== 'extra' || link.effectId || link.targetKind !== 'mealie_food')) {
+    return { ok: false, message: 'The line has credits, allocations, substitutions or stock effects; resolve those instead' };
+  }
+  if (getEffectByKey(`receipt:${line.id}:grocy_add`)) return { ok: false, message: 'A stock booking exists for this line' };
+  const receiptEffects = listEffects({ sourceKind: 'receipt', sourceRefs: [line.receiptId] });
+  if (receiptEffects.some(effect => JSON.stringify(effect.payload).includes(line.id))) return { ok: false, message: 'An effect references this line' };
+  const receipt = db.select().from(receipts).where(eq(receipts.id, line.receiptId)).get();
+  const mapping = receipt && line.retailerProductId ? getRetailerMapping(receipt.providerId, line.retailerProductId) : null;
+  const moved = mapping && links.every(link => link.targetKind !== mapping.targetKind || link.targetId !== mapping.targetId);
+  if (!mapping || !mapping.confirmed || !moved) return { ok: false, message: 'Move the retailer product to its new target and confirm the package amount first' };
+  const removedLinks = links.map(link => ({ id: link.id, baseAmount: link.baseAmount, targetKind: link.targetKind, targetId: link.targetId }));
+  if (options.dryRun) return { ok: true, removedLinks };
+  db.transaction((tx) => {
+    tx.delete(reconciliationLinks).where(eq(reconciliationLinks.receiptLineId, line.id)).run();
+    tx.update(receiptLines).set({ status: 'pending', reviewReason: null }).where(eq(receiptLines.id, line.id)).run();
+    tx.update(receipts).set({ status: 'stored' }).where(eq(receipts.id, line.receiptId)).run();
+  });
+  return { ok: true, removedLinks };
 }

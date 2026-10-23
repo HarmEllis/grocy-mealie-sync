@@ -12,6 +12,7 @@ import {
   getRetailerMapping,
   getRetailerMappingById,
   getRetailerProduct,
+  setRetailerMappingFulfilsAll,
   setRetailerMappingRole,
   upsertRetailerMapping,
   type MappingRole,
@@ -121,6 +122,8 @@ export interface SaveMappingInput {
   baseUnitName: string | null;
   packageBaseAmount?: number | null;
   confirm?: boolean;
+  /** A receipt line settles every open row of the target; omitted keeps the current value (new mappings of weighed products default on). */
+  fulfilsAllDemand?: boolean;
   /** Explicitly authorize moving an existing retailer product to another target. */
   reassign?: boolean;
   /** Optional optimistic guard for a mapping shown by the caller. */
@@ -152,6 +155,11 @@ export async function saveRetailerMapping(input: SaveMappingInput, options: { no
     options.beforeWrite?.();
     const replacement = input.replacesMappingId ? getRetailerMappingById(input.replacesMappingId) : null;
     if (input.replacesMappingId && (!replacement || replacement.providerId !== input.providerId || replacement.role !== 'alternative' || replacement.targetKind !== input.targetKind || replacement.targetId !== input.targetId || input.role !== 'alternative')) throw new ShopApiError(409, 'The alternative being replaced changed. Reload the editor first.');
+    if (input.targetKind === 'mealie_food') {
+      // Receipts and the list both resolve a linked food to its Grocy product, so a food target would never match.
+      const linked = db.select().from(productMappings).where(eq(productMappings.mealieFoodId, input.targetId)).get();
+      if (linked) throw new ShopApiError(409, `${linked.mealieFoodName} is linked to Grocy product ${linked.grocyProductName} (#${linked.grocyProductId}). Map the retailer product to that Grocy product and confirm the package amount in its stock unit.`);
+    }
     const existing = getRetailerMapping(input.providerId, input.retailerProductId);
     if (input.expectedTargetKey && (!existing || `${existing.targetKind}:${existing.targetId}` !== input.expectedTargetKey)) throw new ShopApiError(409, 'The existing mapping changed. Reload it before moving this product.');
     const moving = existing && (existing.targetKind !== input.targetKind || existing.targetId !== input.targetId);
@@ -177,6 +185,7 @@ export async function saveRetailerMapping(input: SaveMappingInput, options: { no
       baseUnitName: unit.baseUnitName ?? (input.targetKind === 'mealie_food' ? null : input.baseUnitName),
       packageBaseAmount: keepConfirmed ? existing!.packageBaseAmount : input.packageBaseAmount,
       confirm: keepConfirmed ? true : input.confirm,
+      fulfilsAllDemand: input.fulfilsAllDemand,
     }, now);
     if (replacement && replacement.id !== mapping.id) deleteRetailerMapping(replacement.id);
     return { mapping, availability, warnings };
@@ -184,7 +193,7 @@ export async function saveRetailerMapping(input: SaveMappingInput, options: { no
 }
 
 /** Change the role and/or confirm the package amount of an existing mapping. */
-export async function updateRetailerMapping(id: string, body: { role?: MappingRole; packageBaseAmount?: number }, now = new Date()): Promise<MappingSaveResult> {
+export async function updateRetailerMapping(id: string, body: { role?: MappingRole; packageBaseAmount?: number; fulfilsAllDemand?: boolean }, now = new Date()): Promise<MappingSaveResult> {
   const mapping = getRetailerMappingById(id);
   if (!mapping) throw new ShopApiError(404, 'Mapping not found');
   const warnings: MappingWarning[] = [];
@@ -204,6 +213,7 @@ export async function updateRetailerMapping(id: string, body: { role?: MappingRo
     warnings.push(...availabilityWarnings(availability));
     if (body.role && body.role !== current.role) setRetailerMappingRole(id, body.role, now);
     if (body.packageBaseAmount !== undefined) confirmRetailerMapping(id, body.packageBaseAmount, now);
+    if (body.fulfilsAllDemand !== undefined) setRetailerMappingFulfilsAll(id, body.fulfilsAllDemand, now);
     return { mapping: getRetailerMappingById(id)!, availability, warnings };
   });
 }

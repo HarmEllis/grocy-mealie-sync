@@ -37,6 +37,8 @@ export interface PlannerMapping {
   measure: 'unit' | 'weight';
   packageBaseAmount: number | null;
   confirmed: boolean;
+  /** A receipt line settles all open demand of the target, not just the bought amount (loose produce sold by weight). */
+  fulfilsAllDemand?: boolean;
   /** False when the target's base unit changed since the amount was confirmed. */
   baseUnitValid?: boolean;
 }
@@ -282,6 +284,8 @@ export function planReceipt(input: PlannerInput): ReceiptPlan {
     plan.target = { kind: mapping.targetKind, id: mapping.targetId, name: mapping.targetName };
     plan.unitPrice = line.amountCents !== null && total > 0 ? round(line.amountCents / 100 / total) : null;
     let remaining = total;
+    const settleAll = Boolean(mapping.fulfilsAllDemand);
+    let allocated = 0;
 
     // 1. Credits for manual checks of exported rows of this retailer product.
     if (mapping.targetKind === 'grocy_product') {
@@ -352,9 +356,9 @@ export function planReceipt(input: PlannerInput): ReceiptPlan {
       ))
       .sort((a, b) => a.row.firstSeenAt.getTime() - b.row.firstSeenAt.getTime());
     for (const { allocation, row } of exported) {
-      if (remaining <= EPSILON) break;
+      if (remaining <= EPSILON && !settleAll) break;
       const rowOpen = rowOpenBase(row);
-      const amount = round(Math.min(remaining, allocation.baseAmount, rowOpen));
+      const amount = round(Math.min(settleAll ? Infinity : remaining, allocation.baseAmount, rowOpen));
       if (amount <= EPSILON) continue;
       plan.allocations.push({
         mealieItemId: row.mealieItemId,
@@ -366,6 +370,7 @@ export function planReceipt(input: PlannerInput): ReceiptPlan {
       });
       rowAllocated.set(row.mealieItemId, (rowAllocated.get(row.mealieItemId) ?? 0) + amount);
       remaining = round(remaining - amount);
+      allocated += amount;
     }
 
     // 3. Other open demand for the same target.
@@ -373,9 +378,9 @@ export function planReceipt(input: PlannerInput): ReceiptPlan {
       .filter(row => row.targetKind === mapping.targetKind && row.targetId === mapping.targetId && rowOpenBase(row) > EPSILON)
       .sort((a, b) => a.firstSeenAt.getTime() - b.firstSeenAt.getTime());
     for (const row of others) {
-      if (remaining <= EPSILON) break;
+      if (remaining <= EPSILON && !settleAll) break;
       const rowOpen = rowOpenBase(row);
-      const amount = round(Math.min(remaining, rowOpen));
+      const amount = round(Math.min(settleAll ? Infinity : remaining, rowOpen));
       if (amount <= EPSILON) continue;
       plan.allocations.push({
         mealieItemId: row.mealieItemId,
@@ -387,10 +392,11 @@ export function planReceipt(input: PlannerInput): ReceiptPlan {
       });
       rowAllocated.set(row.mealieItemId, (rowAllocated.get(row.mealieItemId) ?? 0) + amount);
       remaining = round(remaining - amount);
+      allocated += amount;
     }
 
-    // 4. Extras.
-    plan.extraAmount = Math.max(0, remaining);
+    // 4. Extras. Settling all demand allocates beyond the bought amount, which never counts as extra stock twice.
+    plan.extraAmount = Math.max(0, settleAll ? round(total - plan.credits.reduce((sum, credit) => sum + credit.amount, 0) - allocated) : remaining);
     const credited = plan.credits.reduce((sum, credit) => sum + credit.amount, 0);
     plan.bookAmount = mapping.targetKind === 'grocy_product' ? round(Math.max(0, total - credited)) : 0;
   }
