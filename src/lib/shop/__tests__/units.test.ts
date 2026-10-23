@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emptyUnitContext, grocyQuFactor, resolveCheckOffAmount, type UnitContext } from '../units';
+import { emptyUnitContext, grocyQuFactor, resolveCheckOffAmount, suggestPackageUnit, type UnitContext } from '../units';
 
 // Grocy unit IDs as in a typical install.
 const STUK = 2;
@@ -158,5 +158,23 @@ describe('resolveCheckOffAmount', () => {
     expect(resolveCheckOffAmount(ctx, 58, 0.0000001, 'mealie-gram')).toEqual({ ok: false, reason: 'invalid_amount' });
     ctx.unitMappings.set('mealie-broken', { grocyUnitId: BLIK, factor: Number.POSITIVE_INFINITY });
     expect(resolveCheckOffAmount(ctx, 58, 1, 'mealie-broken')).toEqual({ ok: false, reason: 'no_conversion' });
+  });
+});
+
+describe('catalogue unit suggestions', () => {
+  const gram = { id: 'g', name: 'gram', abbreviation: 'g', standardUnit: 'gram', standardQuantity: 1 };
+  const kilogram = { ...gram, id: 'kg', name: 'kilogram' };
+  it('prefers an exact unit over another convertible unit', () => {
+    expect(suggestPackageUnit({ measure: 'unit', packageUnit: 'g' }, [gram, kilogram])).toEqual({ id: 'g', name: 'gram' });
+    expect(suggestPackageUnit({ measure: 'weight', packageUnit: 'g' }, [gram, kilogram])).toEqual({ id: 'kg', name: 'kilogram' });
+  });
+  it('leaves ambiguous and unknown units for manual selection', () => {
+    expect(suggestPackageUnit({ measure: 'unit', packageUnit: 'g' }, [gram, { ...gram, id: 'duplicate' }])).toBeNull();
+    expect(suggestPackageUnit({ measure: 'unit', packageUnit: 'bag' }, [gram])).toBeNull();
+    expect(suggestPackageUnit({ measure: 'unit', packageUnit: 'ml' }, [gram])).toBeNull();
+    expect(suggestPackageUnit({ measure: 'unit', packageUnit: null }, [gram])).toBeNull();
+  });
+  it('suggests count for explicit piece packages', () => {
+    expect(suggestPackageUnit({ measure: 'unit', packageUnit: 'pcs' }, [])).toEqual({ id: null, name: 'items' });
   });
 });
