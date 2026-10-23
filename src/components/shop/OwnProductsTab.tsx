@@ -144,6 +144,25 @@ export function OwnProductsTab({ overview, reloadOverview }: { overview: ShopOve
   useEffect(() => { void loadCatalog().catch(err => toast.error('Could not load retailer mappings', { description: err.message })); const timer = window.setInterval(() => void loadCatalog().catch(() => {}), 30_000); return () => window.clearInterval(timer); }, [loadCatalog]);
   useEffect(() => { const timer = window.setInterval(() => void loadInventory(), 30_000); return () => window.clearInterval(timer); }, [loadInventory]);
   const reload = useCallback(async () => { await Promise.all([loadCatalog(), loadInventory(true), reloadOverview()]); }, [loadCatalog, loadInventory, reloadOverview]);
+  async function decideSuggestion(suggestion: Suggestion, action: 'accept' | 'reject') {
+    try {
+      const result = await apiJson<{ mapping?: Mapping }>(`/api/shop/suggestions/${suggestion.id}`, { method: 'POST', body: JSON.stringify({ action }) });
+      if (action === 'accept' && result.mapping) {
+        const mapping = result.mapping;
+        const product = catalog.products.find(product => product.providerId === mapping.providerId && product.externalId === mapping.retailerProductId);
+        if (product) setEditing({
+          target: {
+            kind: mapping.targetKind as TargetOption['kind'], id: mapping.targetId, name: mapping.targetName,
+            baseUnitId: mapping.targetKind === 'grocy_product' ? mapping.packageBaseUnitId : null,
+            baseUnitName: mapping.targetKind === 'grocy_product' ? mapping.packageBaseUnitName : null,
+          },
+          draft: { providerId: mapping.providerId, product, role: mapping.role === 'alternative' ? 'alternative' : 'preferred', mapping },
+        });
+      }
+      toast.success(action === 'accept' ? 'Mapping saved; check its unit and package amount' : 'Suggestion rejected');
+      await reload();
+    } catch (err) { toast.error((err as Error).message); }
+  }
   async function remove(mapping: Mapping) {
     try { await apiJson(`/api/shop/mappings/${mapping.id}`, { method: 'DELETE' }); await reload(); }
     catch (err) { toast.error('Could not remove mapping', { description: (err as Error).message }); }
@@ -195,7 +214,7 @@ export function OwnProductsTab({ overview, reloadOverview }: { overview: ShopOve
     {!loading && !pageWindow.total && !error ? <p className="text-sm text-muted-foreground">No products match these filters.</p> : null}
     <Pagination themedPageSize window={pageWindow} onOffsetChange={setOffset} onPageSizeChange={value => { setPageSize(value); setOffset(0); }} disabled={loading} itemLabel="own products" />
     {catalog.searches?.length ? <section className="space-y-2"><h3 className="text-sm font-bold">Shopping ingredients to map</h3>{catalog.searches.map(search => <div key={search.id} className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm"><div className="min-w-0 flex-1"><b>{search.targetName}</b> · {search.status === 'pending' ? 'Waiting for catalogue search' : search.lastError ?? `Found ${search.resultCount} products`}</div><Button className="ml-auto" size="sm" variant="ghost" disabled={search.status === 'pending'} onClick={async () => { try { await apiJson(`/api/shop/searches/${search.id}/retry`, { method: 'POST', body: '{}' }); await loadCatalog(); } catch (err) { toast.error((err as Error).message); } }}>Search again</Button></div>)}</section> : null}
-    {catalog.suggestions.length ? <section className="space-y-2 rounded-xl border border-primary/30 bg-primary/10 p-3"><h3 className="text-sm font-bold">Suggestions</h3>{(allSuggestions ? catalog.suggestions : catalog.suggestions.slice(0, 5)).map(suggestion => <div key={suggestion.id} className="flex flex-wrap items-center gap-2 rounded-md border bg-background/40 p-2 text-sm"><span>{catalog.products.find(product => product.providerId === suggestion.providerId && product.externalId === suggestion.retailerProductId)?.name ?? suggestion.retailerProductId}</span><ArrowRight className="size-3" /><b>{suggestion.targetName}</b><AppBadge small>{suggestion.providerId} · {Math.round(suggestion.score * 100)}%</AppBadge><div className="ml-auto flex justify-end gap-2">{(['accept', 'reject'] as const).map(action => <Button key={action} size="sm" variant={action === 'accept' ? 'outline' : 'ghost'} onClick={async () => { try { await apiJson(`/api/shop/suggestions/${suggestion.id}`, { method: 'POST', body: JSON.stringify({ action }) }); toast.success(action === 'accept' ? 'Mapping saved; confirm its package amount in Edit' : 'Suggestion rejected'); await reload(); } catch (err) { toast.error((err as Error).message); } }}>{action === 'accept' ? <Check className="size-3" /> : <X className="size-3" />}{action === 'accept' ? 'Accept' : 'Reject'}</Button>)}</div></div>)}{catalog.suggestions.length > 5 ? <Button size="sm" variant="ghost" onClick={() => setAllSuggestions(value => !value)}>{allSuggestions ? 'Show fewer' : 'Show all suggestions'}</Button> : null}</section> : null}
+    {catalog.suggestions.length ? <section className="space-y-2 rounded-xl border border-primary/30 bg-primary/10 p-3"><h3 className="text-sm font-bold">Suggestions</h3>{(allSuggestions ? catalog.suggestions : catalog.suggestions.slice(0, 5)).map(suggestion => <div key={suggestion.id} className="flex flex-wrap items-center gap-2 rounded-md border bg-background/40 p-2 text-sm"><span>{catalog.products.find(product => product.providerId === suggestion.providerId && product.externalId === suggestion.retailerProductId)?.name ?? suggestion.retailerProductId}</span><ArrowRight className="size-3" /><b>{suggestion.targetName}</b><AppBadge small>{suggestion.providerId} · {Math.round(suggestion.score * 100)}%</AppBadge><div className="ml-auto flex justify-end gap-2">{(['accept', 'reject'] as const).map(action => <Button key={action} size="sm" variant={action === 'accept' ? 'outline' : 'ghost'} onClick={() => void decideSuggestion(suggestion, action)}>{action === 'accept' ? <Check className="size-3" /> : <X className="size-3" />}{action === 'accept' ? 'Accept' : 'Reject'}</Button>)}</div></div>)}{catalog.suggestions.length > 5 ? <Button size="sm" variant="ghost" onClick={() => setAllSuggestions(value => !value)}>{allSuggestions ? 'Show fewer' : 'Show all suggestions'}</Button> : null}</section> : null}
     {editing ? <ProductEditor lines={overview.lines} key={`${editing.target.kind}:${editing.target.id}`} target={editing.target} initialDraft={editing.draft} providers={providers} catalog={catalog} units={inventory?.mealieUnits ?? []} onCatalog={mergeProducts} reload={reload} onClose={() => setEditing(null)} /> : null}
   </div>;
 }
@@ -267,10 +286,19 @@ function MappingForm({ target, draft, units, onSaved, onCancel }: { target: Targ
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const [baseChosen, setBaseChosen] = useState(target.kind === 'grocy_product' || Boolean(draft.mapping) || Boolean(target.baseUnitId));
+  const unitChosen = useRef(target.kind === 'grocy_product' || Boolean(draft.mapping?.confirmed) || Boolean(draft.mapping?.packageBaseUnitId) || Boolean(target.baseUnitId));
+  const [baseChosen, setBaseChosen] = useState(unitChosen.current);
   useEffect(() => {
     let cancelled = false; setPreview(null); setError('');
-    void apiJson<Awaited<ReturnType<typeof mappingPreview>>>('/api/shop/mappings/preview', { method: 'POST', body: JSON.stringify({ providerId: draft.providerId, retailerProductId: draft.product.externalId, targetKind: target.kind, targetId: target.id, baseUnitId: unit || null }) }).then(result => { if (!cancelled) setPreview(result); }).catch(err => { if (!cancelled) setError(err.message); });
+    void apiJson<Awaited<ReturnType<typeof mappingPreview>>>('/api/shop/mappings/preview', { method: 'POST', body: JSON.stringify({ providerId: draft.providerId, retailerProductId: draft.product.externalId, targetKind: target.kind, targetId: target.id, baseUnitId: unit || null }) }).then(result => { if (!cancelled) {
+      if (!unitChosen.current && result.suggestedBaseUnit) {
+        unitChosen.current = true; setBaseChosen(true);
+        const suggested = result.suggestedBaseUnit.id ?? '';
+        setUnit(suggested); setAmount('');
+        if (suggested !== unit) return;
+      }
+      setPreview(result);
+    } }).catch(err => { if (!cancelled) setError(err.message); });
     return () => { cancelled = true; };
   }, [draft.providerId, draft.product.externalId, target.kind, target.id, unit, attempt]);
   const baseName = target.kind === 'grocy_product' ? preview?.baseUnitName ?? target.baseUnitName : units.find(candidate => candidate.id === unit)?.name ?? 'items';
@@ -291,7 +319,7 @@ function MappingForm({ target, draft, units, onSaved, onCancel }: { target: Targ
   return <div className="space-y-2 rounded-md border border-primary/30 bg-background p-3 text-sm">
     <p className="font-semibold">{draft.product.name} · {draft.role}</p>
     {draft.mapping && (draft.mapping.targetKind !== target.kind || draft.mapping.targetId !== target.id) ? <p className="text-xs text-amber-600 dark:text-amber-400">This was mapped directly to the linked Mealie ingredient. Confirm an amount in the Grocy stock unit to move it to this canonical product.</p> : null}
-    {target.kind === 'mealie_food' ? <SearchableSelect className="w-full" ariaLabel="Base unit" placeholder="Choose Mealie base unit" clearable={false} value={baseChosen ? unit : null} options={[{ value: '', label: 'Count (items)' }, ...units.map(unit => ({ value: unit.id, label: unit.name }))]} onChange={value => { setUnit(value ?? ''); setBaseChosen(true); setAmount(''); }} /> : <p className="text-xs">Grocy stock unit: {baseName ?? 'missing'}</p>}
+    {target.kind === 'mealie_food' ? <SearchableSelect className="w-full" ariaLabel="Base unit" placeholder="Choose Mealie base unit" clearable={false} value={baseChosen ? unit : null} options={[{ value: '', label: 'Count (items)' }, ...units.map(unit => ({ value: unit.id, label: unit.name }))]} onChange={value => { unitChosen.current = true; setUnit(value ?? ''); setBaseChosen(true); setAmount(''); }} /> : <p className="text-xs">Grocy stock unit: {baseName ?? 'missing'}</p>}
     <div className="flex flex-wrap items-center gap-2"><span className="text-xs">1 {draft.product.measure === 'weight' ? 'kg' : 'package'} =</span><AppInput className="w-24" inputMode="decimal" aria-label="Amount per package" value={amount} onChange={event => setAmount(event.target.value)} /><span className="text-xs">{baseName}</span></div>
     {preview?.derivation ? <div className="flex flex-wrap items-center gap-2 text-xs"><span>Suggested: {preview.derivation.explanation}. Check against the package.</span><Button size="sm" variant="outline" onClick={() => setAmount(String(preview.derivation!.amount))}>Use suggested amount</Button></div> : <p className="text-xs text-muted-foreground">Enter the amount shown on the package or receipt. Unknown conversions are never guessed.</p>}
     {changedUnit ? <p className="text-xs text-destructive" role="alert">The Grocy stock unit changed. Close this dialog and refresh the products before confirming.</p> : null}

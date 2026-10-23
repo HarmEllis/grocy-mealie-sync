@@ -23,3 +23,13 @@ it('uses the existing unit mapping factor and derives package stock quantities w
   expect(preview.conversions).toEqual([expect.objectContaining({ mealieUnitId: 'kg', ok: true, factor: 1000 })]);
   expect(preview.requiresConfirmation).toBe(true);
 });
+
+it('suggests a uniquely convertible Mealie unit without confirming the mapping', async () => {
+  upsertRetailerProducts('demo', [{ id: 'mealie-chicken', name: 'Chicken 150g', measure: 'unit', packageAmount: 150, packageUnit: 'g' }]);
+  const preview = await mappingPreview({ providerId: 'demo', retailerProductId: 'mealie-chicken', targetKind: 'mealie_food', targetId: 'food' });
+  expect(preview.suggestedBaseUnit).toEqual({ id: 'kg', name: 'kilogram' });
+  expect(preview.baseUnitId).toBeNull();
+  expect(preview.requiresConfirmation).toBe(true);
+  const selected = await mappingPreview({ providerId: 'demo', retailerProductId: 'mealie-chicken', targetKind: 'mealie_food', targetId: 'food', baseUnitId: 'kg' });
+  expect(selected.derivation?.amount).toBe(0.15);
+});
