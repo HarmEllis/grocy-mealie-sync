@@ -20,6 +20,7 @@ async function runTest(scriptName) {
 
   const child = spawn(process.execPath, [scriptPath], {
     stdio: 'inherit',
+    env: { ...process.env, PLAYWRIGHT_RUN: '1' },
   });
 
   const [exitCode] = await once(child, 'exit');
