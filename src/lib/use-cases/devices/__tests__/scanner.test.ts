@@ -703,6 +703,24 @@ describe('searchDeviceProducts', () => {
     expect(result.results).toEqual([{ id: 43, name: 'Whole Milk', stockAmount: 5, source: 'grocy' }]);
   });
 
+  it('returns the Grocy results when the Mealie lookup stalls', async () => {
+    vi.useFakeTimers();
+    try {
+      const deps = createDeps({
+        getProductDetails: vi.fn().mockResolvedValue(productDetails({ id: 43, name: 'Whole Milk', stock: 5 })),
+        listUnmappedMealieFoods: vi.fn().mockReturnValue(new Promise(() => {})),
+      });
+
+      const pending = searchDeviceProducts({ query: 'milk', includeMealie: true }, deps);
+      await vi.advanceTimersByTimeAsync(2_500);
+      const result = await pending;
+
+      expect(result.results).toEqual([{ id: 43, name: 'Whole Milk', stockAmount: 5, source: 'grocy' }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('rejects an empty query', async () => {
     await expect(searchDeviceProducts({ query: '   ' }, createDeps()))
       .rejects.toThrow('Query must not be empty.');

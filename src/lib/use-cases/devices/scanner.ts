@@ -50,6 +50,7 @@ export const DEVICE_BARCODE_PATTERN = /^[0-9A-Za-z_-]{4,64}$/;
 const EXTERNAL_LOOKUP_TIMEOUT_MS = 3_000;
 const SCAN_GROCY_LOOKUP_TIMEOUT_MS = 6_500;
 const SCAN_SHOPPING_LIST_TIMEOUT_MS = 1_200;
+const SEARCH_MEALIE_TIMEOUT_MS = 2_000;
 const MAX_SUGGESTED_MATCHES = 5;
 
 // ---------------------------------------------------------------------------
@@ -791,7 +792,7 @@ export async function searchDeviceProducts(
   // Mealie-only foods are a convenience; a Mealie outage must not break search.
   let mealieFoods: DeviceMealieFood[] = [];
   try {
-    mealieFoods = await deps.listUnmappedMealieFoods();
+    mealieFoods = await withTimeout(deps.listUnmappedMealieFoods(), SEARCH_MEALIE_TIMEOUT_MS, 'Mealie');
   } catch (error) {
     log.warn('[Device] Mealie food lookup failed during search:', describeSyncError(error));
   }
