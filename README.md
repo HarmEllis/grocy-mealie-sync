@@ -304,7 +304,10 @@ The companion [grocy-mealie-scanner repository](https://github.com/HarmEllis/gro
 contains ESP32 firmware, hardware instructions and a web flasher for a kitchen
 barcode scanner. Its **Bought**, **Opened**, **Consumed** and **Shopping** actions
 use gm-sync's device API at `/api/device/v1`. Unknown barcodes can be linked to an
-existing product or used to create a product through a guided flow.
+existing product or used to create a product through a guided flow. From its home
+screen the scanner can also browse products by Mealie label or by first letter
+(A-Z); that needs scanner firmware 0.6.0 or newer and a gm-sync version that
+reports device API version 4.
 
 Set `DEVICE_API_TOKENS` in gm-sync, recreate the container to apply the environment
 change, and configure the scanner with the same token and a gm-sync base URL
