@@ -302,6 +302,18 @@ export interface PackageDerivation {
   explanation: string;
 }
 
+/** Prefer the catalogue unit; only fall back to a uniquely convertible unit. */
+export function suggestPackageUnit(input: { measure: string; packageUnit?: string | null }, units: Iterable<MealieUnitInfo>) {
+  const sourceName = input.measure === 'weight' ? 'kg' : input.packageUnit;
+  if (isCountUnitName(sourceName)) return { id: null, name: 'items' };
+  const source = resolveLibraryUnit(sourceName);
+  if (!source) return null;
+  const candidates = [...units].filter(unit => resolveLibraryUnit(unit.name)?.dimension === source.dimension);
+  const exact = candidates.filter(unit => resolveLibraryUnit(unit.name)?.scale === source.scale);
+  const matches = exact.length ? exact : candidates;
+  return matches.length === 1 ? { id: matches[0].id, name: matches[0].name } : null;
+}
+
 /**
  * Derive how much of the target base unit one receipt quantity unit holds.
  * Returns null when no exact derivation exists; the user then enters it.

@@ -373,6 +373,39 @@ try {
   assert.deepEqual(installations[0].manualNoteProductIds, []);
   await page.getByRole('button', { name: 'Done', exact: true }).click();
 
+  // Accepting a Mealie suggestion opens the amount form and selects the catalogue unit.
+  products.push({ providerId: 'ah', externalId: 'chicken', name: 'Chicken 500g', packageAmount: 500, packageUnit: 'g', measure: 'unit', availability: 'available' });
+  suggestions = [{ id: 'chicken-suggestion', providerId: 'ah', retailerProductId: 'chicken', targetKind: 'mealie_food', targetId: 'food2', targetName: 'Kipfilet', score: 0.95 }];
+  await page.route('**/api/shop/suggestions/*', async route => {
+    const mapping = { id: 'chicken-mapping', providerId: 'ah', retailerProductId: 'chicken', retailerProductName: 'Chicken 500g', targetKind: 'mealie_food', targetId: 'food2', targetName: 'Kipfilet', role: 'preferred', packageBaseUnitId: null, packageBaseUnitName: null, packageBaseAmount: null, confirmed: false };
+    mappings.push(mapping); suggestions = [];
+    await route.fulfill({ json: { mapping } });
+  });
+  await page.route('**/api/shop/mappings/preview', route => {
+    const body = route.request().postDataJSON();
+    return route.fulfill({ json: { baseUnitId: body.baseUnitId, baseUnitName: body.baseUnitId === 'g' ? 'gram' : null, suggestedBaseUnit: { id: 'g', name: 'gram' }, derivation: body.baseUnitId === 'g' ? { amount: 500, explanation: '1 package = 500 g' } : null, linkedFoods: [], conversions: [], demandConversions: [], requiresConfirmation: true, measure: 'unit' } });
+  });
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.getByRole('tab', { name: 'Products', exact: true }).click();
+  await page.getByRole('button', { name: 'Accept', exact: true }).click();
+  const suggestionDialog = page.getByRole('dialog');
+  await suggestionDialog.getByLabel('Base unit', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Use suggested amount', exact: true }).waitFor();
+  assert.equal(await suggestionDialog.getByLabel('Base unit', { exact: true }).inputValue(), 'gram');
+  assert.equal(await suggestionDialog.getByLabel('Amount per package').inputValue(), '', 'suggested amount still needs review');
+  await chooseOption('Base unit', 'Count (items)');
+  await page.getByRole('button', { name: 'Use suggested amount', exact: true }).waitFor({ state: 'hidden' });
+  assert.equal(await suggestionDialog.getByLabel('Base unit', { exact: true }).inputValue(), 'Count (items)', 'a manual choice is not replaced by the suggestion');
+  await chooseOption('Base unit', 'gram');
+  await page.getByRole('button', { name: 'Use suggested amount', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Use suggested amount', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm mapping', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm mapping', exact: true }).waitFor({ state: 'hidden' });
+  assert.equal(savedBody.baseUnitId, 'g');
+  assert.equal(savedBody.packageBaseAmount, 500);
+  assert.equal(savedBody.confirm, true);
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+
   // Revoke from Settings.
   await page.goto(`${baseUrl}/settings`, { waitUntil: 'networkidle', timeout: 180_000 });
   await page.getByTestId('plugin-installation').filter({ hasText: 'Demo shop' }).getByRole('button', { name: 'Revoke' }).click();
