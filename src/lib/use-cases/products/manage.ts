@@ -509,6 +509,98 @@ export async function createProductInGrocy(
   });
 }
 
+export interface CreateProductForMealieFoodParams {
+  mealieFoodId: string;
+  mealieFoodName: string;
+  grocyUnitId: number;
+  locationId?: number;
+}
+
+export interface CreateProductForMealieFoodResult {
+  created: boolean;
+  grocyProductId: number | null;
+  grocyProductName: string | null;
+  unitMappingId: string | null;
+}
+
+/**
+ * Create the Grocy product for an existing, unmapped Mealie food and map the
+ * two. Does not take the sync lock: the caller must hold it across its own
+ * mapping check so the check, the create and the insert stay one critical
+ * section. A failed mapping insert deletes the Grocy product again.
+ */
+export async function createProductForMealieFood(
+  params: CreateProductForMealieFoodParams,
+  deps: Pick<
+    ProductManageDeps,
+    | 'checkProductDuplicates'
+    | 'listGrocyLocations'
+    | 'listUnitMappings'
+    | 'createGrocyProduct'
+    | 'deleteGrocyProduct'
+    | 'insertProductMapping'
+  > = defaultDeps,
+): Promise<CreateProductForMealieFoodResult> {
+  const duplicateCheck = await deps.checkProductDuplicates({ name: params.mealieFoodName });
+  const exactGrocyMatch = duplicateCheck.exactGrocyMatches[0];
+  if (exactGrocyMatch) {
+    return {
+      created: false,
+      grocyProductId: exactGrocyMatch.id ?? null,
+      grocyProductName: exactGrocyMatch.name ?? null,
+      unitMappingId: null,
+    };
+  }
+
+  const locationId = requireLocationId(await deps.listGrocyLocations(), params.locationId);
+  const unitMappingId = (await deps.listUnitMappings())
+    .find(mapping => mapping.grocyUnitId === params.grocyUnitId)?.id ?? null;
+
+  const grocyResult = await deps.createGrocyProduct({
+    name: params.mealieFoodName,
+    min_stock_amount: 0,
+    qu_id_purchase: params.grocyUnitId,
+    qu_id_stock: params.grocyUnitId,
+    location_id: locationId,
+  });
+
+  try {
+    await deps.insertProductMapping({
+      mealieFoodId: params.mealieFoodId,
+      mealieFoodName: params.mealieFoodName,
+      grocyProductId: grocyResult.createdObjectId,
+      grocyProductName: params.mealieFoodName,
+      unitMappingId,
+    });
+  } catch (error) {
+    try {
+      await deps.deleteGrocyProduct(grocyResult.createdObjectId);
+    } catch (cleanupError) {
+      throw new ProductCompensationError(grocyResult.createdObjectId, error, cleanupError);
+    }
+    throw error;
+  }
+
+  return {
+    created: true,
+    grocyProductId: grocyResult.createdObjectId,
+    grocyProductName: params.mealieFoodName,
+    unitMappingId,
+  };
+}
+
+/** The mapping insert failed and the freshly created Grocy product could not be removed. */
+export class ProductCompensationError extends Error {
+  constructor(
+    public readonly grocyProductId: number,
+    public readonly cause: unknown,
+    public readonly cleanupError: unknown,
+  ) {
+    super(`Mapping failed and Grocy product ${grocyProductId} could not be removed: ${String(cause)}`);
+    this.name = 'ProductCompensationError';
+  }
+}
+
 export async function createProductInMealie(
   params: CreateProductInMealieParams,
   deps: Pick<
