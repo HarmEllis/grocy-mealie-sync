@@ -139,6 +139,8 @@ export interface UpsertMappingInput {
   /** Explicit amount per receipt quantity unit; confirms the mapping. */
   packageBaseAmount?: number | null;
   confirm?: boolean;
+  /** Receipt lines settle all open demand of the target; keeps the current value, off for a new mapping. */
+  fulfilsAllDemand?: boolean;
 }
 
 /**
@@ -193,6 +195,7 @@ export function upsertRetailerMapping(input: UpsertMappingInput, now = new Date(
       packageBaseUnitName: input.baseUnitName,
       packageSource,
       confirmed,
+      fulfilsAllDemand: input.fulfilsAllDemand ?? existing?.fulfilsAllDemand ?? false,
       updatedAt: now,
     };
     tx.insert(retailerMappings)
@@ -229,6 +232,11 @@ export function confirmRetailerMapping(id: string, packageBaseAmount: number, no
     .set({ packageBaseAmount, packageSource: 'confirmed', confirmed: true, updatedAt: now })
     .where(eq(retailerMappings.id, id))
     .run();
+  return getRetailerMappingById(id);
+}
+
+export function setRetailerMappingFulfilsAll(id: string, fulfilsAllDemand: boolean, now = new Date()): RetailerMappingRow | null {
+  db.update(retailerMappings).set({ fulfilsAllDemand, updatedAt: now }).where(eq(retailerMappings.id, id)).run();
   return getRetailerMappingById(id);
 }
 

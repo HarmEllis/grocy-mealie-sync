@@ -22,7 +22,7 @@ interface Mapping {
   id: string; providerId: string; retailerProductId: string; retailerProductName: string;
   targetKind: string; targetId: string; targetName: string; role: string;
   packageBaseAmount: number | null; packageBaseUnitId: string | null; packageBaseUnitName: string | null;
-  confirmed: boolean;
+  confirmed: boolean; fulfilsAllDemand?: boolean;
 }
 interface Suggestion { id: string; providerId: string; retailerProductId: string; targetKind: string; targetId: string; targetName: string; score: number }
 interface SearchStatus { id: string; targetName: string; status: string; resultCount: number; lastError: string | null }
@@ -262,6 +262,7 @@ function ProductEditor({ target, initialDraft, providers, catalog, units, lines,
 function MappingForm({ target, draft, units, onSaved, onCancel }: { target: TargetOption; draft: Draft; units: Inventory['mealieUnits']; onSaved: () => Promise<void>; onCancel: () => void }) {
   const [unit, setUnit] = useState(draft.mapping ? draft.mapping.packageBaseUnitId ?? '' : target.baseUnitId ?? '');
   const [amount, setAmount] = useState(target.kind === 'grocy_product' && draft.mapping && (draft.mapping.targetKind !== target.kind || draft.mapping.packageBaseUnitId !== target.baseUnitId) ? '' : draft.mapping?.packageBaseAmount?.toString() ?? '');
+  const [fulfilsAll, setFulfilsAll] = useState(Boolean(draft.mapping?.fulfilsAllDemand));
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof mappingPreview>> | null>(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -281,7 +282,7 @@ function MappingForm({ target, draft, units, onSaved, onCancel }: { target: Targ
     if (!baseChosen || !(parsed > 0) || !Number.isFinite(parsed) || !preview || changedUnit || unavailable || deletedUnit) return;
     setSaving(true);
     try {
-      const saved = await apiJson<{ warnings: string[] }>('/api/shop/mappings', { method: 'POST', body: JSON.stringify({ providerId: draft.providerId, retailerProductId: draft.product.externalId, targetKind: target.kind, targetId: target.id, targetName: target.name, role: draft.role, baseUnitId: target.kind === 'grocy_product' ? preview.baseUnitId : unit || null, baseUnitName: baseName, packageBaseAmount: parsed, confirm: true, replacesMappingId: draft.role === 'alternative' ? draft.replaces?.id : undefined }) });
+      const saved = await apiJson<{ warnings: string[] }>('/api/shop/mappings', { method: 'POST', body: JSON.stringify({ providerId: draft.providerId, retailerProductId: draft.product.externalId, targetKind: target.kind, targetId: target.id, targetName: target.name, role: draft.role, baseUnitId: target.kind === 'grocy_product' ? preview.baseUnitId : unit || null, baseUnitName: baseName, packageBaseAmount: parsed, confirm: true, fulfilsAllDemand: fulfilsAll, replacesMappingId: draft.role === 'alternative' ? draft.replaces?.id : undefined }) });
       if (saved.warnings?.includes('availability_unknown')) toast.warning('Mapping saved; current availability could not be verified.');
       toast.success('Mapping and package amount confirmed'); await onSaved();
     } catch (err) { toast.error('Could not save mapping', { description: (err as Error).message }); }
@@ -298,6 +299,7 @@ function MappingForm({ target, draft, units, onSaved, onCancel }: { target: Targ
     {unavailable ? <p className="text-xs text-destructive" role="alert">This product is discontinued. Choose a current product; the existing mapping is kept.</p> : null}
     {error ? <p className="text-xs text-destructive" role="alert">{error}<Button size="sm" variant="ghost" onClick={() => setAttempt(value => value + 1)}>Retry preview</Button></p> : null}
     {preview?.demandConversions?.map(conversion => <p key={conversion.mealieItemId} className="text-xs">{conversion.mealieUnitName}: {conversion.ok ? `${conversion.amount} ${preview.baseUnitName}` : `Needs configuration (${conversion.reason})`}</p>)}
+    <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={fulfilsAll} onChange={event => setFulfilsAll(event.target.checked)} /> A receipt line settles all open rows of this product (loose produce sold by weight)</label>
     <a className="text-xs text-primary underline" href="/conversions">Units &amp; Conversions</a>
     <div className="flex justify-end gap-2"><Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button><Button size="sm" onClick={() => void save()} disabled={saving || !baseChosen || !preview || Boolean(changedUnit) || unavailable || deletedUnit || !(Number(amount) > 0) || !Number.isFinite(Number(amount))}>{saving ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />} Confirm mapping</Button></div>
   </div>;

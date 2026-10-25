@@ -114,7 +114,14 @@ function demandTargetFor(
     return { targetKind: mapping.targetKind, targetId: mapping.targetId, rowFactor: packageAmount };
   }
   if (Number(item.quantity ?? 0) === 0 && !item.unitId && mapping?.measure === 'weight') return null;
-  if (productId !== undefined) {
+  // Same target choice and conversion as the projection, so a receipt finds the rows the export was built from.
+  if (mapping) {
+    const converted = mapping.targetKind === 'grocy_product'
+      ? mealieQuantityToGrocyStock(ctx, Number(mapping.targetId), 1, item.unitId ?? null)
+      : mealieQuantityToMealieBase(ctx, 1, item.unitId ?? null, mapping.packageBaseUnitId);
+    return converted.ok ? { targetKind: mapping.targetKind, targetId: mapping.targetId, rowFactor: converted.factor } : null;
+  }
+  if (productId !== undefined && !mealieBaseUnits.has(item.foodId)) {
     const converted = mealieQuantityToGrocyStock(ctx, productId, 1, item.unitId ?? null);
     return converted.ok ? { targetKind: 'grocy_product', targetId: String(productId), rowFactor: converted.factor } : null;
   }
@@ -238,6 +245,7 @@ export async function buildPlannerInput(
       measure: product?.measure === 'weight' ? 'weight' : 'unit',
       packageBaseAmount: mapping.packageBaseAmount,
       confirmed: mapping.confirmed,
+      fulfilsAllDemand: mapping.fulfilsAllDemand,
       baseUnitValid: mappingBaseUnitValid(ctx, {
         targetKind: mapping.targetKind as TargetKind,
         targetId: mapping.targetId,

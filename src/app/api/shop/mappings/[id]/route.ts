@@ -6,6 +6,7 @@ import { readJson, ShopApiError, shopRoute } from '@/lib/shop/api-helpers';
 const patchSchema = z.object({
   packageBaseAmount: z.number().positive().finite().optional(),
   role: z.enum(['preferred', 'alternative']).optional(),
+  fulfilsAllDemand: z.boolean().optional(),
 }).strict();
 
 type Context = { params: Promise<{ id: string }> };
