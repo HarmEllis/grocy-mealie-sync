@@ -292,6 +292,7 @@ function MappingEditor({ providerId, product, mapping, onClose }: { providerId: 
     kind: mapping.targetKind as TargetOption['kind'], id: mapping.targetId, name: mapping.targetName,
     baseUnitId: mapping.packageBaseUnitId, baseUnitName: mapping.packageBaseUnitName,
   } : null);
+  const unitChosen = useRef(Boolean(mapping?.confirmed) || Boolean(mapping?.packageBaseUnitId));
   const [mealieUnitId, setMealieUnitId] = useState(mapping?.targetKind === 'mealie_food' ? mapping.packageBaseUnitId ?? '' : '');
   const [role, setRole] = useState<'preferred' | 'alternative'>(mapping?.role === 'alternative' ? 'alternative' : 'preferred');
   const [amount, setAmount] = useState(mapping?.packageBaseAmount?.toString() ?? '');
@@ -327,6 +328,12 @@ function MappingEditor({ providerId, product, mapping, onClose }: { providerId: 
       method: 'POST', body: JSON.stringify({ providerId, retailerProductId: product.externalId, targetKind: selected.kind, targetId: selected.id, baseUnitId: mealieUnitId || null }),
     }).then(result => {
       if (cancelled) return;
+      if (selected.kind === 'mealie_food' && !unitChosen.current && result.suggestedBaseUnit) {
+        unitChosen.current = true;
+        const suggested = result.suggestedBaseUnit.id ?? '';
+        setMealieUnitId(suggested); setAmount('');
+        if (suggested !== mealieUnitId) return;
+      }
       setPreview(result);
     }).catch(() => { if (!cancelled) setPreviewError(true); });
     return () => { cancelled = true; };
@@ -386,7 +393,7 @@ function MappingEditor({ providerId, product, mapping, onClose }: { providerId: 
         <SearchableSelect
           className="w-full" ariaLabel="Target" placeholder="Search a Grocy product or Mealie ingredient…" onSearchChange={setQuery}
           value={selected ? targetKey(selected) : null}
-          onChange={value => { const next = value === null ? null : targets.find(target => targetKey(target) === value) ?? selected; if (next && (!selected || targetKey(next) !== targetKey(selected) || next.baseUnitId !== selected.baseUnitId)) setAmount(''); setSelected(next); }}
+          onChange={value => { const next = value === null ? null : targets.find(target => targetKey(target) === value) ?? selected; if (next && (!selected || targetKey(next) !== targetKey(selected) || next.baseUnitId !== selected.baseUnitId)) { setAmount(''); setMealieUnitId(''); unitChosen.current = false; } setSelected(next); }}
           extraOption={selected ? { value: targetKey(selected), label: targetLabel(selected) } : null}
           options={targets.map(target => ({ value: targetKey(target), label: targetLabel(target) }))}
         />
@@ -395,7 +402,7 @@ function MappingEditor({ providerId, product, mapping, onClose }: { providerId: 
         {selected?.linkedFoods?.length ? <p className="text-xs text-muted-foreground">Linked to Mealie: {selected.linkedFoods.map(food => food.name).join(', ')}.</p> : null}
         {selected?.kind === 'mealie_food' ? (
           <div className="space-y-1">
-            <SearchableSelect className="w-full" ariaLabel="Mealie unit" placeholder="Count (no unit)" extraOption={mealieUnitId && mapping?.packageBaseUnitId === mealieUnitId ? { value: mealieUnitId, label: mapping.packageBaseUnitName ?? mealieUnitId } : null} value={mealieUnitId} onChange={value => { if (value !== mealieUnitId) setAmount(''); setMealieUnitId(value ?? ''); }} clearable={false} options={[{ value: '', label: 'Count (no unit)' }, ...mealieUnits.map(unit => ({ value: unit.id, label: unit.name }))]} />
+            <SearchableSelect className="w-full" ariaLabel="Mealie unit" placeholder="Count (no unit)" extraOption={mealieUnitId && mapping?.packageBaseUnitId === mealieUnitId ? { value: mealieUnitId, label: mapping.packageBaseUnitName ?? mealieUnitId } : null} value={mealieUnitId} onChange={value => { unitChosen.current = true; if (value !== mealieUnitId) setAmount(''); setMealieUnitId(value ?? ''); }} clearable={false} options={[{ value: '', label: 'Count (no unit)' }, ...mealieUnits.map(unit => ({ value: unit.id, label: unit.name }))]} />
             {unitsError ? <p role="alert" className="text-xs text-destructive">Mealie units could not be loaded; try searching again.</p>
               : unitsLoaded && mealieUnitId && !mealieUnits.some(unit => unit.id === mealieUnitId) ? <p role="alert" className="text-xs text-destructive">This Mealie unit is no longer available; choose another unit.</p> : null}
           </div>
