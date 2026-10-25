@@ -54,7 +54,7 @@ services:
     restart: unless-stopped
   postgres:
     container_name: postgres
-    image: postgres:15@sha256:29342cb52157b098821961d2c14eec3c019071f56a5d559e990cf07cf541ea9b
+    image: postgres:15@sha256:32016c79bea24c14917660106bc23a03341d94b9983aeb41f4130b4f3fbd6dd0
     restart: always
     volumes:
       - mealie-pgdata:/var/lib/postgresql/data
