@@ -1,13 +1,26 @@
 import { db } from '../db';
 import { productMappings, unitMappings } from '../db/schema';
-import { getGrocyEntities, type GrocyProductWithParent } from '../grocy/types';
+import { getGrocyEntities, type GrocyProductWithParent, type QuantityUnitConversion } from '../grocy/types';
 import { RecipesUnitsService } from '../mealie';
 import { extractUnits } from '../mealie/types';
-import { emptyUnitContext, type UnitContext } from './units';
+import { emptyUnitContext, type GrocyConversionInfo, type UnitContext } from './units';
 
 function numberOrNull(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+/** Grocy conversion records with valid units and a positive factor. */
+export function grocyConversionInfos(conversions: QuantityUnitConversion[]): GrocyConversionInfo[] {
+  const infos: GrocyConversionInfo[] = [];
+  for (const conversion of conversions) {
+    const fromQuId = Number(conversion.from_qu_id);
+    const toQuId = Number(conversion.to_qu_id);
+    const factor = Number(conversion.factor);
+    if (!Number.isFinite(fromQuId) || !Number.isFinite(toQuId) || !Number.isFinite(factor) || factor <= 0) continue;
+    infos.push({ fromQuId, toQuId, factor, productId: numberOrNull(conversion.product_id) });
+  }
+  return infos;
 }
 
 /**
@@ -38,13 +51,7 @@ export async function loadUnitContext(grocyProducts?: GrocyProductWithParent[]):
     const id = Number(unit.id);
     if (Number.isFinite(id)) ctx.grocyUnitNames.set(id, unit.name ?? `Unit #${id}`);
   }
-  for (const conversion of conversions) {
-    const fromQuId = Number(conversion.from_qu_id);
-    const toQuId = Number(conversion.to_qu_id);
-    const factor = Number(conversion.factor);
-    if (!Number.isFinite(fromQuId) || !Number.isFinite(toQuId) || !Number.isFinite(factor) || factor <= 0) continue;
-    ctx.grocyConversions.push({ fromQuId, toQuId, factor, productId: numberOrNull(conversion.product_id) });
-  }
+  ctx.grocyConversions = grocyConversionInfos(conversions);
   for (const unit of extractUnits(mealieUnits)) {
     ctx.mealieUnits.set(unit.id, {
       id: unit.id,

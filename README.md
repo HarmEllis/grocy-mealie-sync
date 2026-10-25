@@ -315,6 +315,12 @@ reachable from its Wi-Fi network. Use a LAN address such as
 `http://192.168.1.50:3000` or an HTTPS hostname with a certificate trusted by the
 firmware; Docker service names and `localhost` do not identify gm-sync from the
 scanner. Device tokens grant access only to `/api/device/*`.
+The amount the scanner shows as on the shopping list is in the product's Grocy
+stock unit: rows in other units are converted like checked-off rows ("1000 ml"
+and "2 packs" show as 3 when a pack holds 1000 ml), and rows that cannot be
+converted exactly are left out of the number. The total is rounded up to one
+decimal, as the scanner shows it ("250 ml" of a 1000 ml pack shows as 0.3). **Shopping** adds in the stock
+unit and only adds to a row in that unit.
 Scanner actions appear in History as **Scanner** actions. The scanner connects
 through HTTP rather than the shop-plugin WebSocket and uses a separate token.
 
@@ -423,6 +429,7 @@ For the default unit, the dropdown only shows units that were synced from Mealie
 - Newly missing products are added to the configured Mealie shopping list
 - The missing amount is a Grocy stock amount, so the row is labelled with the Mealie unit mapped to the Grocy stock unit (`qu_id_stock`); without such a mapping the row has no unit and shows a count
 - If an unchecked row for the product already exists in that same unit and did not come from a recipe, its quantity is updated instead of creating a duplicate. Recipe rows and rows in another unit (such as "400 g") are never changed; the sync adds its own row next to them
+- A row in another unit that did not come from a recipe (such as "1000 ml" for a product counted in packs) counts towards the shortage, converted like a checked-off row: the sync's own row only holds what it leaves missing. When such a row cannot be converted exactly, it is taken to show the shortage that was already there, and the sync's own row holds only an increase
 
 ### Mealie → Grocy (checked items)
 - A checked row is booked in the Grocy stock unit. Rows in the stock unit are booked as they are; other units are converted through the app's unit mappings and Grocy's unit conversions, including one intermediate step (`1 kg` → `1000 g` → `1 bag` with a `1 bag = 1000 g` product conversion)
