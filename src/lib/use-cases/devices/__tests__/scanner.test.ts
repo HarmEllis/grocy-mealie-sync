@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/lib/grocy';
 import type { ProductDetailsResponse } from '@/lib/grocy/types';
+import { ProductCompensationError } from '@/lib/use-cases/products/manage';
 import {
   createDeviceProduct,
+  createDeviceProductFromMealieFood,
   DeviceConflictError,
   DeviceProductNotFoundError,
   DeviceUpstreamTimeoutError,
@@ -92,6 +94,11 @@ function createDeps(overrides: Partial<DeviceScannerDeps> = {}): DeviceScannerDe
     }),
     resolveMappedGrocyProduct: vi.fn().mockResolvedValue(null),
     resolveDefaultGrocyUnitId: vi.fn().mockResolvedValue(7),
+    listUnmappedMealieFoods: vi.fn().mockResolvedValue([]),
+    getMealieFood: vi.fn().mockResolvedValue({ id: 'food-5', name: 'Oat Milk' }),
+    createProductForMealieFood: vi.fn().mockResolvedValue({
+      created: true, grocyProductId: 77, grocyProductName: 'Oat Milk', unitMappingId: 'um-1',
+    }),
     ...overrides,
   } as DeviceScannerDeps;
 }
@@ -656,6 +663,64 @@ describe('searchDeviceProducts', () => {
     expect(result.results[0]).toEqual({ id: 43, name: 'Whole Milk', stockAmount: 5 });
   });
 
+  it('omits the source field and skips Mealie without the opt-in', async () => {
+    const deps = createDeps({
+      listUnmappedMealieFoods: vi.fn().mockResolvedValue([{ id: 'food-5', name: 'Oat Milk' }]),
+    });
+
+    const result = await searchDeviceProducts({ query: 'milk' }, deps);
+
+    expect(deps.listUnmappedMealieFoods).not.toHaveBeenCalled();
+    expect(result.results.every(entry => !('source' in entry))).toBe(true);
+  });
+
+  it('adds unmapped Mealie foods after the Grocy matches when included', async () => {
+    const deps = createDeps({
+      getProductDetails: vi.fn().mockResolvedValue(productDetails({ id: 43, name: 'Whole Milk', stock: 5 })),
+      listUnmappedMealieFoods: vi.fn().mockResolvedValue([
+        { id: 'food-5', name: 'Oat Milk' },
+        { id: 'food-6', name: 'Basil' },
+      ]),
+    });
+
+    const result = await searchDeviceProducts({ query: 'milk', includeMealie: true }, deps);
+
+    expect(result.results[0]).toEqual({ id: 43, name: 'Whole Milk', stockAmount: 5, source: 'grocy' });
+    expect(result.results).toContainEqual({
+      id: 0, name: 'Oat Milk', stockAmount: 0, source: 'mealie', mealieFoodId: 'food-5',
+    });
+    expect(result.results.some(entry => entry.name === 'Basil')).toBe(false);
+  });
+
+  it('degrades to Grocy results when the Mealie lookup fails', async () => {
+    const deps = createDeps({
+      getProductDetails: vi.fn().mockResolvedValue(productDetails({ id: 43, name: 'Whole Milk', stock: 5 })),
+      listUnmappedMealieFoods: vi.fn().mockRejectedValue(new Error('mealie down')),
+    });
+
+    const result = await searchDeviceProducts({ query: 'milk', includeMealie: true }, deps);
+
+    expect(result.results).toEqual([{ id: 43, name: 'Whole Milk', stockAmount: 5, source: 'grocy' }]);
+  });
+
+  it('returns the Grocy results when the Mealie lookup stalls', async () => {
+    vi.useFakeTimers();
+    try {
+      const deps = createDeps({
+        getProductDetails: vi.fn().mockResolvedValue(productDetails({ id: 43, name: 'Whole Milk', stock: 5 })),
+        listUnmappedMealieFoods: vi.fn().mockReturnValue(new Promise(() => {})),
+      });
+
+      const pending = searchDeviceProducts({ query: 'milk', includeMealie: true }, deps);
+      await vi.advanceTimersByTimeAsync(2_500);
+      const result = await pending;
+
+      expect(result.results).toEqual([{ id: 43, name: 'Whole Milk', stockAmount: 5, source: 'grocy' }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('rejects an empty query', async () => {
     await expect(searchDeviceProducts({ query: '   ' }, createDeps()))
       .rejects.toThrow('Query must not be empty.');
@@ -773,6 +838,136 @@ describe('createDeviceProduct', () => {
     await createDeviceProduct({ name: 'New Product', barcode: '4006381333931' }, deps);
 
     expect(deps.createProductInBoth).toHaveBeenCalledWith({ name: 'New Product', grocyUnitId: 3 });
+  });
+});
+
+describe('createDeviceProductFromMealieFood', () => {
+  const params = { mealieFoodId: 'food-5', barcode: '4006381333931' };
+
+  function mealieDeps(overrides: Partial<DeviceScannerDeps> = {}) {
+    return createDeps({
+      getProductDetails: vi.fn().mockResolvedValue(
+        productDetails({ id: 77, name: 'Oat Milk', stock: 0, opened: 0, min: 0 }),
+      ),
+      ...overrides,
+    });
+  }
+
+  it('creates and maps the Grocy product from the Mealie food, then links the barcode', async () => {
+    const deps = mealieDeps();
+
+    const product = await createDeviceProductFromMealieFood(params, deps);
+
+    expect(deps.createProductForMealieFood).toHaveBeenCalledWith({
+      mealieFoodId: 'food-5', mealieFoodName: 'Oat Milk', grocyUnitId: 7,
+    });
+    expect(deps.createProductBarcode).toHaveBeenCalledWith({ product_id: 77, barcode: '4006381333931' });
+    expect(deps.createProductInBoth).not.toHaveBeenCalled();
+    expect(product).toMatchObject({ id: 77, name: 'Oat Milk' });
+    expect(deps.releaseSyncLock).toHaveBeenCalled();
+  });
+
+  it('falls back to the first Grocy unit when no default unit is configured', async () => {
+    const deps = mealieDeps({
+      resolveDefaultGrocyUnitId: vi.fn().mockResolvedValue(null),
+      listGrocyUnits: vi.fn().mockResolvedValue([{ id: 3, name: 'Piece' }]),
+    });
+
+    await createDeviceProductFromMealieFood(params, deps);
+
+    expect(deps.createProductForMealieFood).toHaveBeenCalledWith(expect.objectContaining({ grocyUnitId: 3 }));
+  });
+
+  it('404s when the Mealie food no longer exists', async () => {
+    const deps = mealieDeps({ getMealieFood: vi.fn().mockResolvedValue(null) });
+
+    await expect(createDeviceProductFromMealieFood(params, deps))
+      .rejects.toBeInstanceOf(DeviceProductNotFoundError);
+    expect(deps.createProductForMealieFood).not.toHaveBeenCalled();
+  });
+
+  it('reports an already mapped food as a conflict with its Grocy product', async () => {
+    const deps = mealieDeps({
+      resolveMappedGrocyProduct: vi.fn().mockResolvedValue({ id: 43, name: 'Whole Milk' }),
+    });
+
+    const error = await createDeviceProductFromMealieFood(params, deps).catch(e => e);
+
+    expect(error).toBeInstanceOf(DeviceConflictError);
+    expect((error as DeviceConflictError).payload).toEqual({ product: { id: 43, name: 'Whole Milk' } });
+    expect(deps.createProductForMealieFood).not.toHaveBeenCalled();
+  });
+
+  it('refuses before any mutation when the barcode belongs to another product', async () => {
+    const deps = mealieDeps({
+      listProductBarcodes: vi.fn().mockResolvedValue([{ product_id: 42, barcode: '4006381333931' }]),
+    });
+
+    await expect(createDeviceProductFromMealieFood(params, deps)).rejects.toBeInstanceOf(DeviceConflictError);
+    expect(deps.createProductForMealieFood).not.toHaveBeenCalled();
+  });
+
+  it('reports an exact Grocy name match as a conflict without linking', async () => {
+    const deps = mealieDeps({
+      createProductForMealieFood: vi.fn().mockResolvedValue({
+        created: false, grocyProductId: 50, grocyProductName: 'Oat Milk', unitMappingId: null,
+      }),
+    });
+
+    const error = await createDeviceProductFromMealieFood(params, deps).catch(e => e);
+
+    expect(error).toBeInstanceOf(DeviceConflictError);
+    expect((error as DeviceConflictError).payload).toEqual({ product: { id: 50, name: 'Oat Milk' } });
+    expect(deps.createProductBarcode).not.toHaveBeenCalled();
+  });
+
+  it('records a partial run when linking the barcode fails after the mapping succeeded', async () => {
+    const deps = mealieDeps({ createProductBarcode: vi.fn().mockRejectedValue(new Error('grocy down')) });
+
+    await expect(createDeviceProductFromMealieFood(params, deps)).rejects.toThrow('grocy down');
+
+    expect(deps.recordHistory).toHaveBeenCalledWith(expect.objectContaining({ status: 'partial' }));
+  });
+
+  it('records a partial run when the orphaned Grocy product could not be removed', async () => {
+    const deps = mealieDeps({
+      createProductForMealieFood: vi.fn().mockRejectedValue(
+        new ProductCompensationError(77, new Error('db'), new Error('grocy')),
+      ),
+    });
+
+    await expect(createDeviceProductFromMealieFood(params, deps)).rejects.toBeInstanceOf(ProductCompensationError);
+
+    expect(deps.recordHistory).toHaveBeenCalledWith(expect.objectContaining({ status: 'partial' }));
+  });
+
+  it('runs concurrent picks of the same food one after the other under the sync lock', async () => {
+    let locked = false;
+    let mapped: { id: number; name: string } | null = null;
+    const deps = mealieDeps({
+      acquireSyncLock: vi.fn().mockImplementation(() => {
+        if (locked) return false;
+        locked = true;
+        return true;
+      }),
+      releaseSyncLock: vi.fn().mockImplementation(() => { locked = false; }),
+      resolveMappedGrocyProduct: vi.fn().mockImplementation(async () => mapped),
+      createProductForMealieFood: vi.fn().mockImplementation(async () => {
+        await new Promise(resolve => setTimeout(resolve, 10));
+        mapped = { id: 77, name: 'Oat Milk' };
+        return { created: true, grocyProductId: 77, grocyProductName: 'Oat Milk', unitMappingId: null };
+      }),
+    });
+
+    const results = await Promise.allSettled([
+      createDeviceProductFromMealieFood(params, deps),
+      createDeviceProductFromMealieFood(params, deps),
+    ]);
+
+    expect(deps.createProductForMealieFood).toHaveBeenCalledTimes(1);
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find(result => result.status === 'rejected') as PromiseRejectedResult;
+    expect(rejected.reason).toBeInstanceOf(DeviceConflictError);
   });
 });
 

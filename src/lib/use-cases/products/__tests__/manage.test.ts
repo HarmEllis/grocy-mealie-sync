@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ProductOverview } from '../catalog';
 import {
+  createProductForMealieFood,
   createProductInGrocy,
+  ProductCompensationError,
   createProductInMealie,
   createProductInBoth,
   updateBasicProduct,
@@ -677,5 +679,95 @@ describe('product management use-cases', () => {
         updateGrocyProduct: vi.fn(async () => undefined),
       },
     )).rejects.toThrow('At least one unit field must be provided');
+  });
+});
+
+describe('createProductForMealieFood', () => {
+  const params = { mealieFoodId: 'food-5', mealieFoodName: 'Oat Milk', grocyUnitId: 10 };
+
+  function deps(overrides: Record<string, unknown> = {}) {
+    return {
+      checkProductDuplicates: vi.fn(async () => ({
+        query: 'Oat Milk',
+        likelyDuplicates: false,
+        exactGrocyMatches: [] as never[],
+        exactMealieMatches: [],
+        fuzzyGrocyMatches: [],
+        fuzzyMealieMatches: [],
+      })),
+      listGrocyLocations: vi.fn(async () => [{ id: 1, name: 'Pantry' }]),
+      listUnitMappings: vi.fn(async () => [{ id: 'um-10', grocyUnitId: 10 }]),
+      createGrocyProduct: vi.fn(async () => ({ createdObjectId: 222 })),
+      deleteGrocyProduct: vi.fn(async () => undefined),
+      insertProductMapping: vi.fn(async () => 'map-1'),
+      ...overrides,
+    };
+  }
+
+  it('creates the Grocy product and inserts the mapping with the unit mapping', async () => {
+    const d = deps();
+
+    const result = await createProductForMealieFood(params, d);
+
+    expect(d.createGrocyProduct).toHaveBeenCalledWith({
+      name: 'Oat Milk', min_stock_amount: 0, qu_id_purchase: 10, qu_id_stock: 10, location_id: 1,
+    });
+    expect(d.insertProductMapping).toHaveBeenCalledWith({
+      mealieFoodId: 'food-5',
+      mealieFoodName: 'Oat Milk',
+      grocyProductId: 222,
+      grocyProductName: 'Oat Milk',
+      unitMappingId: 'um-10',
+    });
+    expect(result).toEqual({
+      created: true, grocyProductId: 222, grocyProductName: 'Oat Milk', unitMappingId: 'um-10',
+    });
+  });
+
+  it('stores a null unit mapping when the unit is unmapped', async () => {
+    const d = deps({ listUnitMappings: vi.fn(async () => []) });
+
+    const result = await createProductForMealieFood(params, d);
+
+    expect(result.unitMappingId).toBeNull();
+  });
+
+  it('returns the existing product without creating on an exact Grocy name match', async () => {
+    const d = deps({
+      checkProductDuplicates: vi.fn(async () => ({
+        query: 'Oat Milk',
+        likelyDuplicates: true,
+        exactGrocyMatches: [{ id: 50, name: 'Oat Milk', productRef: 'grocy:50', source: 'grocy' as const, score: 100, mappingId: null, mapped: false }],
+        exactMealieMatches: [],
+        fuzzyGrocyMatches: [],
+        fuzzyMealieMatches: [],
+      })),
+    });
+
+    const result = await createProductForMealieFood(params, d);
+
+    expect(result).toEqual({ created: false, grocyProductId: 50, grocyProductName: 'Oat Milk', unitMappingId: null });
+    expect(d.createGrocyProduct).not.toHaveBeenCalled();
+    expect(d.insertProductMapping).not.toHaveBeenCalled();
+  });
+
+  it('removes the Grocy product again when the mapping insert fails', async () => {
+    const d = deps({ insertProductMapping: vi.fn(async () => { throw new Error('unique violation'); }) });
+
+    await expect(createProductForMealieFood(params, d)).rejects.toThrow('unique violation');
+
+    expect(d.deleteGrocyProduct).toHaveBeenCalledWith(222);
+  });
+
+  it('throws a compensation error when the rollback fails too', async () => {
+    const d = deps({
+      insertProductMapping: vi.fn(async () => { throw new Error('unique violation'); }),
+      deleteGrocyProduct: vi.fn(async () => { throw new Error('grocy down'); }),
+    });
+
+    const error = await createProductForMealieFood(params, d).catch(e => e);
+
+    expect(error).toBeInstanceOf(ProductCompensationError);
+    expect(error.grocyProductId).toBe(222);
   });
 });

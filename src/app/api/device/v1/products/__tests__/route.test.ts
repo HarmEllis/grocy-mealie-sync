@@ -6,6 +6,7 @@ vi.mock('@/lib/use-cases/devices/scanner', async (importOriginal) => {
     ...actual,
     searchDeviceProducts: vi.fn(),
     createDeviceProduct: vi.fn(),
+    createDeviceProductFromMealieFood: vi.fn(),
   };
 });
 vi.mock('@/lib/use-cases/devices/browse', () => ({
@@ -14,8 +15,12 @@ vi.mock('@/lib/use-cases/devices/browse', () => ({
 }));
 
 import { listDeviceProductsByLabel, listDeviceProductsByLetter } from '@/lib/use-cases/devices/browse';
-import { searchDeviceProducts } from '@/lib/use-cases/devices/scanner';
-import { GET } from '../route';
+import {
+  createDeviceProduct,
+  createDeviceProductFromMealieFood,
+  searchDeviceProducts,
+} from '@/lib/use-cases/devices/scanner';
+import { GET, POST } from '../route';
 
 function request(query: string): Request {
   return new Request(`http://device.local/api/device/v1/products${query}`);
@@ -132,5 +137,54 @@ describe('GET /api/device/v1/products?letter=', () => {
     });
     await GET(request('?letter=b'));
     expect(listDeviceProductsByLetter).toHaveBeenCalledWith({ letter: 'B', offset: 0, limit: 20 });
+  });
+});
+
+describe('GET /api/device/v1/products?query=&include=mealie', () => {
+  it('passes the opt-in to searchDeviceProducts', async () => {
+    vi.mocked(searchDeviceProducts).mockResolvedValue({ results: [] });
+    const res = await GET(request('?query=milk&include=mealie'));
+    expect(res.status).toBe(200);
+    expect(searchDeviceProducts).toHaveBeenLastCalledWith(expect.objectContaining({ includeMealie: true }));
+  });
+
+  it('rejects an unsupported include value', async () => {
+    expect((await GET(request('?query=milk&include=other'))).status).toBe(400);
+  });
+
+  it('rejects include without query', async () => {
+    expect((await GET(request('?letter=A&include=mealie'))).status).toBe(400);
+  });
+});
+
+describe('POST /api/device/v1/products with mealieFoodId', () => {
+  function post(body: unknown): Request {
+    return new Request('http://device.local/api/device/v1/products', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('creates the product from the Mealie food', async () => {
+    vi.mocked(createDeviceProductFromMealieFood).mockResolvedValue({ id: 77, name: 'Oat Milk' } as never);
+    const res = await POST(post({ mealieFoodId: 'food-5', barcode: '4006381333931' }));
+    expect(res.status).toBe(201);
+    expect(createDeviceProductFromMealieFood).toHaveBeenCalledWith({ mealieFoodId: 'food-5', barcode: '4006381333931' });
+  });
+
+  it.each([[''], ['   '], [5], [null]])('rejects mealieFoodId %j without creating anything', async value => {
+    vi.mocked(createDeviceProduct).mockClear();
+    const res = await POST(post({ name: 'Oat Milk', mealieFoodId: value, barcode: '4006381333931' }));
+    expect(res.status).toBe(400);
+    expect(createDeviceProduct).not.toHaveBeenCalled();
+  });
+
+  it.each([[true], [1], ['milk'], [[]]])('answers a non-object body %j with 400', async body => {
+    expect((await POST(post(body))).status).toBe(400);
+  });
+
+  it('rejects an invalid barcode', async () => {
+    expect((await POST(post({ mealieFoodId: 'food-5', barcode: 'x' }))).status).toBe(400);
   });
 });

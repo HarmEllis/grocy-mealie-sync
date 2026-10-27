@@ -309,6 +309,13 @@ screen the scanner can also browse products by Mealie label or by first letter
 (A-Z); that needs scanner firmware 0.6.0 or newer and a gm-sync version that
 reports device API version 4.
 
+When linking an unknown barcode, the scanner can opt in to Mealie-only foods in
+its product search (`GET /api/device/v1/products?query=...&include=mealie`).
+Picking one creates the Grocy product, maps it to that Mealie food and links the
+barcode (`POST /api/device/v1/products` with `mealieFoodId` and `barcode`).
+Scanners that do not send `include=mealie` see no change. This needs a gm-sync
+version that reports device API version 5.
+
 Set `DEVICE_API_TOKENS` in gm-sync, recreate the container to apply the environment
 change, and configure the scanner with the same token and a gm-sync base URL
 reachable from its Wi-Fi network. Use a LAN address such as

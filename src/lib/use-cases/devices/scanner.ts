@@ -22,7 +22,14 @@ import {
 } from '@/lib/grocy/types';
 import { resolveDefaultUnit } from '@/lib/settings';
 import { addStock, consumeStock, defaultInventoryDeps, markStockOpened } from '@/lib/use-cases/inventory/manage';
-import { createProductInBoth } from '@/lib/use-cases/products/manage';
+import { RecipesFoodsService } from '@/lib/mealie';
+import { extractFoods } from '@/lib/mealie/types';
+import {
+  createProductForMealieFood,
+  createProductInBoth,
+  ProductCompensationError,
+  type CreateProductForMealieFoodResult,
+} from '@/lib/use-cases/products/manage';
 import {
   DEVICE_SYNC_LOCK_MAX_WAIT_MS,
   defaultSyncLockDeps,
@@ -43,6 +50,7 @@ export const DEVICE_BARCODE_PATTERN = /^[0-9A-Za-z_-]{4,64}$/;
 const EXTERNAL_LOOKUP_TIMEOUT_MS = 3_000;
 const SCAN_GROCY_LOOKUP_TIMEOUT_MS = 6_500;
 const SCAN_SHOPPING_LIST_TIMEOUT_MS = 1_200;
+const SEARCH_MEALIE_TIMEOUT_MS = 2_000;
 const MAX_SUGGESTED_MATCHES = 5;
 
 // ---------------------------------------------------------------------------
@@ -125,7 +133,15 @@ export interface DeviceActionResult {
 }
 
 export interface DeviceSearchResult {
-  results: Array<{ id: number; name: string; stockAmount: number }>;
+  results: Array<
+    | { id: number; name: string; stockAmount: number; source?: 'grocy' }
+    | { id: 0; name: string; stockAmount: 0; source: 'mealie'; mealieFoodId: string }
+  >;
+}
+
+export interface DeviceMealieFood {
+  id: string;
+  name: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +174,11 @@ export interface DeviceScannerDeps extends SyncLockDeps {
   createProductInBoth: typeof createProductInBoth;
   resolveMappedGrocyProduct: (mealieFoodId: string) => Promise<{ id: number; name: string } | null>;
   resolveDefaultGrocyUnitId: () => Promise<number | null>;
+  listUnmappedMealieFoods: () => Promise<DeviceMealieFood[]>;
+  getMealieFood: (mealieFoodId: string) => Promise<DeviceMealieFood | null>;
+  createProductForMealieFood: (
+    params: { mealieFoodId: string; mealieFoodName: string; grocyUnitId: number },
+  ) => Promise<CreateProductForMealieFoodResult>;
 }
 
 async function lookupOpenFoodFacts(barcode: string): Promise<DeviceExternalLookup | null> {
@@ -225,6 +246,31 @@ async function resolveDefaultGrocyUnitId(): Promise<number | null> {
   return resolved?.grocyUnitId ?? null;
 }
 
+async function listUnmappedMealieFoods(): Promise<DeviceMealieFood[]> {
+  const [foods, mappings] = await Promise.all([
+    RecipesFoodsService.getAllApiFoodsGet(
+      undefined, undefined, undefined, undefined, undefined, undefined, 1, 10000,
+    ).then(extractFoods),
+    db.select({ mealieFoodId: productMappings.mealieFoodId }).from(productMappings),
+  ]);
+  const mapped = new Set(mappings.map(mapping => mapping.mealieFoodId));
+  return foods
+    .filter(food => food.id && food.name && !mapped.has(food.id))
+    .map(food => ({ id: food.id, name: food.name }));
+}
+
+async function getMealieFood(mealieFoodId: string): Promise<DeviceMealieFood | null> {
+  try {
+    const food = await RecipesFoodsService.getOneApiFoodsItemIdGet(mealieFoodId);
+    return food?.id && food.name ? { id: food.id, name: food.name } : null;
+  } catch (error) {
+    if (error instanceof Error && 'status' in error && (error as { status?: number }).status === 404) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 // performDeviceAction already holds the sync lock around the whole action, so
 // the inventory mutations it delegates to must not try to re-acquire the
 // (non-reentrant) lock — hand them a no-op lock instead.
@@ -253,6 +299,10 @@ const defaultDeps: DeviceScannerDeps = {
   createProductInBoth,
   resolveMappedGrocyProduct,
   resolveDefaultGrocyUnitId,
+  listUnmappedMealieFoods,
+  getMealieFood,
+  // Callers hold the sync lock themselves, so the nested create must not take it.
+  createProductForMealieFood: params => createProductForMealieFood(params),
 };
 
 // ---------------------------------------------------------------------------
@@ -697,6 +747,8 @@ async function applyDeviceAction(
 export interface SearchDeviceProductsParams {
   query: string;
   limit?: number;
+  /** Also offer Mealie foods that have no Grocy product yet. */
+  includeMealie?: boolean;
 }
 
 export async function searchDeviceProducts(
@@ -718,7 +770,7 @@ export async function searchDeviceProducts(
     limit,
   );
 
-  const results = await Promise.all(matches.map(async match => {
+  const results: DeviceSearchResult['results'] = await Promise.all(matches.map(async match => {
     const id = Number(match.item.id);
     let stockAmount = 0;
     try {
@@ -727,8 +779,35 @@ export async function searchDeviceProducts(
     } catch {
       // Stock display is informational; a lookup failure should not break search.
     }
-    return { id, name: match.item.name!, stockAmount };
+    // `source` is only emitted for opted-in clients; the legacy shape stays untouched.
+    return params.includeMealie
+      ? { id, name: match.item.name!, stockAmount, source: 'grocy' as const }
+      : { id, name: match.item.name!, stockAmount };
   }));
+
+  if (!params.includeMealie || results.length >= limit) {
+    return { results };
+  }
+
+  // Mealie-only foods are a convenience; a Mealie outage must not break search.
+  let mealieFoods: DeviceMealieFood[] = [];
+  try {
+    mealieFoods = await withTimeout(deps.listUnmappedMealieFoods(), SEARCH_MEALIE_TIMEOUT_MS, 'Mealie');
+  } catch (error) {
+    log.warn('[Device] Mealie food lookup failed during search:', describeSyncError(error));
+  }
+  const mealieMatches = rankVariantMatches(
+    [{ text: query }],
+    mealieFoods,
+    food => [{ text: food.name }],
+    0.3,
+    limit - results.length,
+  );
+  for (const match of mealieMatches) {
+    results.push({
+      id: 0, name: match.item.name, stockAmount: 0, source: 'mealie', mealieFoodId: match.item.id,
+    });
+  }
 
   return { results };
 }
@@ -757,14 +836,7 @@ async function applyDeviceProductCreation(
     throw new Error('Name must not be empty.');
   }
 
-  let grocyUnitId = await deps.resolveDefaultGrocyUnitId();
-  if (grocyUnitId === null) {
-    const units = await deps.listGrocyUnits();
-    grocyUnitId = Number(units[0]?.id ?? 0) || null;
-  }
-  if (grocyUnitId === null) {
-    throw new Error('No Grocy quantity units are available to create the product with.');
-  }
+  const grocyUnitId = await resolveCreationUnitId(deps);
 
   // Create in Grocy *and* Mealie and link the two via a product mapping, so a
   // device-created product behaves like any synced product (shows up in Mealie,
@@ -807,6 +879,112 @@ async function applyDeviceProductCreation(
 
   await deps.createProductBarcode({ product_id: created.grocyProductId, barcode: params.barcode });
   events.push(barcodeLinkedEvent(created.grocyProductId, name, params.barcode));
+
+  const details = await getProductDetailsOr404(created.grocyProductId, deps);
+  return toDeviceProduct(details, deps);
+}
+
+async function resolveCreationUnitId(deps: DeviceScannerDeps): Promise<number> {
+  let grocyUnitId = await deps.resolveDefaultGrocyUnitId();
+  if (grocyUnitId === null) {
+    const units = await deps.listGrocyUnits();
+    grocyUnitId = Number(units[0]?.id ?? 0) || null;
+  }
+  if (grocyUnitId === null) {
+    throw new Error('No Grocy quantity units are available to create the product with.');
+  }
+  return grocyUnitId;
+}
+
+export interface CreateDeviceProductFromMealieFoodParams {
+  mealieFoodId: string;
+  barcode: string;
+}
+
+/**
+ * Pick of a Mealie-only food on the scanner: create its Grocy product, map the
+ * two and link the barcode. The mapping check, the create and the mapping
+ * insert run under one sync lock so concurrent picks of the same food cannot
+ * create two Grocy products.
+ */
+export async function createDeviceProductFromMealieFood(
+  params: CreateDeviceProductFromMealieFoodParams,
+  deps: DeviceScannerDeps = defaultDeps,
+): Promise<DeviceProduct> {
+  return withDeviceHistory('mapping_product_create', `mealie:${params.mealieFoodId}`, deps,
+    (events, context) => runWithSyncLock(deps,
+      () => applyDeviceProductFromMealieFood(params, deps, events, context),
+      { maxWaitMs: DEVICE_SYNC_LOCK_MAX_WAIT_MS }));
+}
+
+async function applyDeviceProductFromMealieFood(
+  params: CreateDeviceProductFromMealieFoodParams, deps: DeviceScannerDeps,
+  events: HistoryEventInput[], context: { productName?: string },
+): Promise<DeviceProduct> {
+  const food = await deps.getMealieFood(params.mealieFoodId);
+  if (!food) {
+    throw new DeviceProductNotFoundError(0);
+  }
+  context.productName = food.name;
+
+  const alreadyMapped = await deps.resolveMappedGrocyProduct(food.id);
+  if (alreadyMapped) {
+    throw new DeviceConflictError('Product already exists', { product: alreadyMapped });
+  }
+
+  // Refuse before any mutation when the barcode is taken, so we never leave a
+  // new product behind that the barcode cannot be attached to.
+  const barcodeOwner = (await deps.listProductBarcodes())
+    .find(entry => entry.barcode === params.barcode);
+  if (barcodeOwner) {
+    throw new DeviceConflictError('Barcode is already linked to another product', {
+      product: { id: Number(barcodeOwner.product_id), name: null },
+    });
+  }
+
+  const grocyUnitId = await resolveCreationUnitId(deps);
+
+  let created: CreateProductForMealieFoodResult;
+  try {
+    created = await deps.createProductForMealieFood({
+      mealieFoodId: food.id, mealieFoodName: food.name, grocyUnitId,
+    });
+  } catch (error) {
+    if (error instanceof ProductCompensationError) {
+      // The orphaned Grocy product is a surviving mutation: record it so the
+      // run is logged as partial.
+      events.push(activityEvent({
+        level: 'error', source: 'Scanner', target: 'Grocy', productName: food.name, category: 'product',
+        entityRef: `grocy:${error.grocyProductId}`,
+        message: `Created "${food.name}" in Grocy but could not map or remove it again.`,
+        reason: 'Product creation requested on the scanner for a Mealie-only food.',
+        details: { grocyProductId: error.grocyProductId, mealieFoodId: food.id },
+      }));
+      events[events.length - 1].kind = 'mutation';
+    }
+    throw error;
+  }
+
+  if (!created.created || !created.grocyProductId) {
+    // Exact Grocy name match: offer that product instead of a duplicate.
+    if (created.grocyProductId) {
+      throw new DeviceConflictError('Product already exists', {
+        product: { id: created.grocyProductId, name: created.grocyProductName },
+      });
+    }
+    throw new Error('Grocy did not return an id for the created product.');
+  }
+
+  events.push(activityEvent({
+    source: 'Scanner', target: 'Grocy', productName: food.name, category: 'product',
+    entityRef: `grocy:${created.grocyProductId}`,
+    message: `Created "${food.name}" in Grocy from the Mealie food and linked the products.`,
+    reason: 'Product creation requested on the scanner for a Mealie-only food.',
+    details: { grocyProductId: created.grocyProductId, mealieFoodId: food.id, barcode: params.barcode },
+  }));
+
+  await deps.createProductBarcode({ product_id: created.grocyProductId, barcode: params.barcode });
+  events.push(barcodeLinkedEvent(created.grocyProductId, food.name, params.barcode));
 
   const details = await getProductDetailsOr404(created.grocyProductId, deps);
   return toDeviceProduct(details, deps);

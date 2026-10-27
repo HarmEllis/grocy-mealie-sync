@@ -12,5 +12,8 @@ export const appVersion = packageMetadata.version;
  *   4 = adds GET /api/device/v1/labels, GET /api/device/v1/letters, and
  *       labelId/letter filters on GET /api/device/v1/products (home-screen
  *       "Bladeren" browse-by-label / browse-by-A-Z)
+ *   5 = adds include=mealie on GET /api/device/v1/products?query= and
+ *       mealieFoodId on POST /api/device/v1/products (link a barcode to a
+ *       Mealie-only food, creating its Grocy product)
  */
-export const deviceApiVersion = 4;
+export const deviceApiVersion = 5;
