@@ -12,7 +12,7 @@ import type { ShopProduct } from '../catalog-options';
 import { Badge, DButton, ShopLogo, Spinner } from '../shop-ui';
 import { MappingForm, type DraftSaver } from './MappingForm';
 import { RetailerSelect } from './RetailerSelect';
-import { canChooseProduct, conversionLabel, forTarget, type CatalogData, type Draft, type Inventory, type Mapping, type Provider, type Suggestion } from './types';
+import { canChooseProduct, conversionLabel, effectiveMappings, forTarget, type CatalogData, type Draft, type Inventory, type Mapping, type Provider, type Suggestion } from './types';
 
 const ATTENTION_COPY: Record<AttentionReason, [string, string]> = {
   unit_changed: ['The stock unit changed', 'Review the package amount before confirming. The previous conversion is no longer valid.'],
@@ -70,7 +70,9 @@ export function ProductDetail({ target, attention, providers, catalog, units, li
   /** Saves every pending valid draft of this product, then moves on. Never needs every retailer mapped. */
   const confirm = useCallback(async () => {
     if (confirming) return;
-    const pending = [...savers.current.values()].filter(saver => saver.valid);
+    const open = [...savers.current.values()];
+    const pending = open.filter(saver => saver.valid);
+    if (open.some(saver => !saver.valid)) { toast.error('Enter a valid amount greater than 0, or cancel the open edit, before moving on'); return; }
     setConfirming(true);
     try {
       for (const saver of pending) if (!(await saver.persist())) return;
@@ -126,9 +128,7 @@ export function ProductDetail({ target, attention, providers, catalog, units, li
           </div>
         ))}
         {providers.map(provider => {
-          const mappings = catalog.mappings.filter(mapping => mapping.providerId === provider.id && forTarget(mapping, target));
-          const main = mappings.find(mapping => mapping.role === 'preferred' && mapping.targetKind === target.kind && mapping.targetId === target.id) ?? mappings.find(mapping => mapping.role === 'preferred');
-          const alternatives = mappings.filter(mapping => mapping.id !== main?.id);
+          const { main, alternatives } = effectiveMappings(catalog.mappings, provider.id, target);
           const productOf = (mapping?: Mapping) => catalog.products.find(product => product.providerId === provider.id && product.externalId === mapping?.retailerProductId);
           const mainProduct = productOf(main);
           const draft = drafts[provider.id];
@@ -148,12 +148,14 @@ export function ProductDetail({ target, attention, providers, catalog, units, li
               setAdding(null); setChanging(null);
             } else if (!product && mapping) void remove(mapping);
           };
-          const openAmount = (mapping: Mapping) => {
+          // Editing a mapping keeps its effective role: a shadowed legacy mapping is an alternative whatever it stores,
+          // so confirming it can never demote the real preferred product. Promoting passes the role explicitly.
+          const openAmount = (mapping: Mapping, role: 'preferred' | 'alternative' = mapping.id === main?.id ? 'preferred' : 'alternative') => {
             const product = productOf(mapping);
-            if (product) setDraft(provider.id, { providerId: provider.id, product, role: mapping.role === 'preferred' ? 'preferred' : 'alternative', mapping });
+            if (product) setDraft(provider.id, { providerId: provider.id, product, role, mapping });
           };
           const usePreferred = async (mapping: Mapping) => {
-            if (mapping.targetKind !== target.kind || mapping.targetId !== target.id) { openAmount({ ...mapping, role: 'preferred' }); return; }
+            if (mapping.targetKind !== target.kind || mapping.targetId !== target.id) { openAmount(mapping, 'preferred'); return; }
             try { await apiJson(`/api/shop/mappings/${mapping.id}`, { method: 'PATCH', body: JSON.stringify({ role: 'preferred' }) }); await reload(); }
             catch (err) { toast.error((err as Error).message); }
           };

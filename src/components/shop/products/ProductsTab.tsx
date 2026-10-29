@@ -96,7 +96,7 @@ export function ProductsTab({ overview, reloadOverview, initialQuery = '', initi
   /** The inventory row for a target (source, linked foods, attention), wherever it sits in the list. */
   const resolveTarget = useCallback(async (kind: string, id: string, name: string): Promise<(TargetOption & { attention?: InventoryTarget['attention'] }) | null> => {
     try {
-      const data = await apiJson<Inventory>(`/api/shop/products?${new URLSearchParams({ query: name.slice(0, 200), mapped: 'all', limit: '50' })}`);
+      const data = await apiJson<Inventory>(`/api/shop/products?${new URLSearchParams({ query: name.slice(0, 200), mapped: 'all', limit: '200' })}`);
       return data.targets.find(target => target.kind === kind && target.id === id) ?? null;
     } catch { return null; }
   }, []);

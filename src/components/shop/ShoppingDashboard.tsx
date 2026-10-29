@@ -68,17 +68,16 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
   const pending = overview?.installations.filter(installation => installation.pendingListApply).length ?? 0;
   const offline = overview?.installations.filter(installation => !installation.connected).length ?? 0;
   const noPlugins = Boolean(overview && overview.installations.length === 0);
-  const needsAttention = attention > 0 || blocked > 0 || pending > 0;
+  // `blocked` counts every held-back row for the KPI; only rows with an actionable reason (and the other decisions) count as attention,
+  // as in the Review tab badge: rows that merely wait for a product mapping are normal and must not light up the page.
+  const needsAttention = attention > 0 || pending > 0;
   const writesToDecide = (overview?.effects.length ?? 0) + (overview ? pausedLines(overview).length : 0);
-  // One priority order for the badge and the hero: decisions, then pending list writes, then held-back rows.
-  // A pending write is only shown on Overview, held-back rows only on Review.
+  // One priority order for the badge and the hero: decisions, then pending list writes. A pending write is only shown on Overview.
   const status = attention > 0
     ? { headline: `${attention} ${attention === 1 ? 'item needs' : 'items need'} your decision`, badge: <><strong>{attention}</strong> {attention === 1 ? 'item needs' : 'items need'} attention</>, tab: 'review' as const }
     : pending > 0
       ? { headline: pending === 1 ? 'A list write is waiting for confirmation' : `${pending} list writes are waiting for confirmation`, badge: <><strong>{pending}</strong> list write{pending === 1 ? '' : 's'} pending</>, tab: 'overview' as const }
-      : blocked > 0
-        ? { headline: `${blocked} shopping ${blocked === 1 ? 'row is' : 'rows are'} held back`, badge: <><strong>{blocked}</strong> held back</>, tab: 'review' as const }
-        : { headline: 'Nothing needs your decision', badge: <>Nothing needs attention</>, tab: 'review' as const };
+      : { headline: 'Nothing needs your decision', badge: <>Nothing needs attention</>, tab: 'review' as const };
 
   function select(id: Tab, focus = false) {
     if (id !== 'products') { setProductsQuery(''); setProductsTab('todo'); }
@@ -175,7 +174,7 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
           headline={status.headline}
           copy={needsAttention
             ? 'The items below are waiting for you or were held back with a reason. Fix the mapping or unit and the next sync retries automatically.'
-            : `No receipt line, write, paused line or blocked row is waiting.${offline ? ` ${offline} ${offline === 1 ? 'plugin is' : 'plugins are'} offline, so list changes wait for it to reconnect.` : ''}`}
+            : `No receipt line, write, paused line or blocked row needs you.${blocked ? ` ${blocked} shopping ${blocked === 1 ? 'row waits' : 'rows wait'} for a product mapping.` : ''}${offline ? ` ${offline} ${offline === 1 ? 'plugin is' : 'plugins are'} offline, so list changes wait for it to reconnect.` : ''}`}
         >
           <KpiTile label="On the shared list" value={planned} foot="products planned for the list" tone="good" onClick={() => select('overview')} />
           <KpiTile label="Not sent to retailer" value={blocked} foot="rows held back" tone={blocked ? 'warn' : ''} onClick={() => select('review')} />

@@ -9,7 +9,7 @@ import type { AttentionReason, InventoryTarget, ProductSource } from '@/lib/shop
 import type { TargetOption } from '@/lib/shop/targets';
 import { Badge, DButton, EmptyState, type BadgeTone } from '../shop-ui';
 import { SourceBadge } from './ProductDetail';
-import { forTarget, type CatalogData, type Inventory, type Provider, type QueueTab, type StatusFilter } from './types';
+import { effectiveMappings, type CatalogData, type Inventory, type Provider, type QueueTab, type StatusFilter } from './types';
 
 
 const ATTENTION_BADGE: Record<AttentionReason, { label: string; tone: BadgeTone }> = {
@@ -27,15 +27,16 @@ function RowIcon({ target }: { target: TargetOption }) {
 
 /** Small facts under a row: text item, replacement still waiting, alternatives. */
 function RowFlags({ target, catalog, providers }: { target: InventoryTarget; catalog: CatalogData; providers: Provider[] }) {
-  const mappings = catalog.mappings.filter(mapping => forTarget(mapping, target));
-  const preferred = mappings.filter(mapping => mapping.role === 'preferred');
+  // Same reading as the detail: one effective preferred mapping per retailer, everything else is an alternative.
+  const resolved = providers.map(provider => effectiveMappings(catalog.mappings, provider.id, target));
+  const preferred = resolved.flatMap(entry => entry.main ? [entry.main] : []);
   const flags: Array<{ key: string; tone: '' | 'warn' | 'bad'; icon: 'text' | 'clock' | 'swap' | 'bad'; text: string }> = [];
   if (target.attention.includes('discontinued')) flags.push({ key: 'discontinued', tone: 'bad', icon: 'bad', text: 'List sync needs a text item or a new preferred product' });
   const noteAccounts = providers.flatMap(provider => provider.installations.filter(installation => preferred.some(mapping => mapping.providerId === provider.id && installation.manualNoteProductIds?.includes(mapping.retailerProductId))).map(installation => installation.name));
   if (noteAccounts.length) flags.push({ key: 'text', tone: '', icon: 'text', text: `Text item for ${noteAccounts.join(', ')}` });
   const waiting = providers.flatMap(provider => provider.installations.flatMap(installation => (installation.listReplacementBlocks ?? []).filter(block => preferred.some(mapping => mapping.providerId === provider.id && mapping.retailerProductId === block.retailerProductId)).map(block => block.blockingProductName)));
   if (waiting.length) flags.push({ key: 'waiting', tone: 'warn', icon: 'clock', text: `Waiting for ${waiting[0]} to leave the list` });
-  const alternatives = mappings.filter(mapping => mapping.role === 'alternative').length;
+  const alternatives = resolved.reduce((count, entry) => count + entry.alternatives.length, 0);
   if (alternatives) flags.push({ key: 'alt', tone: '', icon: 'swap', text: `${alternatives} alternative${alternatives === 1 ? '' : 's'}` });
   if (!flags.length) return null;
   return (

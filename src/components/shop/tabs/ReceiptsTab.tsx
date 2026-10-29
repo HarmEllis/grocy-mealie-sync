@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowLeftRight, Check, Link2, Receipt, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiJson } from '../api';
@@ -28,6 +28,8 @@ export function ReceiptsTab({ overview, reload }: { overview: ShopOverview; relo
   const [fetching, setFetching] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [editing, setEditing] = useState<{ providerId: string; product: ProductRow; mapping: MappingRow | null } | null>(null);
+  const reloadTimer = useRef<number | null>(null);
+  useEffect(() => () => { if (reloadTimer.current !== null) window.clearTimeout(reloadTimer.current); }, []);
 
   // Loading history for setup needs one installation: the only retailer counts as selected.
   const selected = retailers.find(installation => installation.id === retailer) ?? (retailer === 'all' && retailers.length === 1 ? retailers[0] : undefined);
@@ -42,7 +44,10 @@ export function ReceiptsTab({ overview, reload }: { overview: ShopOverview; relo
   async function pull() {
     setPulling(true);
     try {
-      if (await post('/api/shop/receipts/pull', {}, 'Receipt pull requested')) window.setTimeout(() => void reload(), 3000);
+      if (await post('/api/shop/receipts/pull', {}, 'Receipt pull requested')) {
+        if (reloadTimer.current !== null) window.clearTimeout(reloadTimer.current);
+        reloadTimer.current = window.setTimeout(() => void reload(), 3000);
+      }
     } finally {
       setPulling(false);
     }

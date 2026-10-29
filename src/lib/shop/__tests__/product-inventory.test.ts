@@ -163,3 +163,14 @@ it('flags a Mealie food mapped to a unit that no longer exists, but not a count 
   db.insert(retailerMappings).values(food('count', null)).run();
   expect((await productInventory({ source: 'mealie' })).targets[0].attention).toEqual([]);
 });
+
+it('flags a Grocy product without its own stock as a changed unit, like the projection does', async () => {
+  const { getGrocyEntities } = await import('@/lib/grocy/types');
+  vi.mocked(getGrocyEntities).mockImplementationOnce(async (type: string) => (type === 'products'
+    ? [{ id: 1, name: 'Chicken breast', qu_id_stock: 10, no_own_stock: 1 }, { id: 2, name: 'Unlinked', qu_id_stock: 10 }]
+    : [{ id: 10, name: 'gram' }]) as never);
+  clearProductInventoryCache();
+  db.insert(retailerMappings).values(mapping('ok')).run();
+  const result = await productInventory({ attention: 'unit_changed' });
+  expect(result.targets.map(target => target.id)).toEqual(['1']);
+});

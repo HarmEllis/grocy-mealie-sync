@@ -86,6 +86,8 @@ export async function productInventory(options: InventoryOptions = {}, useCache 
   const linkedFoods = new Set(links.filter(link => grocyIds.has(String(link.grocyProductId))).map(link => link.mealieFoodId));
   const names = new Map(units.map(unit => [String(unit.id), unit.name ?? null]));
   const mappings = listRetailerMappings();
+  // A product without its own stock has no usable stock unit: its mappings are held back as a changed unit.
+  const noOwnStock = new Set(products.filter(product => Number(product.no_own_stock ?? 0) !== 0).map(product => String(product.id)));
   const targets: TargetOption[] = products.map(product => {
     const linked = links.filter(link => String(link.grocyProductId) === String(product.id));
     const baseUnitId = product.qu_id_stock == null ? null : String(product.qu_id_stock);
@@ -130,7 +132,7 @@ export async function productInventory(options: InventoryOptions = {}, useCache 
     });
     const reasons = new Set<AttentionReason>();
     const unitInvalid = (mapping: (typeof own)[number]) => target.kind === 'grocy_product'
-      ? target.baseUnitId === null || mapping.targetKind !== 'grocy_product' || mapping.packageBaseUnitId !== target.baseUnitId
+      ? target.baseUnitId === null || noOwnStock.has(target.id) || mapping.targetKind !== 'grocy_product' || mapping.packageBaseUnitId !== target.baseUnitId
       : mapping.packageBaseUnitId !== null && !mealieUnitIds.has(mapping.packageBaseUnitId);
     if (own.some(unitInvalid)) reasons.add('unit_changed');
     if (own.some(mapping => !mapping.confirmed)) reasons.add('unconfirmed');

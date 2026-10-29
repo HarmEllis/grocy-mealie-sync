@@ -29,7 +29,12 @@ export function money(cents: number | null | undefined): string {
 
 export async function post(url: string, body: unknown, success: string): Promise<boolean> {
   try {
-    await apiJson(url, { method: 'POST', body: JSON.stringify(body) });
+    const result = await apiJson<{ status?: unknown; message?: unknown } | null>(url, { method: 'POST', body: JSON.stringify(body) });
+    // Some resolutions answer 200 with the outcome in the body: a refused correction is not a success, and an
+    // unknown outcome must be shown as such while the page reloads to pick up the new open effect.
+    const message = typeof result?.message === 'string' ? result.message : undefined;
+    if (result?.status === 'failed') { toast.error('Action failed', { description: message }); return false; }
+    if (result?.status === 'unknown') { toast.warning('Outcome uncertain', { description: message }); return true; }
     toast.success(success);
     return true;
   } catch (error) {

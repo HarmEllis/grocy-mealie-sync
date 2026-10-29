@@ -43,3 +43,14 @@ export function forTarget(mapping: { targetKind: string; targetId: string }, tar
 export function conversionLabel(mapping: Mapping, product?: ShopProduct) {
   return `1 ${product?.measure === 'weight' ? 'kg' : 'package'} = ${mapping.packageBaseAmount ?? '?'} ${mapping.packageBaseUnitName ?? 'items'}`;
 }
+
+/**
+ * The mapping that acts as the preferred product of one retailer for a target, and the rest. A direct mapping wins
+ * over a legacy one on the linked Mealie food, like in the inventory and the list projection; the shadowed legacy
+ * mapping is listed with the alternatives even though its stored role is still `preferred`.
+ */
+export function effectiveMappings(mappings: Mapping[], providerId: string, target: TargetOption): { main: Mapping | undefined; alternatives: Mapping[] } {
+  const own = mappings.filter(mapping => mapping.providerId === providerId && forTarget(mapping, target));
+  const main = own.find(mapping => mapping.role === 'preferred' && mapping.targetKind === target.kind && mapping.targetId === target.id) ?? own.find(mapping => mapping.role === 'preferred');
+  return { main, alternatives: own.filter(mapping => mapping.id !== main?.id) };
+}
