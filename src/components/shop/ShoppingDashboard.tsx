@@ -47,6 +47,7 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
   const attention = attentionCount(overview);
   const sent = overview?.exports.length ?? 0;
   const blocked = overview ? (overview.projectionReview ?? []).length : 0;
+  const pending = Boolean(overview?.installations.some(installation => installation.pendingListApply));
   const percent = sent + blocked ? Math.round(sent / (sent + blocked) * 100) : 100;
 
   return (
@@ -77,15 +78,16 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
 
       {overview && overview.installations.length > 0 ? (
         <StatusHero
-          needsAttention={attention > 0 || blocked > 0}
+          needsAttention={attention > 0 || blocked > 0 || pending}
           percent={percent}
           headline={attention > 0 ? `${attention} ${attention === 1 ? 'item needs' : 'items need'} your decision`
-            : blocked > 0 ? `${blocked} shopping ${blocked === 1 ? 'row is' : 'rows are'} waiting` : 'Everything is in sync'}
-          copy={attention > 0 || blocked > 0
-            ? `${sent} of ${sent + blocked} shopping rows reached a retailer list. The rest are listed with the reason they were held back; fix the mapping or unit and the next sync retries automatically.`
-            : 'Every shopping row reached its retailer list, every receipt line is settled and no write is waiting for a decision.'}
+            : pending ? 'A list write is waiting for confirmation'
+              : blocked > 0 ? `${blocked} shopping ${blocked === 1 ? 'row is' : 'rows are'} waiting` : 'Nothing is waiting'}
+          copy={attention > 0 || blocked > 0 || pending
+            ? `${sent} of ${sent + blocked} shopping rows are projected to a retailer list. The rest are listed with the reason they were held back; fix the mapping or unit and the next sync retries automatically.`
+            : 'Every shopping row is projected to its retailer list, every receipt line is settled and no write is waiting for a decision.'}
         >
-          <KpiTile label="On the shared list" value={sent} foot="products exported" tone="good" onClick={() => setTab('overview')} />
+          <KpiTile label="On the shared list" value={sent} foot="products projected" tone="good" onClick={() => setTab('overview')} />
           <KpiTile label="Not sent to retailer" value={blocked} foot="rows held back" tone={blocked ? 'warn' : 'none'} onClick={() => setTab('review')} />
           <KpiTile label="Receipt lines to review" value={overview.review.length} foot="nothing booked yet" tone={overview.review.length ? 'warn' : 'none'} onClick={() => setTab('review')} />
           <KpiTile label="Stock discrepancies" value={overview.discrepancies.length} foot="receipt vs. manual check" tone={overview.discrepancies.length ? 'bad' : 'none'} onClick={() => setTab('review')} />

@@ -6,10 +6,11 @@ import { Button } from '@/components/ui/button';
 import { AppBadge, AppInput } from '@/components/redesign/primitives';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { apiJson } from '../api';
-import { money, post, REVIEW_LABELS, when } from '../shop-common';
+import { money, pausedLines, post, REVIEW_LABELS, when } from '../shop-common';
 import type { ShopOverview } from '@/lib/shop/overview';
 import type { TargetOption } from '@/lib/shop/targets';
 import { EmptyState, Panel, RowItem, RowList } from '../shop-ui';
+import { PausedLines } from './PausedLines';
 import { ProjectionReview } from './ProjectionReview';
 
 export function ReviewGroup({ title, subtitle, count, icon, children }: { title: string; subtitle: string; count: number; icon?: ReactNode; children: ReactNode }) {
@@ -26,7 +27,7 @@ export function ReviewGroup({ title, subtitle, count, icon, children }: { title:
 }
 
 export function ReviewTab({ overview, reload }: { overview: ShopOverview; reload: () => Promise<void> }) {
-  const clear = overview.review.length === 0 && overview.discrepancies.length === 0 && overview.effects.length === 0 && (overview.projectionReview ?? []).length === 0;
+  const clear = overview.review.length === 0 && overview.discrepancies.length === 0 && overview.effects.length === 0 && (overview.projectionReview ?? []).length === 0 && pausedLines(overview).length === 0;
   return (
     <div className="space-y-4">
       {clear ? <EmptyState title="Nothing needs your decision." tone="good">Every receipt line is settled, no write is waiting and no shopping row is blocked.</EmptyState> : null}
@@ -46,6 +47,8 @@ export function ReviewTab({ overview, reload }: { overview: ShopOverview; reload
           </RowList>
         )}
       </ReviewGroup>
+
+      <PausedLines overview={overview} reload={reload} />
 
       <ReviewGroup title="Writes needing a decision" count={overview.effects.length} subtitle="These writes have an unknown outcome or failed. They are never retried automatically.">
         {overview.effects.length === 0 ? <EmptyState>All writes are settled.</EmptyState> : (
