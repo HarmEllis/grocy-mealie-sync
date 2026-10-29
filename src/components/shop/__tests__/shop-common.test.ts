@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { attentionCount, receiptCheckWindow } from '../shop-common';
+import { attentionCount, blockedProjectionRows, receiptCheckWindow } from '../shop-common';
 import type { ShopOverview } from '@/lib/shop/overview';
 
 function overview(overrides: Partial<ShopOverview>): ShopOverview {
@@ -26,6 +26,20 @@ describe('attentionCount', () => {
       lines,
     }));
     expect(result).toBe(5);
+  });
+});
+
+describe('blockedProjectionRows', () => {
+  const rows = (reasons: string[]) => reasons.map((reason, index) => ({ installationId: 'i', revisionId: `r${index}`, label: reason, reason })) as unknown as ShopOverview['projectionReview'];
+
+  it('ignores rows that only wait for a mapping and keeps actionable ones', () => {
+    const data = overview({ projectionReview: rows(['no_food', 'no_retailer_mapping', 'mapping_unconfirmed', 'no_conversion', 'missing_unit']) });
+    expect(blockedProjectionRows(data).map(row => row.reason)).toEqual(['mapping_unconfirmed', 'no_conversion', 'missing_unit']);
+  });
+
+  it('feeds the attention count', () => {
+    expect(attentionCount(overview({ projectionReview: rows(['no_food', 'mapping_unconfirmed']) }))).toBe(1);
+    expect(attentionCount(overview({ projectionReview: rows(['no_retailer_mapping']) }))).toBe(0);
   });
 });
 

@@ -121,7 +121,7 @@ function ReviewLine({ line, overview, reload }: { line: ShopOverview['review'][n
   const selectedProduct = targets.find(target => target.id === productId);
 
   return (
-    <li className="space-y-2 px-4 py-3 text-sm md:px-5" data-testid="review-line">
+    <div className="rowitem" role="listitem" data-testid="review-line"><div className="row-main space-y-2">
       <div>
         <span className="font-semibold">{line.description}</span> · {line.quantity} {line.unit} {line.amountCents !== null ? `· ${money(line.amountCents)}` : ''} ·{' '}
         <span className="text-muted-foreground">{REVIEW_LABELS[line.reviewReason ?? ''] ?? line.reviewReason}</span>
@@ -179,7 +179,7 @@ function ReviewLine({ line, overview, reload }: { line: ShopOverview['review'][n
           </Button>
         </div>
       ) : null}
-    </li>
+    </div></div>
   );
 }
 
@@ -197,7 +197,7 @@ function DiscrepancyItem({ discrepancy, reload }: { discrepancy: ShopOverview['d
   const productId = evidence.productId ?? evidence.bookings?.[0]?.productId;
   if (discrepancy.kind === 'check_after_receipt') {
     return (
-      <li className="space-y-2 px-4 py-3 text-sm md:px-5" data-testid="discrepancy">
+      <div className="rowitem" role="listitem" data-testid="discrepancy"><div className="row-main space-y-2">
         <div className="font-semibold">A shopping row was checked off while a receipt was already fulfilling it. Nothing was booked for the check yet.</div>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" onClick={async () => {
@@ -207,11 +207,11 @@ function DiscrepancyItem({ discrepancy, reload }: { discrepancy: ShopOverview['d
             if (await post(`/api/shop/discrepancies/${discrepancy.id}`, { action: 'book_check' }, 'The check will be booked as an extra purchase')) await reload();
           }}>It was an additional purchase, book it</Button>
         </div>
-      </li>
+      </div></div>
     );
   }
   return (
-    <li className="space-y-2 px-4 py-3 text-sm md:px-5" data-testid="discrepancy">
+    <div className="rowitem" role="listitem" data-testid="discrepancy"><div className="row-main space-y-2">
       <div className="font-semibold">
         {discrepancy.kind === 'over_booked_manual_check'
           ? `A manual check booked ${evidence.bookedAmount}, the receipt shows ${evidence.receiptAmount}.`
@@ -240,6 +240,6 @@ function DiscrepancyItem({ discrepancy, reload }: { discrepancy: ShopOverview['d
         ) : null}
         <Button size="sm" variant="ghost" onClick={async () => { if (await post(`/api/shop/discrepancies/${discrepancy.id}`, { action: 'keep_stock' }, 'Stock kept as is')) await reload(); }}>Keep stock as is</Button>
       </div>
-    </li>
+    </div></div>
   );
 }

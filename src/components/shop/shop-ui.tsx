@@ -79,7 +79,8 @@ export function EmptyState({ title, children, tone = '', celebrate = false, icon
 
 /** Retailer logo chip: short code from the name. */
 export function ShopLogo({ name }: { name: string }) {
-  const code = name.split(/\s+/).filter(Boolean).map(part => part[0]).join('').slice(0, 2).toUpperCase();
+  const parts = name.split(/\s+/).filter(Boolean);
+  const code = (parts.length > 1 ? parts.map(part => part[0]).join('') : (parts[0] ?? '')).slice(0, 2).toUpperCase();
   return <span className="shop-logo" aria-hidden="true">{code}</span>;
 }
 
@@ -139,7 +140,7 @@ export function DataTable({ headers, cols, children }: { headers: string[]; cols
   const style = { '--cols': cols ?? `repeat(${headers.length}, minmax(0, 1fr))` } as CSSProperties;
   return (
     <div className="dtable" role="table" style={style}>
-      <div className="dt-head" role="row">{headers.map(header => <span key={header} role="columnheader">{header}</span>)}</div>
+      <div className="dt-head" role="row">{headers.map(header => <div key={header} role="columnheader">{header}</div>)}</div>
       {children}
     </div>
   );
@@ -148,7 +149,7 @@ export function DataTable({ headers, cols, children }: { headers: string[]; cols
 export function DataRow({ cells, testId }: { cells: Array<[string, ReactNode]>; testId?: string }) {
   return (
     <div className="dt-row" role="row" data-testid={testId}>
-      {cells.map(([label, value]) => <span key={label} role="cell" data-label={label}>{value}</span>)}
+      {cells.map(([label, value]) => <div key={label} role="cell" data-label={label}>{value}</div>)}
     </div>
   );
 }

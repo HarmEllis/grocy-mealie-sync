@@ -30,19 +30,23 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
   const [tab, setTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(false);
   const [nextRefresh, setNextRefresh] = useState(REFRESH_SECONDS);
-  const swipeStart = useRef<number | null>(null);
+  const swipeStart = useRef<{ x: number; y: number } | null>(null);
+  const requestSequence = useRef(0);
 
   const load = useCallback(async () => {
+    // Restart the countdown at once so a slow response cannot trigger further loads, and let only
+    // the latest request update the page so an older response never overwrites newer data.
+    const sequence = ++requestSequence.current;
+    setNextRefresh(REFRESH_SECONDS);
     setLoading(true);
     try {
       const data = await apiJson<ShopOverview>('/api/shop/overview');
       if (!Array.isArray(data?.installations)) throw new Error('Unexpected response');
-      setOverview(data);
+      if (sequence === requestSequence.current) setOverview(data);
     } catch (error) {
-      toast.error('Could not load shopping data', { description: (error as Error).message });
+      if (sequence === requestSequence.current) toast.error('Could not load shopping data', { description: (error as Error).message });
     } finally {
-      setLoading(false);
-      setNextRefresh(REFRESH_SECONDS);
+      if (sequence === requestSequence.current) setLoading(false);
     }
   }, []);
 
@@ -56,10 +60,20 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
   const attention = attentionCount(overview);
   const planned = overview?.exports.length ?? 0;
   const blocked = overview ? (overview.projectionReview ?? []).length : 0;
-  const pending = Boolean(overview?.installations.some(installation => installation.pendingListApply));
+  const pending = overview?.installations.filter(installation => installation.pendingListApply).length ?? 0;
   const offline = overview?.installations.filter(installation => !installation.connected).length ?? 0;
   const noPlugins = Boolean(overview && overview.installations.length === 0);
-  const needsAttention = attention > 0 || blocked > 0 || pending;
+  const needsAttention = attention > 0 || blocked > 0 || pending > 0;
+  const writesToDecide = (overview?.effects.length ?? 0) + (overview ? pausedLines(overview).length : 0);
+  // One priority order for the badge and the hero: decisions, then pending list writes, then held-back rows.
+  // A pending write is only shown on Overview, held-back rows only on Review.
+  const status = attention > 0
+    ? { headline: `${attention} ${attention === 1 ? 'item needs' : 'items need'} your decision`, badge: <><strong>{attention}</strong> {attention === 1 ? 'item needs' : 'items need'} attention</>, tab: 'review' as const }
+    : pending > 0
+      ? { headline: pending === 1 ? 'A list write is waiting for confirmation' : `${pending} list writes are waiting for confirmation`, badge: <><strong>{pending}</strong> list write{pending === 1 ? '' : 's'} pending</>, tab: 'overview' as const }
+      : blocked > 0
+        ? { headline: `${blocked} shopping ${blocked === 1 ? 'row is' : 'rows are'} held back`, badge: <><strong>{blocked}</strong> held back</>, tab: 'review' as const }
+        : { headline: 'Nothing needs your decision', badge: <>Nothing needs attention</>, tab: 'review' as const };
 
   function select(id: Tab, focus = false) {
     setTab(id);
@@ -77,11 +91,20 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
     else return;
     event.preventDefault();
   }
-  function onSwipeEnd(event: TouchEvent) {
-    if (swipeStart.current === null) return;
-    const delta = event.changedTouches[0].clientX - swipeStart.current;
+  // React bubbles touches from portals (dialogs) too, so only gestures that start inside the
+  // panel area on non-interactive content may switch tabs.
+  function onSwipeStart(event: TouchEvent<HTMLDivElement>) {
+    const target = event.target as Element;
+    const inside = event.currentTarget.contains(target) && !target.closest('input, select, textarea, [role="dialog"], [role="combobox"], [role="listbox"]');
+    swipeStart.current = inside && event.touches.length === 1 ? { x: event.touches[0].clientX, y: event.touches[0].clientY } : null;
+  }
+  function onSwipeEnd(event: TouchEvent<HTMLDivElement>) {
+    const start = swipeStart.current;
     swipeStart.current = null;
-    if (Math.abs(delta) >= 70) step(delta < 0 ? 1 : -1);
+    if (!start || event.changedTouches.length !== 1) return;
+    const dx = event.changedTouches[0].clientX - start.x;
+    const dy = event.changedTouches[0].clientY - start.y;
+    if (Math.abs(dx) >= 70 && Math.abs(dy) <= 50 && Math.abs(dx) > Math.abs(dy)) step(dx < 0 ? 1 : -1);
   }
 
   return (
@@ -92,10 +115,9 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
             <span className="chip-hint">Plugins are added under Settings → Shop plugins.</span>
           ) : (
             <div className="toolbar">
-              <button type="button" className={`attention${needsAttention ? '' : ' calm'}`} onClick={() => select('review')} data-testid="attention-badge">
+              <button type="button" className={`attention${needsAttention ? '' : ' calm'}`} onClick={() => select(status.tab)} data-testid="attention-badge">
                 {needsAttention ? <TriangleAlert className="size-4" /> : <Check className="size-4" />}
-                {attention > 0 ? <><strong>{attention}</strong> {attention === 1 ? 'item needs' : 'items need'} attention</>
-                  : needsAttention ? <><strong>{blocked || 1}</strong> {pending && !blocked ? 'list write pending' : 'held back'}</> : 'Nothing needs attention'}
+                {status.badge}
               </button>
               <div className="refresh" data-testid="refresh-control">
                 <div className="refresh-meta">
@@ -137,9 +159,7 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
         <StatusHero
           needsAttention={needsAttention}
           icon={needsAttention ? <TriangleAlert className="size-6" /> : <Check className="size-6" />}
-          headline={attention > 0 ? `${attention} ${attention === 1 ? 'item needs' : 'items need'} your decision`
-            : pending ? 'A list write is waiting for confirmation'
-              : blocked > 0 ? `${blocked} shopping ${blocked === 1 ? 'row is' : 'rows are'} held back` : 'Nothing needs your decision'}
+          headline={status.headline}
           copy={needsAttention
             ? 'The items below are waiting for you or were held back with a reason. Fix the mapping or unit and the next sync retries automatically.'
             : `No receipt line, write, paused line or blocked row is waiting.${offline ? ` ${offline} ${offline === 1 ? 'plugin is' : 'plugins are'} offline, so list changes wait for it to reconnect.` : ''}`}
@@ -148,7 +168,7 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
           <KpiTile label="Not sent to retailer" value={blocked} foot="rows held back" tone={blocked ? 'warn' : ''} onClick={() => select('review')} />
           <KpiTile label="Receipt lines to review" value={overview.review.length} foot="nothing booked yet" tone={overview.review.length ? 'warn' : ''} onClick={() => select('review')} />
           <KpiTile label="Stock discrepancies" value={overview.discrepancies.length} foot="receipt vs. manual check" tone={overview.discrepancies.length ? 'bad' : ''} onClick={() => select('review')} />
-          <KpiTile label="Writes to decide" value={overview.effects.length + pausedLines(overview).length} foot="writes and paused lines" tone={overview.effects.length ? 'warn' : ''} onClick={() => select('review')} />
+          <KpiTile label="Writes to decide" value={writesToDecide} foot="writes and paused lines" tone={writesToDecide ? 'warn' : ''} onClick={() => select('review')} />
         </StatusHero>
       ) : null}
 
@@ -176,8 +196,9 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
           </div>
           <div
             className="sections"
-            onTouchStart={event => { swipeStart.current = event.touches[0].clientX; }}
+            onTouchStart={onSwipeStart}
             onTouchEnd={onSwipeEnd}
+            onTouchCancel={() => { swipeStart.current = null; }}
           >
             <section role="tabpanel" id={`shop-panel-${tab}`} aria-labelledby={`shop-tab-${tab}`} className="stack">
               {!overview ? <div className="panel"><div className="skeleton" aria-hidden="true"><div className="sk w40" /><div className="sk" /><div className="sk w80" /><div className="sk w60" /></div></div> : null}
