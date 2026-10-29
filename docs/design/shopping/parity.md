@@ -82,56 +82,56 @@ Switch them in the prototype footer (`demo-bar`).
 
 | Real-app feature | Where | Notes | Implementation | Status |
 |---|---|---|---|---|
-| Work queue To map / Mapped / Needs attention | `queue-tab-todo|mapped|attention` | with counts and a progress ring |  | todo |
-| Search | `product-search` | |  | todo |
-| Source filter Grocy+Mealie / Grocy only / Mealie only | `source-filter` | |  | todo |
-| Status filter | `status-filter` | unit changed, unconfirmed amount, discontinued, missing conversion |  | todo |
-| Per-shop detail with suggested match + score | `shop-<id>` | one section per installed plugin |  | todo |
-| Catalogue search | `catalogue-search-<id>` | debounce → searching → results / no results |  | todo |
-| Alternatives | `alternative-<id>-<i>` | |  | todo |
-| Conversion / unit & amount | `conversion-<id>`, `amount-<id>`, `unit-<id>` | |  | todo |
-| Discontinued replacement | product *Pasta penne* | warning banner + text-item fallback field |  | todo |
-| Plugin disconnect / reconnect | `connection-<id>` | disconnected search state with retry |  | todo |
-| Keyboard navigation | ↑↓ / J K, Enter confirms, Esc closes the sheet | hints under the workspace |  | todo |
-| **(a)** Suggestions inbox with Accept / Reject | `suggestions-inbox`, `accept-*`, `reject-*` | |  | todo |
-| **(a)** Score % | `.score` in each suggestion | |  | todo |
-| **(a)** show 5 / show all | `toggle-suggestion-count` | 7 suggestions in the Busy snapshot |  | todo |
-| **(b)** Shopping ingredients to map | `ingredients-panel` / `ingredient-<id>` | |  | todo |
-| **(b)** Status: waiting for catalogue search | `ingredient-i-2` | spinner |  | todo |
-| **(b)** Status: error | `ingredient-i-3` | error text, never retried on its own |  | todo |
-| **(b)** Status: found N products | `ingredient-i-1`, `-i-4`, `-i-5` (0 found) | |  | todo |
-| **(b)** *Search again* | `search-again-<id>` | |  | todo |
-| **(c)** Role: Preferred product / Remembered alternative | `role-line` in each mapped shop | |  | todo |
-| **(c)** *Use as preferred* | `use-preferred-<id>`, alternatives list | |  | todo |
-| **(c)** Remove (trash) | `remove-mapping-<id>`, alternative trash | |  | todo |
-| **(d)** *Fulfils all demand* toggle for loose produce | `settles-<id>` | only for per-kg products (Appels, Tomaten los) |  | todo |
-| **(e)** Mapping target legend G+M / G / M | `target-legend` | G+M marked recommended |  | todo |
-| **(e)** Move-mapping warning | `target-<id>` → warning banner | “Moving this mapping removes its link to X. Check the amount in the new target unit” |  | todo |
-| **(f)** Unit preview | `preview-<id>` | shows the resulting stock amount |  | todo |
-| **(f)** Retry | `retry-conversion-<id>` | product *Yoghurt naturel* starts in the failed state |  | todo |
-| **(f)** *Use suggested amount* derivation | `suggested-amount-<id>` | derives from the package size |  | todo |
-| **(f)** Conversion availability + link to Units & Conversions | `units-link-<id>` | also shown when units are incompatible |  | todo |
-| **(g)** Mealie unit picker incl. *Count (no unit)* | `mealie-unit-<id>` | product-level unit under More options, hidden for Grocy-only targets |  | todo |
-| **(a2)** Text item account selector per retailer | `text-account-<id>` | only when the retailer has several installations; option label is *retailer — account* |  | todo |
-| **(a2)** Single-account retailers name the account inline | text-item block | no selector, just *Albert Heijn — Household list* |  | todo |
-| **(a2)** Toggle *Use an ingredient + quantity text item…* | `text-item-toggle-<id>` | manual on / off |  | todo |
-| **(a2)** Discontinued product locks the toggle on | *Pasta penne* → Albert Heijn | “Locked on — this retailer product is discontinued…” |  | todo |
-| **(a2)** Disabled: plugin has no `list.notes` | *any product* → Jumbo, Picnic | “Jumbo cannot add list notes… A discontinued product pauses the line instead.” |  | todo |
-| **(a2)** Disabled: account not bound | Albert Heijn → *Shared household* | “Sign in to the retailer first.” |  | todo |
-| **(a2)** Status line on the product row | `.row-flags` → *Text item for AH — Household list* | shown while a text item is active |  | todo |
-| **(a2)** Free-text *Text-item fallback* | `fallback-<id>` | moved into the text-item block, disabled when the block is |  | todo |
-| **(a2)** A text item settles a retailer for confirming | `confirm-mapping` | a discontinued retailer no longer blocks the save; the hint counts the text-item retailers |  | todo |
-| **(b2)** Replacement waiting notice | `replacement-<id>` | “Waiting for {old product} to leave the list ({account}). Review the old line in Overview → Paused list lines if it remains paused.” |  | todo |
-| **(b2)** Paused escalation | *Pasta penne* → Jumbo | adds “Waiting for the paused product line. Resolve it before the text item can replace it.” |  | todo |
-| **(b2)** Link to the paused lines | `replacement-link-<id>` | jumps to Overview → Paused list lines |  | todo |
-| **(b2)** Notice on the product row | `.row-flags` amber flag | on *Pasta penne* (paused) and *Olijfolie* (not paused) |  | todo |
-| **(c2)** Availability: Discontinued | *Pasta penne* → Albert Heijn | danger, “list sync needs a text item or a new preferred product” |  | todo |
-| **(c2)** Availability: Temporarily out of stock | *Rijst basmati* → Jumbo | warning, “preferred product stays on the list” |  | todo |
-| **(c2)** Availability: Availability unknown | *Havermout* → Picnic | muted, “the retailer did not report a status” |  | todo |
-| **(c2)** Availability on the queue row | `.row-flags` | worst status across the retailers, tone carried by the icon |  | todo |
-| **(d2)** Linked Mealie mapping row | `mealie-row-<id>` | labelled *Linked Mealie mapping · {food}*, only for Grocy + Mealie targets |  | todo |
-| **(d2)** Its own unit & amount | `mealie-amount-<id>`, `mealie-food-unit-<id>` | edited separately from the Grocy package amount and from the product-level Mealie unit |  | todo |
-| **(e2)** Mapping count line | `.row-flags` → *1 alternative* | sums the remembered alternatives across retailers |  | todo |
+| Work queue To map / Mapped / Needs attention | `queue-tab-todo|mapped|attention` | with counts and a progress ring | `products/ProductQueue.tsx` | done |
+| Search | `product-search` | | `products/ProductQueue.tsx` | done |
+| Source filter Grocy+Mealie / Grocy only / Mealie only | `source-filter` | | `products/ProductQueue.tsx` | done |
+| Status filter | `status-filter` | unit changed, unconfirmed amount, discontinued, missing conversion **Adapted:** Unit changed, Unconfirmed amount, Discontinued; "Missing conversion" is only shown in the detail preview (plan decision 2) | `products/ProductQueue.tsx` | adapted |
+| Per-shop detail with suggested match + score | `shop-<id>` | one section per installed plugin | `products/ProductDetail.tsx` | done |
+| Catalogue search | `catalogue-search-<id>` | debounce → searching → results / no results | `products/ProductDetail.tsx` | done |
+| Alternatives | `alternative-<id>-<i>` | | `products/ProductDetail.tsx` | done |
+| Conversion / unit & amount | `conversion-<id>`, `amount-<id>`, `unit-<id>` | | `products/MappingForm.tsx` | done |
+| Discontinued replacement | product *Pasta penne* | warning banner + text-item fallback field | `products/ProductDetail.tsx` | done |
+| Plugin disconnect / reconnect | `connection-<id>` | disconnected search state with retry **Adapted:** Real connectivity from the installation; offline plugins show "Plugin offline" and the known-products-only search with Retry (no toggle) | `products/ProductDetail.tsx` | adapted |
+| Keyboard navigation | ↑↓ / J K, Enter confirms, Esc closes the sheet | hints under the workspace | `products/ProductQueue.tsx` | done |
+| **(a)** Suggestions inbox with Accept / Reject | `suggestions-inbox`, `accept-*`, `reject-*` | | `products/ProductsTab.tsx` (inbox, bulk endpoint) | done |
+| **(a)** Score % | `.score` in each suggestion | | `products/ProductsTab.tsx` (inbox, bulk endpoint) | done |
+| **(a)** show 5 / show all | `toggle-suggestion-count` | 7 suggestions in the Busy snapshot | `products/ProductsTab.tsx` (inbox, bulk endpoint) | done |
+| **(b)** Shopping ingredients to map | `ingredients-panel` / `ingredient-<id>` | | `products/ProductsTab.tsx` (inbox, bulk endpoint) | done |
+| **(b)** Status: waiting for catalogue search | `ingredient-i-2` | spinner | `products/ProductsTab.tsx` (inbox, bulk endpoint) | done |
+| **(b)** Status: error | `ingredient-i-3` | error text, never retried on its own | `products/ProductsTab.tsx` (inbox, bulk endpoint) | done |
+| **(b)** Status: found N products | `ingredient-i-1`, `-i-4`, `-i-5` (0 found) | | `products/ProductsTab.tsx` (inbox, bulk endpoint) | done |
+| **(b)** *Search again* | `search-again-<id>` | | `products/ProductQueue.tsx` | done |
+| **(c)** Role: Preferred product / Remembered alternative | `role-line` in each mapped shop | | `products/ProductDetail.tsx` | done |
+| **(c)** *Use as preferred* | `use-preferred-<id>`, alternatives list | | `products/ProductDetail.tsx` | done |
+| **(c)** Remove (trash) | `remove-mapping-<id>`, alternative trash | | `products/ProductDetail.tsx` | done |
+| **(d)** *Fulfils all demand* toggle for loose produce | `settles-<id>` | only for per-kg products (Appels, Tomaten los) | `products/MappingForm.tsx` | done |
+| **(e)** Mapping target legend G+M / G / M | `target-legend` | G+M marked recommended | `products/ProductsTab.tsx` (inbox, bulk endpoint) | done |
+| **(e)** Move-mapping warning | `target-<id>` → warning banner | “Moving this mapping removes its link to X. Check the amount in the new target unit” **Adapted:** Shown for a legacy mapping that moves to the canonical product; there is no target switcher | `products/ProductDetail.tsx` | adapted |
+| **(f)** Unit preview | `preview-<id>` | shows the resulting stock amount | `products/MappingForm.tsx` | done |
+| **(f)** Retry | `retry-conversion-<id>` | product *Yoghurt naturel* starts in the failed state | `products/MappingForm.tsx` | done |
+| **(f)** *Use suggested amount* derivation | `suggested-amount-<id>` | derives from the package size | `products/MappingForm.tsx` | done |
+| **(f)** Conversion availability + link to Units & Conversions | `units-link-<id>` | also shown when units are incompatible | `products/MappingForm.tsx` | done |
+| **(g)** Mealie unit picker incl. *Count (no unit)* | `mealie-unit-<id>` | product-level unit under More options, hidden for Grocy-only targets | `products/MappingForm.tsx` | done |
+| **(a2)** Text item account selector per retailer | `text-account-<id>` | only when the retailer has several installations; option label is *retailer — account* | `products/ProductDetail.tsx` | done |
+| **(a2)** Single-account retailers name the account inline | text-item block | no selector, just *Albert Heijn — Household list* | `products/ProductDetail.tsx` | done |
+| **(a2)** Toggle *Use an ingredient + quantity text item…* | `text-item-toggle-<id>` | manual on / off | `products/ProductDetail.tsx` | done |
+| **(a2)** Discontinued product locks the toggle on | *Pasta penne* → Albert Heijn | “Locked on — this retailer product is discontinued…” | `products/ProductDetail.tsx` | done |
+| **(a2)** Disabled: plugin has no `list.notes` | *any product* → Jumbo, Picnic | “Jumbo cannot add list notes… A discontinued product pauses the line instead.” | `products/ProductDetail.tsx` | done |
+| **(a2)** Disabled: account not bound | Albert Heijn → *Shared household* | “Sign in to the retailer first.” | `products/ProductDetail.tsx` | done |
+| **(a2)** Status line on the product row | `.row-flags` → *Text item for AH — Household list* | shown while a text item is active | `products/ProductQueue.tsx` | done |
+| **(a2)** Free-text *Text-item fallback* | `fallback-<id>` | moved into the text-item block, disabled when the block is | `products/ProductDetail.tsx` | done |
+| **(a2)** A text item settles a retailer for confirming | `confirm-mapping` | a discontinued retailer no longer blocks the save; the hint counts the text-item retailers | `products/ProductDetail.tsx` | done |
+| **(b2)** Replacement waiting notice | `replacement-<id>` | “Waiting for {old product} to leave the list ({account}). Review the old line in Overview → Paused list lines if it remains paused.” | `products/ProductDetail.tsx` | done |
+| **(b2)** Paused escalation | *Pasta penne* → Jumbo | adds “Waiting for the paused product line. Resolve it before the text item can replace it.” | `products/ProductDetail.tsx` | done |
+| **(b2)** Link to the paused lines | `replacement-link-<id>` | jumps to Overview → Paused list lines | `products/ProductDetail.tsx` | done |
+| **(b2)** Notice on the product row | `.row-flags` amber flag | on *Pasta penne* (paused) and *Olijfolie* (not paused) | `products/ProductQueue.tsx` | done |
+| **(c2)** Availability: Discontinued | *Pasta penne* → Albert Heijn | danger, “list sync needs a text item or a new preferred product” | `products/ProductDetail.tsx` | done |
+| **(c2)** Availability: Temporarily out of stock | *Rijst basmati* → Jumbo | warning, “preferred product stays on the list” | `products/ProductDetail.tsx` | done |
+| **(c2)** Availability: Availability unknown | *Havermout* → Picnic | muted, “the retailer did not report a status” | `products/ProductDetail.tsx` | done |
+| **(c2)** Availability on the queue row | `.row-flags` | worst status across the retailers, tone carried by the icon | `products/ProductQueue.tsx` | done |
+| **(d2)** Linked Mealie mapping row | `mealie-row-<id>` | labelled *Linked Mealie mapping · {food}*, only for Grocy + Mealie targets **Adapted:** Legacy rows only, listed with the real migrate-on-confirm flow | `products/ProductDetail.tsx` | adapted |
+| **(d2)** Its own unit & amount | `mealie-amount-<id>`, `mealie-food-unit-<id>` | edited separately from the Grocy package amount and from the product-level Mealie unit **Adapted:** No separate Mealie amount; confirming in the Grocy stock unit moves a legacy mapping | `products/MappingForm.tsx` | adapted |
+| **(e2)** Mapping count line | `.row-flags` → *1 alternative* | sums the remembered alternatives across retailers | `products/ProductQueue.tsx` | done |
 
 ## 3. Receipts
 
@@ -211,12 +211,12 @@ Switch them in the prototype footer (`demo-bar`).
 
 ## Retailer accounts in the sample data
 
-| Plugin | `list.notes` | Accounts | What it demonstrates |  | todo |
+| Plugin | `list.notes` | Accounts | What it demonstrates |  | n/a |
 |---|---|---|---|---|---|
-| Albert Heijn | yes | Household list, Second account, Shared household (not signed in) | the account selector, a working toggle, the locked-on discontinued case, and the not-signed-in explanation |  | todo |
-| Jumbo | no | Main account | the text-item block disabled because the plugin cannot add notes |  | todo |
-| Picnic | no | Main account | same, on a plugin that also has no receipts |  | todo |
-| Crisp | no | Main account (not signed in) | installed but never connected: no catalogue, so it is absent from Products |  | todo |
+| Albert Heijn | yes | Household list, Second account, Shared household (not signed in) | the account selector, a working toggle, the locked-on discontinued case, and the not-signed-in explanation |  | n/a |
+| Jumbo | no | Main account | the text-item block disabled because the plugin cannot add notes |  | n/a |
+| Picnic | no | Main account | same, on a plugin that also has no receipts |  | n/a |
+| Crisp | no | Main account (not signed in) | installed but never connected: no catalogue, so it is absent from Products |  | n/a |
 
 In the All clear snapshot Albert Heijn keeps two bound accounts and no product is waiting on a replacement.
 

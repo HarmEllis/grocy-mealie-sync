@@ -27,8 +27,8 @@ function scopeSelector(selector) {
     return m ? `${m[1]} ${SCOPE} ${m[2]}` : null;
   }
   const guarded = sel
-    .replace(/^input(?=$|::|:)/, 'input:not([type="checkbox"]):not([type="radio"]):not([role="combobox"])')
-    .replace(/^svg$/, 'svg:not([width])');
+    .replace(/^input(?=$|::|:)/, 'input:where(:not([type="checkbox"]):not([type="radio"]):not([role="combobox"]))')
+    .replace(/^svg$/, 'svg:where(:not([width]))');
   return `${SCOPE} ${guarded}`;
 }
 

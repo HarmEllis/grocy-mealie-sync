@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type Reac
 import { ArrowLeftRight, Check, History, LayoutDashboard, Package, Receipt, ShoppingCart, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiJson } from './api';
-import { OwnProductsTab } from './OwnProductsTab';
+import { ProductsTab } from './products/ProductsTab';
 import { ShopFormatProvider } from './shop-format';
 import { attentionCount, pausedLines, post } from './shop-common';
 import { DButton, EmptyState, KpiTile, ShopLogo, Spinner, StatusHero } from './shop-ui';
@@ -214,7 +214,7 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
             <section role="tabpanel" id={`shop-panel-${tab}`} aria-labelledby={`shop-tab-${tab}`} className="stack">
               {!overview ? <div className="panel"><div className="skeleton" aria-hidden="true"><div className="sk w40" /><div className="sk" /><div className="sk w80" /><div className="sk w60" /></div></div> : null}
               {overview && tab === 'overview' ? <OverviewTab overview={overview} reload={load} goTo={select} openProducts={openProducts} /> : null}
-              {overview && tab === 'products' ? <OwnProductsTab key={productsKey} overview={overview} reloadOverview={load} initialQuery={productsQuery} /> : null}
+              {overview && tab === 'products' ? <ProductsTab key={productsKey} overview={overview} reloadOverview={load} initialQuery={productsQuery} goToPausedLines={() => select('overview')} /> : null}
               {overview && tab === 'receipts' ? <ReceiptsTab overview={overview} reload={load} /> : null}
               {overview && tab === 'review' ? <ReviewTab overview={overview} reload={load} openProducts={openProducts} goTo={select} /> : null}
               {overview && tab === 'diagnostics' ? <DiagnosticsTab overview={overview} timeZone={timeZone} locale={locale} /> : null}

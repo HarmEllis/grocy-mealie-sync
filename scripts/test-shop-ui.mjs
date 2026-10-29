@@ -158,7 +158,13 @@ try {
   let catalogCalls = 0;
   let savedBody;
   let suggestions = [{ id: 'suggestion1', providerId: 'ah', retailerProductId: '456', targetKind: 'grocy_product', targetId: '79', targetName: 'Cherry tomaten', score: 0.9 }];
-  const searches = [{ id: 'search1', targetName: 'Cherry tomaten', status: 'complete', resultCount: 2, lastError: null }];
+  const searches = [{ id: 'search1', providerId: 'ah', targetKind: 'grocy_product', targetId: '79', targetName: 'Cherry tomaten', status: 'complete', resultCount: 2, lastError: null }];
+  // Same rules as productInventory(): a legacy Mealie-food mapping on the linked product means the unit moved; an unconfirmed amount is flagged.
+  const attentionOf = target => {
+    const own = mappings.filter(mapping => mapping.role === 'preferred' && target.id === '79' && (mapping.targetId === '79' || mapping.targetId === 'food1'));
+    return [...(own.some(mapping => mapping.targetKind !== 'grocy_product') ? ['unit_changed'] : []), ...(own.some(mapping => !mapping.confirmed) ? ['unconfirmed'] : [])];
+  };
+  const isMapped = target => target.id === '79' || mappings.some(mapping => mapping.role === 'preferred' && mapping.targetKind === target.kind && mapping.targetId === target.id);
   await page.route('**/api/shop/overview', route => route.fulfill({ json: { ...realOverview, installations,
     exports: [{ id: 'e1', installationId: original.id, productName: products[0].name, packages: 2, createdAt: new Date().toISOString() }],
     receipts: [{ id: 'r1', providerId: 'ah', referenceOnly: true, purchasedAt: new Date().toISOString(), storeLabel: 'Demo', status: 'reference_only', totalCents: 199, lines: [{ id: 'line1', description: products[0].name, retailerProductId: '123', quantity: 2, unit: 'unit', amountCents: 199, status: 'reference_only', links: [] }] }],
@@ -179,11 +185,15 @@ try {
     const mapped = params.get('mapped');
     const offset = Number(params.get('offset') ?? 0);
     const limit = Number(params.get('limit') ?? 50);
-    const filtered = targets.filter(target => (!source || source === 'all' || target.source === source)
-      && (mapped === 'all' || !mapped || (target.id === '79') === (mapped === 'mapped'))
+    const attention = params.get('attention');
+    const enriched = targets.map(target => ({ ...target, attention: attentionOf(target), mappedProviders: isMapped(target) ? ['ah'] : [] }));
+    const filtered = enriched.filter(target => (!source || source === 'all' || target.source === source)
+      && (mapped === 'all' || !mapped || isMapped(target) === (mapped === 'mapped'))
+      && (!attention || (attention === 'any' ? target.attention.length > 0 : target.attention.includes(attention)))
       && `${target.name} ${target.linkedFoods.map(food => food.name).join(' ')}`.toLowerCase().includes(query));
+    const mappedCount = enriched.filter(isMapped).length;
     return route.fulfill({ json: { targets: filtered.slice(offset, offset + limit), total: filtered.length, offset,
-      counts: { all: 63, grocy_mealie: 1, grocy: 61, mealie: 1, mapped: 1, unmapped: 62 }, mealieUnits: [{ id: 'g', name: 'gram' }],
+      counts: { all: 63, grocy_mealie: 1, grocy: 61, mealie: 1, mapped: mappedCount, unmapped: 63 - mappedCount, attention: enriched.filter(target => target.attention.length > 0).length }, mealieUnits: [{ id: 'g', name: 'gram' }],
     } });
   });
   await page.route('**/api/shop/mappings', route => {
@@ -270,73 +280,80 @@ try {
       }
     }
     await page.getByRole('tab', { name: 'Products', exact: true }).click();
+    const detail = page.getByTestId('product-detail');
+    const closeDetail = async () => { const back = page.getByRole('button', { name: 'Back to queue' }); if (await back.isVisible()) await back.click(); };
     await page.getByTestId('shop-own-product').first().waitFor();
-    assert.ok((await page.getByTestId('shop-own-product').first().textContent()).includes('Cherry tomaten'), 'linked rows sort first');
+    // The queue opens on To map; the mapped product lives under Mapped.
+    await page.getByRole('tab', { name: /^Mapped/ }).click();
+    await page.getByTestId('shop-own-product').filter({ hasText: 'Cherry tomaten' }).waitFor();
     const beforeOpen = catalogCalls;
     await page.getByLabel('Search own products').fill('Cherry');
     await page.getByText('Showing 1-1 of 1 own products').waitFor();
     assert.equal(catalogCalls, beforeOpen, 'closed mapping rows never fetch retailer catalogues');
     const row = page.getByTestId('shop-own-product').first();
     await row.getByText('Waiting for Previous cherry tomatoes to leave the list', { exact: false }).waitFor();
-    assert.equal(await row.getByRole('combobox').count(), 2, 'multiple AH installations share one provider column');
-    assert.equal(await row.evaluate(node => getComputedStyle(node).display), width < 768 ? 'block' : 'table-row');
-    await row.getByRole('button', { name: 'Edit', exact: true }).click();
-    await page.getByRole('dialog').waitFor();
-    await page.getByRole('button', { name: 'Unit & amount', exact: true }).first().click();
+    await row.click();
+    await detail.getByTestId('shop-ah').waitFor();
+    assert.equal(await detail.getByTestId('shop-picnic').count(), 1, 'every provider has its own section in the detail');
+    assert.equal(await detail.getByTestId('replacement-notice').count(), 1, 'a waiting replacement is explained in the detail');
+    await detail.getByRole('button', { name: 'Unit & amount', exact: true }).first().click();
     await page.getByRole('button', { name: 'Use suggested amount', exact: true }).waitFor();
-    assert.equal(await page.getByRole('dialog').getByLabel('Amount per package').inputValue(), mappings[0].packageBaseAmount?.toString() ?? '', 'opening preserves confirmation state');
+    assert.equal(await detail.getByLabel('Amount per package').inputValue(), mappings[0].packageBaseAmount?.toString() ?? '', 'opening preserves confirmation state');
     await page.getByRole('button', { name: 'Use suggested amount', exact: true }).click();
     await page.getByRole('button', { name: 'Confirm mapping', exact: true }).click();
     await page.getByRole('button', { name: 'Confirm mapping', exact: true }).waitFor({ state: 'hidden' });
     assert.equal(savedBody.packageBaseAmount, 2);
     assert.equal(savedBody.baseUnitId, '11');
     assert.equal(savedBody.confirm, true);
-    await assertNoPageOverflow(`${width}px own-product editor`);
+    await assertNoPageOverflow(`${width}px own-product detail`);
     if (width === 390) await page.screenshot({ path: '/tmp/gms-shop-own-products-mobile.png', fullPage: true });
-    await page.getByRole('button', { name: 'Done', exact: true }).click();
-    await chooseOption('Product source', '(M) Mealie only (1)');
-    await page.getByText('No products match these filters.').waitFor();
+    await closeDetail();
+    await chooseOption('Product source', 'Mealie only (1)');
+    await page.getByText('No matching products').waitFor();
     await page.getByLabel('Search own products').fill('');
+    await page.getByRole('tab', { name: /^To map/ }).click();
     await page.getByText('Showing 1-1 of 1 own products').waitFor();
     assert.ok((await page.getByTestId('shop-own-product').first().textContent()).includes('Kipfilet'));
-    await chooseOption('Product source', 'All (63)');
+    await chooseOption('Product source', 'All sources');
   }
   // Add a replacement as a remembered alternative, never another preferred list line.
+  const detail = page.getByTestId('product-detail');
+  const closeDetail = async () => { const back = page.getByRole('button', { name: 'Back to queue' }); if (await back.isVisible()) await back.click(); };
+  await page.getByRole('tab', { name: /^Mapped/ }).click();
   await page.getByLabel('Search own products').fill('Cherry');
   await page.getByText('Showing 1-1 of 1 own products').waitFor();
-  await page.getByTestId('shop-own-product').filter({ hasText: 'Cherry tomaten' }).getByRole('button', { name: 'Edit', exact: true }).click();
-  await page.getByRole('button', { name: 'Add alternative', exact: true }).first().click();
-  const dialog = page.getByRole('dialog');
-  const picker = dialog.getByRole('combobox', { name: 'Albert Heijn product for Cherry tomaten', exact: true }).last();
+  await page.getByTestId('shop-own-product').filter({ hasText: 'Cherry tomaten' }).click();
+  await detail.getByRole('button', { name: 'Add alternative', exact: true }).first().click();
+  const picker = detail.getByRole('combobox', { name: 'Albert Heijn product for Cherry tomaten', exact: true }).last();
   await picker.click();
   await page.getByRole('option', { name: 'AH Alternative cherry tomatoes · 500 g · temporarily out of stock', exact: true }).waitFor();
   assert.equal(await page.getByRole('option', { name: /Discontinued tomatoes/ }).count(), 0, 'discontinued products are never selectable');
   await picker.fill('Alternative');
   await page.getByRole('option', { name: 'AH Alternative cherry tomatoes · 500 g · temporarily out of stock', exact: true }).click();
-  await dialog.getByLabel('Amount per package').fill('1');
-  await dialog.getByRole('button', { name: 'Confirm mapping', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Confirm mapping', exact: true }).waitFor({ state: 'hidden' });
+  await detail.getByLabel('Amount per package').fill('1');
+  await detail.getByRole('button', { name: 'Confirm mapping', exact: true }).click();
+  await detail.getByRole('button', { name: 'Confirm mapping', exact: true }).waitFor({ state: 'hidden' });
   assert.equal(savedBody.role, 'alternative');
   assert.equal(mappings[0].role, 'preferred');
-  await dialog.getByRole('button', { name: 'Use as preferred', exact: true }).click();
+  await detail.getByRole('button', { name: 'Use as preferred', exact: true }).click();
   assert.equal(mappings.find(mapping => mapping.retailerProductId === '456').role, 'preferred');
   assert.equal(mappings.find(mapping => mapping.retailerProductId === '456').packageBaseAmount, 1);
-  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await closeDetail();
   await page.getByLabel('Search own products').fill('');
+  await page.getByRole('tab', { name: /^To map/ }).click();
   await chooseOption('own products per page', '25');
-  await page.getByText('Showing 1-25 of 63 own products').waitFor();
+  await page.getByText('Showing 1-25 of 62 own products').waitFor();
   assert.equal(await page.getByTestId('shop-own-product').count(), 25);
   await page.getByRole('button', { name: 'Next page of own products' }).click();
-  await page.getByText('Showing 26-50 of 63 own products').waitFor();
+  await page.getByText('Showing 26-50 of 62 own products').waitFor();
   await page.getByLabel('Search own products').fill('Cherry');
+  await page.getByText('No matching products').waitFor();
+  await page.getByRole('tab', { name: /^Mapped/ }).click();
   await page.getByText('Showing 1-1 of 1 own products').waitFor();
-  await chooseOption('Mapping status', 'Not yet mapped');
-  await page.getByText('No products match these filters.').waitFor();
-  await chooseOption('Mapping status', 'Mapped');
-  await page.getByText('Showing 1-1 of 1 own products').waitFor();
-  for (const name of ['Search again', 'Reject']) {
-    const button = page.getByRole('button', { name, exact: true });
-    const gap = await button.evaluate(node => node.parentElement.getBoundingClientRect().right - node.getBoundingClientRect().right);
+  for (const name of ['Search again', /^Reject the/]) {
+    const button = page.getByRole('button', { name }).first();
+    // The group of actions hugs the right edge: measure its last control.
+    const gap = await button.evaluate(node => node.parentElement.getBoundingClientRect().right - node.parentElement.lastElementChild.getBoundingClientRect().right);
     assert.ok(gap <= 17, `${name} stays right aligned`);
   }
   assert.equal(await page.locator('select').count(), 0, 'Shop controls use themed popups');
@@ -346,7 +363,7 @@ try {
       document.documentElement.classList.remove('light', 'dark'); document.documentElement.classList.add(theme);
       document.documentElement.setAttribute('data-theme', theme);
     }, theme);
-    await page.getByRole('combobox', { name: 'Mapping status' }).click();
+    await page.getByRole('combobox', { name: 'Filter by attention status' }).click();
     const color = await page.getByRole('listbox').evaluate(node => getComputedStyle(node.parentElement).backgroundColor);
     assert.notEqual(color, 'rgba(0, 0, 0, 0)');
     if (theme === 'light') lightColor = color; else assert.notEqual(color, lightColor);
@@ -354,7 +371,7 @@ try {
   }
   await page.screenshot({ path: '/tmp/gms-shop-own-products-desktop.png', fullPage: true });
   // Offline choices retain known products and clearly explain the absent live search.
-  const offlinePicker = page.getByTestId('shop-own-product').getByRole('combobox', { name: 'Picnic product for Cherry tomaten' });
+  const offlinePicker = detail.getByRole('combobox', { name: 'Picnic product for Cherry tomaten' });
   await offlinePicker.click();
   await page.getByText('Plugin offline · known products only').waitFor();
   await page.keyboard.press('Escape');
@@ -364,30 +381,38 @@ try {
   const legacy = mappings.find(mapping => mapping.role === 'preferred');
   legacy.targetKind = 'mealie_food'; legacy.targetId = 'food1';
   legacy.packageBaseUnitId = 'g'; legacy.packageBaseUnitName = 'gram'; legacy.packageBaseAmount = 500;
-  await page.getByRole('button', { name: 'Refresh', exact: true }).last().click();
-  await page.getByText('Unit changed; reconfirm', { exact: true }).waitFor();
-  await page.getByTestId('shop-own-product').getByRole('button', { name: 'Edit', exact: true }).click();
-  await page.getByRole('button', { name: 'Unit & amount', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Refresh products', exact: true }).click();
+  await page.getByRole('tab', { name: /^Needs attention/ }).click();
+  await page.getByTestId('shop-own-product').getByText('Unit changed', { exact: true }).waitFor();
+  assert.equal(await page.getByTestId('shop-own-product').count(), 1, 'the attention tab lists only the flagged product');
+  await page.getByTestId('shop-own-product').click();
+  await detail.getByTestId('product-warning').waitFor();
+  await detail.getByRole('button', { name: 'Unit & amount', exact: true }).first().click();
   await page.getByText('This was mapped directly to the linked Mealie ingredient.', { exact: false }).waitFor();
-  assert.equal(await page.getByLabel('Amount per package').inputValue(), '', 'legacy unit amounts are not silently reused');
-  await page.getByLabel('Amount per package').fill('1.5');
-  await page.getByRole('button', { name: 'Confirm mapping', exact: true }).click();
+  assert.equal(await detail.getByLabel('Amount per package').inputValue(), '', 'legacy unit amounts are not silently reused');
+  await detail.getByLabel('Amount per package').fill('1.5');
+  // Confirm & next saves the pending amount and moves on; it never needs every retailer to be mapped.
+  await detail.getByTestId('confirm-mapping').click();
   await page.getByRole('button', { name: 'Confirm mapping', exact: true }).waitFor({ state: 'hidden' });
   assert.equal(savedBody.targetKind, 'grocy_product');
   assert.equal(savedBody.targetId, '79');
   assert.equal(savedBody.baseUnitId, '11');
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await closeDetail();
 
   // The explicit escape only changes this account's representation, not mapping units.
-  await page.getByTestId('shop-own-product').getByRole('button', { name: 'Edit', exact: true }).click();
-  await page.getByRole('button', { name: 'Use text item', exact: true }).first().click();
-  await page.getByRole('button', { name: 'Use preferred product', exact: true }).waitFor();
+  await page.getByRole('tab', { name: /^Mapped/ }).click();
+  await page.getByTestId('shop-own-product').first().click();
+  const textItem = detail.getByRole('checkbox', { name: /text item instead of the preferred product/ }).first();
+  await detail.locator('summary', { hasText: 'Text item' }).first().click();
+  // The checkbox reflects the stored choice, so it flips once the server has accepted the change.
+  await textItem.click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="product-detail"] .ti-toggle input:checked'));
   assert.deepEqual(installations[0].manualNoteProductIds, [savedBody.retailerProductId]);
   assert.equal(mappings.find(mapping => mapping.role === 'preferred').packageBaseAmount, 1.5);
-  await page.getByRole('button', { name: 'Use preferred product', exact: true }).click();
-  await page.getByRole('button', { name: 'Use text item', exact: true }).first().waitFor();
+  await textItem.click();
+  await page.waitForFunction(() => !document.querySelector('[data-testid="product-detail"] .ti-toggle input:checked'));
   assert.deepEqual(installations[0].manualNoteProductIds, []);
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await closeDetail();
 
   // Accepting a Mealie suggestion opens the amount form and selects the catalogue unit.
   products.push({ providerId: 'ah', externalId: 'chicken', name: 'Chicken 500g', packageAmount: 500, packageUnit: 'g', measure: 'unit', availability: 'available' });
@@ -403,8 +428,8 @@ try {
   });
   await page.reload({ waitUntil: 'networkidle' });
   await page.getByRole('tab', { name: 'Products', exact: true }).click();
-  await page.getByRole('button', { name: 'Accept', exact: true }).click();
-  const suggestionDialog = page.getByRole('dialog');
+  await page.getByRole('button', { name: /^Accept the Kipfilet/ }).click();
+  const suggestionDialog = page.getByTestId('product-detail');
   await suggestionDialog.getByLabel('Base unit', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Use suggested amount', exact: true }).waitFor();
   assert.equal(await suggestionDialog.getByLabel('Base unit', { exact: true }).inputValue(), 'gram');
@@ -420,7 +445,6 @@ try {
   assert.equal(savedBody.baseUnitId, 'g');
   assert.equal(savedBody.packageBaseAmount, 500);
   assert.equal(savedBody.confirm, true);
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
 
   // Revoke from Settings.
   await page.goto(`${baseUrl}/settings`, { waitUntil: 'networkidle', timeout: 180_000 });
