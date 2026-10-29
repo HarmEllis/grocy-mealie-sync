@@ -23,7 +23,7 @@ export function ProjectionReview({ overview, limit, onOpenReview }: { overview: 
       subtitle={`Reasons from the latest shopping projection. ${HINT}`}
       tools={onOpenReview && rows.length ? <Button size="sm" variant="outline" onClick={onOpenReview}>Open in Review</Button> : null}
     >
-      {rows.length === 0 ? <EmptyState title="No blocked shopping rows reported." tone="good">Every row gm-sync wanted to project reached its retailer list.</EmptyState> : (
+      {rows.length === 0 ? <EmptyState title="No blocked shopping rows reported." tone="good">The latest projection held no shopping row back.</EmptyState> : (
         <RowList>
           {shown.map((row, index) => (
             <RowItem key={`${row.installationId}:${row.revisionId}:${index}`}>

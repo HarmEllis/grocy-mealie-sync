@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Check, Loader2, TriangleAlert } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export type Tone = 'good' | 'warn' | 'bad' | 'none';
@@ -87,32 +87,18 @@ export function KpiTile({ label, value, foot, tone, onClick }: { label: string; 
   );
 }
 
-/** Ring with a percentage in the middle. */
-function Ring({ percent }: { percent: number }) {
-  const radius = 20;
-  const circumference = 2 * Math.PI * radius;
-  return (
-    <span className="relative grid size-14 shrink-0 place-items-center" role="img" aria-label={`${percent}% of shopping rows reached a retailer list`}>
-      <svg viewBox="0 0 48 48" className="size-14 -rotate-90" fill="none" strokeWidth="4" aria-hidden="true">
-        <circle cx="24" cy="24" r={radius} className="stroke-border" />
-        <circle cx="24" cy="24" r={radius} className="stroke-text-1" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={circumference * (1 - percent / 100)} />
-      </svg>
-      <span className="absolute font-mono text-[11px] font-semibold text-text-1">{percent}%</span>
-    </span>
-  );
-}
-
-export function StatusHero({ needsAttention, headline, copy, percent, children }: {
+export function StatusHero({ needsAttention, headline, copy, children }: {
   needsAttention: boolean;
   headline: string;
   copy: string;
-  percent: number;
   children: ReactNode;
 }) {
   return (
     <section aria-label="Shopping status" className="overflow-hidden rounded-xl border border-border bg-bg-1">
       <div className="flex items-start gap-4 border-l-4 px-4 py-4 md:px-5" style={{ borderLeftColor: needsAttention ? 'var(--badge-warning-text)' : 'var(--accent)' }}>
-        <Ring percent={percent} />
+        <span aria-hidden="true" className={cn('grid size-10 shrink-0 place-items-center rounded-full border', needsAttention ? 'border-[var(--badge-warning-text)]/50 bg-[var(--badge-warning-bg)] text-[var(--badge-warning-text)]' : 'border-[var(--badge-success-text)]/50 bg-[var(--badge-success-bg)] text-[var(--badge-success-text)]')}>
+          {needsAttention ? <TriangleAlert className="size-5" /> : <Check className="size-5" />}
+        </span>
         <div className="min-w-0 space-y-1">
           <h2 className="text-lg font-bold tracking-tight text-text-1">{headline}</h2>
           <p className="max-w-3xl text-xs text-text-2">{copy}</p>

@@ -45,10 +45,10 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
   }, [load]);
 
   const attention = attentionCount(overview);
-  const sent = overview?.exports.length ?? 0;
+  const planned = overview?.exports.length ?? 0;
   const blocked = overview ? (overview.projectionReview ?? []).length : 0;
   const pending = Boolean(overview?.installations.some(installation => installation.pendingListApply));
-  const percent = sent + blocked ? Math.round(sent / (sent + blocked) * 100) : 100;
+  const offline = overview?.installations.filter(installation => !installation.connected).length ?? 0;
 
   return (
     <div className="min-w-0 space-y-4 break-words [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:min-h-10 [&_[data-slot=button]]:max-w-full [&_[data-slot=button]]:whitespace-normal md:[&_[data-slot=button]]:min-h-8">
@@ -79,15 +79,14 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
       {overview && overview.installations.length > 0 ? (
         <StatusHero
           needsAttention={attention > 0 || blocked > 0 || pending}
-          percent={percent}
           headline={attention > 0 ? `${attention} ${attention === 1 ? 'item needs' : 'items need'} your decision`
             : pending ? 'A list write is waiting for confirmation'
-              : blocked > 0 ? `${blocked} shopping ${blocked === 1 ? 'row is' : 'rows are'} waiting` : 'Nothing is waiting'}
+              : blocked > 0 ? `${blocked} shopping ${blocked === 1 ? 'row is' : 'rows are'} held back` : 'Nothing needs your decision'}
           copy={attention > 0 || blocked > 0 || pending
-            ? `${sent} of ${sent + blocked} shopping rows are projected to a retailer list. The rest are listed with the reason they were held back; fix the mapping or unit and the next sync retries automatically.`
-            : 'Every shopping row is projected to its retailer list, every receipt line is settled and no write is waiting for a decision.'}
+            ? 'The items below are waiting for you or were held back with a reason. Fix the mapping or unit and the next sync retries automatically.'
+            : `No receipt line, write, paused line or blocked row is waiting.${offline ? ` ${offline} ${offline === 1 ? 'plugin is' : 'plugins are'} offline, so list changes wait for it to reconnect.` : ''}`}
         >
-          <KpiTile label="On the shared list" value={sent} foot="products projected" tone="good" onClick={() => setTab('overview')} />
+          <KpiTile label="On the shared list" value={planned} foot="products planned for the list" tone="good" onClick={() => setTab('overview')} />
           <KpiTile label="Not sent to retailer" value={blocked} foot="rows held back" tone={blocked ? 'warn' : 'none'} onClick={() => setTab('review')} />
           <KpiTile label="Receipt lines to review" value={overview.review.length} foot="nothing booked yet" tone={overview.review.length ? 'warn' : 'none'} onClick={() => setTab('review')} />
           <KpiTile label="Stock discrepancies" value={overview.discrepancies.length} foot="receipt vs. manual check" tone={overview.discrepancies.length ? 'bad' : 'none'} onClick={() => setTab('review')} />
