@@ -296,6 +296,7 @@ try {
     await detail.getByTestId('shop-ah').waitFor();
     assert.equal(await detail.getByTestId('shop-picnic').count(), 1, 'every provider has its own section in the detail');
     assert.equal(await detail.getByTestId('replacement-notice').count(), 1, 'a waiting replacement is explained in the detail');
+    await detail.getByText('Package 250 g', { exact: true }).first().waitFor();
     await detail.getByRole('button', { name: 'Unit & amount', exact: true }).first().click();
     await page.getByRole('button', { name: 'Use suggested amount', exact: true }).waitFor();
     assert.equal(await detail.getByLabel('Amount per package').inputValue(), mappings[0].packageBaseAmount?.toString() ?? '', 'opening preserves confirmation state');

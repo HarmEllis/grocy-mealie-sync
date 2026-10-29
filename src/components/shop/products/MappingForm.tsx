@@ -9,6 +9,7 @@ import type { TargetOption } from '@/lib/shop/targets';
 import type { mappingPreview } from '@/lib/shop/mapping-preview';
 import { apiJson } from '../api';
 import { DButton, Spinner } from '../shop-ui';
+import { formatAmount, packageLabel } from './package-size';
 import type { Draft, Inventory } from './types';
 
 /** What the footer needs to save a pending draft together with the others of the same product. */
@@ -55,6 +56,8 @@ export function MappingForm({ target, draft, units, onSaved, onCancel, registerS
   const parsed = Number(amount);
   const valid = baseChosen && parsed > 0 && Number.isFinite(parsed) && Boolean(preview) && !changedUnit && !unavailable && !deletedUnit;
   const loose = draft.product.measure === 'weight';
+  // What the retailer's package size comes to in the base unit, when that can be derived exactly.
+  const expected = preview?.derivation?.amount ?? null;
 
   /** Saves and confirms the mapping; the caller decides when to reload. */
   async function persist(): Promise<boolean> {
@@ -85,7 +88,7 @@ export function MappingForm({ target, draft, units, onSaved, onCancel, registerS
     <div className="conversion" data-testid={`conversion-${draft.providerId}`}>
       <div className="conversion-label">
         <strong>{loose ? 'Set the weight conversion' : 'Set the package amount'}</strong>
-        <span className="muted">{draft.product.name} · {draft.role}</span>
+        <span className="muted">{draft.product.name}{packageLabel(draft.product) ? ` · package ${packageLabel(draft.product)}` : ''} · {draft.role}</span>
       </div>
       {moved ? <div className="warning-banner inline"><TriangleAlert className="size-4" aria-hidden="true" /><div><p>This was mapped directly to the linked Mealie ingredient. Confirm an amount in the Grocy stock unit to move it to this canonical product.</p></div></div> : null}
       {target.kind === 'mealie_food'
@@ -102,6 +105,12 @@ export function MappingForm({ target, draft, units, onSaved, onCancel, registerS
           <button type="button" className="text-action" onClick={() => setAmount(String(preview.derivation!.amount))}>Use suggested amount</button>
         </div>
       ) : <p className="ti-note">Enter the amount shown on the package or receipt. Unknown conversions are never guessed.</p>}
+      {expected && parsed > 0 && Math.abs(expected - parsed) > expected * 0.01 ? (
+        <div className="preview-box bad" role="alert" data-testid="amount-mismatch">
+          <TriangleAlert aria-hidden="true" />
+          <span>The package is {packageLabel(draft.product)}, which is {formatAmount(expected)} {baseName}, but you entered {formatAmount(parsed)}. Check the amount before confirming.</span>
+        </div>
+      ) : null}
       {valid && preview ? (
         <div className="preview-box" data-testid={`preview-${draft.providerId}`}>
           <Check aria-hidden="true" />

@@ -11,6 +11,7 @@ import { apiJson } from '../api';
 import type { ShopProduct } from '../catalog-options';
 import { Badge, DButton, ShopLogo, Spinner } from '../shop-ui';
 import { MappingForm, type DraftSaver } from './MappingForm';
+import { formatAmount, packageLabel, packageMismatch } from './package-size';
 import { RetailerSelect } from './RetailerSelect';
 import { canChooseProduct, conversionLabel, effectiveMappings, forTarget, type CatalogData, type Draft, type Inventory, type Mapping, type Provider, type Suggestion } from './types';
 
@@ -188,6 +189,7 @@ export function ProductDetail({ target, attention, providers, catalog, units, li
                       <div className="match-info">
                         <strong>{main.retailerProductName}</strong>
                         <div className="match-meta">
+                          {packageLabel(mainProduct) ? <Badge tone="info">Package {packageLabel(mainProduct)}</Badge> : null}
                           <span>{conversionLabel(main, mainProduct)}</span>
                           <Badge tone={main.confirmed ? 'success' : 'warning'}>{main.confirmed ? 'confirmed' : 'needs confirmation'}</Badge>
                           {mainProduct?.availability === 'discontinued' ? <Badge tone="danger">Discontinued</Badge> : mainProduct?.availability === 'temporarily_unavailable' ? <Badge tone="warning">Temporarily out of stock</Badge> : mainProduct?.availability === 'available' ? <Badge tone="success">Available</Badge> : null}
@@ -196,6 +198,18 @@ export function ProductDetail({ target, attention, providers, catalog, units, li
                       <DButton variant="ghost" onClick={() => openAmount(main)}>Unit &amp; amount</DButton>
                     </div>
                   </div>
+                  {(() => {
+                    const mismatch = packageMismatch(mainProduct, main.packageBaseAmount, main.packageBaseUnitName);
+                    return mismatch ? (
+                      <div className="warning-banner inline" data-testid="package-mismatch">
+                        <TriangleAlert aria-hidden="true" />
+                        <div>
+                          <strong>The amount does not match the package size</strong>
+                          <p>The retailer lists {packageLabel(mainProduct)} per package, but this mapping says 1 package = {formatAmount(mismatch.actual)} {main.packageBaseUnitName}. That would be {formatAmount(mismatch.expected)}. <button type="button" className="text-action" onClick={() => openAmount(main)}>Check the amount</button></p>
+                        </div>
+                      </div>
+                    ) : null;
+                  })()}
                   {discontinued ? <p className="avail-line bad"><TriangleAlert aria-hidden="true" /><span><b>Discontinued</b> · list sync needs a text item or a new preferred product</span></p>
                     : mainProduct?.availability === 'temporarily_unavailable' ? <p className="avail-line warn"><Clock aria-hidden="true" /><span><b>Temporarily out of stock</b> · preferred product stays on the list</span></p>
                       : !mainProduct?.availability || mainProduct.availability === 'unknown' ? <p className="avail-line"><span><b>Availability unknown</b> · the retailer did not report a status</span></p> : null}
@@ -263,7 +277,12 @@ export function ProductDetail({ target, attention, providers, catalog, units, li
               {alternatives.length ? <div className="alternative-title">Remembered alternatives · {alternatives.length}</div> : null}
               {alternatives.map(mapping => (
                 <div key={mapping.id} className="alternative">
-                  <span>{mapping.targetKind === 'mealie_food' && target.kind === 'grocy_product' ? `Linked Mealie mapping · ${mapping.targetName}` : mapping.retailerProductName}<br /><span className="muted">{conversionLabel(mapping, productOf(mapping))} · {mapping.confirmed ? 'confirmed' : 'needs confirmation'}</span></span>
+                  <span>
+                    {mapping.targetKind === 'mealie_food' && target.kind === 'grocy_product' ? `Linked Mealie mapping · ${mapping.targetName}` : mapping.retailerProductName}
+                    {packageLabel(productOf(mapping)) ? <> <Badge tone="info">Package {packageLabel(productOf(mapping))}</Badge></> : null}
+                    <br /><span className="muted">{conversionLabel(mapping, productOf(mapping))} · {mapping.confirmed ? 'confirmed' : 'needs confirmation'}</span>
+                    {packageMismatch(productOf(mapping), mapping.packageBaseAmount, mapping.packageBaseUnitName) ? <><br /><span className="avail-line warn" style={{ marginTop: 4 }}><TriangleAlert aria-hidden="true" /><span>The amount does not match the package size; check it with Unit &amp; amount.</span></span></> : null}
+                  </span>
                   <button type="button" className="text-action" onClick={() => openAmount(mapping)}>Unit &amp; amount</button>
                   <button type="button" className="text-action" onClick={() => void usePreferred(mapping)}>Use as preferred</button>
                   <button type="button" className="icon-button" onClick={() => void remove(mapping)} aria-label={`Remove ${mapping.retailerProductName}`}><Trash2 aria-hidden="true" /></button>
