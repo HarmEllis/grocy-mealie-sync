@@ -81,7 +81,7 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
         : { headline: 'Nothing needs your decision', badge: <>Nothing needs attention</>, tab: 'review' as const };
 
   function select(id: Tab, focus = false) {
-    if (id !== 'products') setProductsQuery('');
+    if (id !== 'products') { setProductsQuery(''); setProductsTab('todo'); }
     setTab(id);
     if (focus) window.requestAnimationFrame(() => document.getElementById(`shop-tab-${id}`)?.focus());
   }

@@ -51,6 +51,10 @@ export function ProductsTab({ overview, reloadOverview, initialQuery = '', initi
   const [confirmBulk, setConfirmBulk] = useState(false);
   const [bulkRunning, setBulkRunning] = useState(false);
   const sequence = useRef(0);
+  // Mirrors of state that async handlers read: updated at the moment of change, not at the next render, so a
+  // handler that resumes right after a reload sees the new list.
+  const rowsRef = useRef<InventoryTarget[]>([]);
+  const selectedRef = useRef<(TargetOption & { attention?: InventoryTarget['attention'] }) | null>(null);
 
   const mergeProducts = useCallback((products: ShopProduct[]) => setCatalog(current => {
     const merged = new Map(current.products.map(product => [`${product.providerId}:${product.externalId}`, product]));
@@ -73,6 +77,7 @@ export function ProductsTab({ overview, reloadOverview, initialQuery = '', initi
       const data = await apiJson<Inventory>(`/api/shop/products?${params}`);
       if (request !== sequence.current || activeInventoryQuery.current !== inventoryQueryKey) return;
       if (offset > 0 && offset >= data.total) { setOffset(Math.max(0, Math.floor((data.total - 1) / pageSize) * pageSize)); return; }
+      rowsRef.current = data.targets;
       setInventory(data);
     } catch (err) { if (request === sequence.current) setError((err as Error).message); }
     finally { if (request === sequence.current) setLoading(false); }
@@ -84,10 +89,6 @@ export function ProductsTab({ overview, reloadOverview, initialQuery = '', initi
 
   const rows = inventory?.targets ?? [];
   const narrow = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 650px)').matches;
-  const rowsRef = useRef(rows);
-  rowsRef.current = rows;
-  const selectedRef = useRef(selected);
-  selectedRef.current = selected;
   // Where the selection last sat in the list, so Confirm & next can land on the neighbour even after the
   // saved product left the current filter (To map and Needs attention shrink when a mapping is confirmed).
   const lastIndex = useRef(0);
@@ -105,15 +106,19 @@ export function ProductsTab({ overview, reloadOverview, initialQuery = '', initi
   useEffect(() => {
     if (!inventory) return;
     const current = selectedRef.current;
-    if (!current) { setSelected(narrow() ? null : rows[0] ?? null); return; }
+    if (!current) { const first = narrow() ? null : rows[0] ?? null; selectedRef.current = first; setSelected(first); return; }
     const index = rows.findIndex(row => targetKey(row) === targetKey(current));
-    if (index >= 0) { lastIndex.current = index; setSelected(rows[index]); return; }
+    if (index >= 0) { lastIndex.current = index; selectedRef.current = rows[index]; setSelected(rows[index]); return; }
     let cancelled = false;
-    void resolveTarget(current.kind, current.id, current.name).then(fresh => { if (!cancelled && fresh) setSelected(fresh); });
+    void resolveTarget(current.kind, current.id, current.name).then(fresh => {
+      // Only refresh a selection that is still the one this lookup was for.
+      if (!cancelled && fresh && selectedRef.current && targetKey(selectedRef.current) === targetKey(current)) { selectedRef.current = fresh; setSelected(fresh); }
+    });
     return () => { cancelled = true; };
   }, [inventory, rows, resolveTarget]);
 
   function select(target: TargetOption & { attention?: InventoryTarget['attention'] }, draft?: Draft) {
+    selectedRef.current = target;
     setSelected(target);
     setPendingDraft(draft);
     const index = rowsRef.current.findIndex(row => targetKey(row) === targetKey(target));
@@ -129,6 +134,7 @@ export function ProductsTab({ overview, reloadOverview, initialQuery = '', initi
     const current = selectedRef.current;
     const index = current ? list.findIndex(row => targetKey(row) === targetKey(current)) : -1;
     const next = list[Math.min(list.length - 1, Math.max(0, (index < 0 ? (direction === 1 ? -1 : list.length) : index) + direction))];
+    selectedRef.current = next;
     setSelected(next); setPendingDraft(undefined);
   }
   /** Confirm & next: the neighbour in the current list, whether the saved product is still listed or left the filter. */
@@ -136,8 +142,9 @@ export function ProductsTab({ overview, reloadOverview, initialQuery = '', initi
     const list = rowsRef.current;
     const current = selectedRef.current;
     const index = current ? list.findIndex(row => targetKey(row) === targetKey(current)) : -1;
+    // Still listed: the neighbour below (none at the end of the list). Gone from the filter: whoever took its place.
     const next = index >= 0 ? list[index + 1] : list[Math.min(lastIndex.current, list.length - 1)];
-    if (next) { setSelected(next); setPendingDraft(undefined); }
+    if (next) { selectedRef.current = next; setSelected(next); setPendingDraft(undefined); }
     else if (narrow()) closeSheet();
   }
 

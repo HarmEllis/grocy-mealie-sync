@@ -79,6 +79,9 @@ export function ProductDetail({ target, attention, providers, catalog, units, li
     } finally { setConfirming(false); }
   }, [confirming, onAdvance, reload]);
 
+  // An accepted suggestion hands over a draft for the product that may already be open.
+  useEffect(() => { if (initialDraft) setDrafts(current => ({ ...current, [initialDraft.providerId]: initialDraft })); }, [initialDraft]);
+
   // Enter confirms and advances unless the user is typing in a control.
   const enterHandler = useRef<(event: KeyboardEvent) => void>(() => {});
   enterHandler.current = event => {
