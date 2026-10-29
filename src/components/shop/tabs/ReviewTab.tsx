@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowLeftRight, Check, Clock, Receipt, TriangleAlert, X } fr
 import { toast } from 'sonner';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { apiJson } from '../api';
-import { money, pausedLines, post, REVIEW_LABELS } from '../shop-common';
+import { money, pausedLines, post, REVIEW_LABELS, type FixTab } from '../shop-common';
 import { useAction } from '../shop-actions';
 import { useWhen } from '../shop-format';
 import type { ShopOverview } from '@/lib/shop/overview';
@@ -17,7 +17,7 @@ import { ProjectionRows } from './ProjectionReview';
 export function ReviewTab({ overview, reload, openProducts, goTo }: {
   overview: ShopOverview;
   reload: () => Promise<void>;
-  openProducts: (query: string) => void;
+  openProducts: (query: string, tab?: FixTab) => void;
   goTo: (tab: 'overview') => void;
 }) {
   const projection = overview.projectionReview ?? [];

@@ -82,13 +82,21 @@ export const PROJECTION_SHORT: Record<ProjectionReviewReason, string> = {
 };
 
 /** Where each blocked-row reason is fixed. Products opens with the row's name as the search. */
-export const PROJECTION_FIX: Record<ProjectionReviewReason, { label: string; target: 'products' | 'conversions' }> = {
-  no_food: { label: 'Select a Mealie ingredient', target: 'products' },
-  no_retailer_mapping: { label: 'Open the mapping', target: 'products' },
-  mapping_unconfirmed: { label: 'Confirm the amount', target: 'products' },
-  mapping_unit_changed: { label: 'Re-confirm the conversion', target: 'products' },
-  unknown_product: { label: 'Open the product', target: 'products' },
-  missing_unit: { label: 'Open the mapping', target: 'products' },
-  purchase_unit_ambiguous: { label: 'Set the package amount', target: 'products' },
+export type FixTab = 'todo' | 'mapped' | 'attention';
+export const PROJECTION_FIX: Record<ProjectionReviewReason, { label: string; target: 'products' | 'conversions' | 'none'; tab?: FixTab }> = {
+  // A free-text row has no ingredient, so there is no product to open: the fix is choosing an ingredient in Mealie.
+  no_food: { label: '', target: 'none' },
+  no_retailer_mapping: { label: 'Open the mapping', target: 'products', tab: 'todo' },
+  // These only occur for rows that already have a preferred mapping, so they live under Mapped or Needs attention.
+  mapping_unconfirmed: { label: 'Confirm the amount', target: 'products', tab: 'attention' },
+  mapping_unit_changed: { label: 'Re-confirm the conversion', target: 'products', tab: 'attention' },
+  unknown_product: { label: 'Open the product', target: 'products', tab: 'mapped' },
+  missing_unit: { label: 'Open the mapping', target: 'products', tab: 'mapped' },
+  purchase_unit_ambiguous: { label: 'Set the package amount', target: 'products', tab: 'mapped' },
   no_conversion: { label: 'Add a conversion', target: 'conversions' },
 };
+
+/** Sub-product rows are labelled `Ingredient (Product)`; the queue lists the product. */
+export function projectionSearchTerm(label: string): string {
+  return label.match(/\(([^()]+)\)\s*$/)?.[1].trim() || label;
+}

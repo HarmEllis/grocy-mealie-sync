@@ -80,16 +80,19 @@ export function ProductDetail({ target, attention, providers, catalog, units, li
   }, [confirming, onAdvance, reload]);
 
   // Enter confirms and advances unless the user is typing in a control.
+  const enterHandler = useRef<(event: KeyboardEvent) => void>(() => {});
+  enterHandler.current = event => {
+    if (event.key !== 'Enter' || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+    const element = event.target as HTMLElement | null;
+    if (element?.closest('input, select, textarea, button, a, summary, [role="combobox"], [role="listbox"]')) return;
+    void confirm();
+  };
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Enter' || event.defaultPrevented) return;
-      const element = event.target as HTMLElement | null;
-      if (element?.closest('input, select, textarea, button, a, [role="combobox"], [role="listbox"], [role="dialog"]')) return;
-      void confirm();
-    };
+    const onKey = (event: KeyboardEvent) => enterHandler.current(event);
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [confirm]);
+  }, []);
 
   return (
     <>

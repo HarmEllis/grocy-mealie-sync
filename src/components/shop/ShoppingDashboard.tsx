@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { apiJson } from './api';
 import { ProductsTab } from './products/ProductsTab';
 import { ShopFormatProvider } from './shop-format';
-import { attentionCount, pausedLines, post } from './shop-common';
+import { attentionCount, pausedLines, post, type FixTab } from './shop-common';
 import { DButton, EmptyState, KpiTile, ShopLogo, Spinner, StatusHero } from './shop-ui';
 import { DiagnosticsTab } from './tabs/DiagnosticsTab';
 import { OverviewTab } from './tabs/OverviewTab';
@@ -32,6 +32,7 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
   // A search handed over from another tab (a blocked row's fix link); `productsKey` remounts the tab so it applies.
   const [productsQuery, setProductsQuery] = useState('');
   const [productsKey, setProductsKey] = useState(0);
+  const [productsTab, setProductsTab] = useState<FixTab>('todo');
   const [loading, setLoading] = useState(false);
   const [nextRefresh, setNextRefresh] = useState(REFRESH_SECONDS);
   const swipeStart = useRef<{ x: number; y: number } | null>(null);
@@ -84,8 +85,9 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
     setTab(id);
     if (focus) window.requestAnimationFrame(() => document.getElementById(`shop-tab-${id}`)?.focus());
   }
-  function openProducts(query: string) {
+  function openProducts(query: string, queueTab: FixTab = 'todo') {
     setProductsQuery(query);
+    setProductsTab(queueTab);
     setProductsKey(key => key + 1);
     setTab('products');
   }
@@ -214,7 +216,7 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
             <section role="tabpanel" id={`shop-panel-${tab}`} aria-labelledby={`shop-tab-${tab}`} className="stack">
               {!overview ? <div className="panel"><div className="skeleton" aria-hidden="true"><div className="sk w40" /><div className="sk" /><div className="sk w80" /><div className="sk w60" /></div></div> : null}
               {overview && tab === 'overview' ? <OverviewTab overview={overview} reload={load} goTo={select} openProducts={openProducts} /> : null}
-              {overview && tab === 'products' ? <ProductsTab key={productsKey} overview={overview} reloadOverview={load} initialQuery={productsQuery} goToPausedLines={() => select('overview')} /> : null}
+              {overview && tab === 'products' ? <ProductsTab key={productsKey} overview={overview} reloadOverview={load} initialQuery={productsQuery} initialTab={productsTab} goToPausedLines={() => select('overview')} /> : null}
               {overview && tab === 'receipts' ? <ReceiptsTab overview={overview} reload={load} /> : null}
               {overview && tab === 'review' ? <ReviewTab overview={overview} reload={load} openProducts={openProducts} goTo={select} /> : null}
               {overview && tab === 'diagnostics' ? <DiagnosticsTab overview={overview} timeZone={timeZone} locale={locale} /> : null}

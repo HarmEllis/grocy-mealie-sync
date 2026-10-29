@@ -5,14 +5,14 @@ import Link from 'next/link';
 import { ArrowRight, ChevronRight, Clock, Link2, TriangleAlert } from 'lucide-react';
 import { PROJECTION_LABELS } from '@/lib/shop/projection-reasons';
 import type { ShopOverview } from '@/lib/shop/overview';
-import { installationName, PROJECTION_FIX, PROJECTION_SHORT } from '../shop-common';
+import { installationName, PROJECTION_FIX, PROJECTION_SHORT, projectionSearchTerm, type FixTab } from '../shop-common';
 import { Badge, DButton, EmptyState, Panel, PluginChip, RowItem, RowList } from '../shop-ui';
 
 const HINT = 'Fix the mapping or the unit; the next sync retries every row automatically.';
 
 type Row = NonNullable<ShopOverview['projectionReview']>[number];
 
-export function ProjectionRows({ overview, rows, openProducts }: { overview: ShopOverview; rows: Row[]; openProducts: (query: string) => void }) {
+export function ProjectionRows({ overview, rows, openProducts }: { overview: ShopOverview; rows: Row[]; openProducts: (query: string, tab?: FixTab) => void }) {
   return (
     <RowList>
       {rows.map((row, index) => {
@@ -21,9 +21,9 @@ export function ProjectionRows({ overview, rows, openProducts }: { overview: Sho
           <RowItem
             key={`${row.installationId}:${row.revisionId}:${index}`}
             testId="projection-row"
-            actions={fix.target === 'conversions'
+            actions={fix.target === 'none' ? undefined : fix.target === 'conversions'
               ? <Link href="/conversions" className="button ghost"><Link2 className="size-3.5" /> {fix.label}</Link>
-              : <DButton variant="ghost" onClick={() => openProducts(row.label)}><Link2 className="size-3.5" /> {fix.label}</DButton>}
+              : <DButton variant="ghost" onClick={() => openProducts(projectionSearchTerm(row.label), fix.tab)}><Link2 className="size-3.5" /> {fix.label}</DButton>}
           >
             <strong>{row.label}</strong>
             <div className="row-sub"><PluginChip name={installationName(overview, row.installationId)} /></div>
@@ -41,7 +41,7 @@ export function ProjectionReview({ overview, limit, onOpenReview, openProducts }
   overview: ShopOverview;
   limit?: number;
   onOpenReview?: () => void;
-  openProducts: (query: string) => void;
+  openProducts: (query: string, tab?: FixTab) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const rows = overview.projectionReview ?? [];

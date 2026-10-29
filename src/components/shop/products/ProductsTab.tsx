@@ -13,7 +13,7 @@ import type { ShopProduct } from '../catalog-options';
 import { DButton, EmptyState, Panel, PluginChip, RowItem, RowList, Spinner } from '../shop-ui';
 import { ProductDetail } from './ProductDetail';
 import { ProductQueue, targetKey } from './ProductQueue';
-import { queueFilters, type CatalogData, type Draft, type Inventory, type Mapping, type Provider, type QueueTab, type Suggestion, type StatusFilter } from './types';
+import { forTarget, queueFilters, type CatalogData, type Draft, type Inventory, type Mapping, type Provider, type QueueTab, type Suggestion, type StatusFilter } from './types';
 
 const BULK_THRESHOLD_PERCENT = 85;
 
@@ -22,10 +22,11 @@ const BULK_THRESHOLD_PERCENT = 85;
  * queue with its detail pane. Server pagination keeps the queue small; the selected product is held
  * as a full target so its detail still renders when it is not on the current page.
  */
-export function ProductsTab({ overview, reloadOverview, initialQuery = '', goToPausedLines }: {
+export function ProductsTab({ overview, reloadOverview, initialQuery = '', initialTab = 'todo', goToPausedLines }: {
   overview: ShopOverview;
   reloadOverview: () => Promise<void>;
   initialQuery?: string;
+  initialTab?: QueueTab;
   goToPausedLines: () => void;
 }) {
   const providers = useMemo<Provider[]>(() => [...new Set(overview.installations.map(installation => installation.providerId).filter((id): id is string => Boolean(id)))].map(id => {
@@ -34,7 +35,7 @@ export function ProductsTab({ overview, reloadOverview, initialQuery = '', goToP
   }), [overview]);
   const [catalog, setCatalog] = useState<CatalogData>({ mappings: [], products: [], suggestions: [] });
   const [inventory, setInventory] = useState<Inventory | null>(null);
-  const [tab, setTab] = useState<QueueTab>('todo');
+  const [tab, setTab] = useState<QueueTab>(initialTab);
   const [query, setQuery] = useState(initialQuery);
   const [source, setSource] = useState<ProductSource>('all');
   const [status, setStatus] = useState<StatusFilter>('all');
@@ -50,7 +51,6 @@ export function ProductsTab({ overview, reloadOverview, initialQuery = '', goToP
   const [confirmBulk, setConfirmBulk] = useState(false);
   const [bulkRunning, setBulkRunning] = useState(false);
   const sequence = useRef(0);
-  const focusAfterLoad = useRef<string | null>(null);
 
   const mergeProducts = useCallback((products: ShopProduct[]) => setCatalog(current => {
     const merged = new Map(current.products.map(product => [`${product.providerId}:${product.externalId}`, product]));
@@ -84,54 +84,83 @@ export function ProductsTab({ overview, reloadOverview, initialQuery = '', goToP
 
   const rows = inventory?.targets ?? [];
   const narrow = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 650px)').matches;
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  // Where the selection last sat in the list, so Confirm & next can land on the neighbour even after the
+  // saved product left the current filter (To map and Needs attention shrink when a mapping is confirmed).
+  const lastIndex = useRef(0);
 
-  // Select the first product on wide screens, honour a product another part of the page asked for, and keep
-  // the attention reasons of the selection current when the list reloads.
+  /** The inventory row for a target (source, linked foods, attention), wherever it sits in the list. */
+  const resolveTarget = useCallback(async (kind: string, id: string, name: string): Promise<(TargetOption & { attention?: InventoryTarget['attention'] }) | null> => {
+    try {
+      const data = await apiJson<Inventory>(`/api/shop/products?${new URLSearchParams({ query: name.slice(0, 200), mapped: 'all', limit: '50' })}`);
+      return data.targets.find(target => target.kind === kind && target.id === id) ?? null;
+    } catch { return null; }
+  }, []);
+
+  // Select the first product on wide screens and keep the selection's data current when the list reloads. A
+  // selection that left the current filter is fetched again, so its attention reasons are never stale.
   useEffect(() => {
     if (!inventory) return;
-    const wanted = focusAfterLoad.current;
-    const match = wanted ? rows.find(row => targetKey(row) === wanted) : undefined;
-    if (match) { focusAfterLoad.current = null; setSelected(match); return; }
-    setSelected(current => {
-      if (current) return rows.find(row => targetKey(row) === targetKey(current)) ?? current;
-      return narrow() ? null : rows[0] ?? null;
-    });
-  }, [inventory, rows]);
+    const current = selectedRef.current;
+    if (!current) { setSelected(narrow() ? null : rows[0] ?? null); return; }
+    const index = rows.findIndex(row => targetKey(row) === targetKey(current));
+    if (index >= 0) { lastIndex.current = index; setSelected(rows[index]); return; }
+    let cancelled = false;
+    void resolveTarget(current.kind, current.id, current.name).then(fresh => { if (!cancelled && fresh) setSelected(fresh); });
+    return () => { cancelled = true; };
+  }, [inventory, rows, resolveTarget]);
 
   function select(target: TargetOption & { attention?: InventoryTarget['attention'] }, draft?: Draft) {
     setSelected(target);
     setPendingDraft(draft);
+    const index = rowsRef.current.findIndex(row => targetKey(row) === targetKey(target));
+    if (index >= 0) lastIndex.current = index;
     if (narrow()) { setSheetOpen(true); document.body.style.overflow = 'hidden'; }
   }
   function closeSheet() { setSheetOpen(false); document.body.style.overflow = ''; }
   useEffect(() => () => { document.body.style.overflow = ''; }, []);
 
-  const selectedIndex = selected ? rows.findIndex(row => targetKey(row) === targetKey(selected)) : -1;
   function move(direction: 1 | -1) {
-    if (!rows.length) return;
-    const next = rows[Math.min(rows.length - 1, Math.max(0, (selectedIndex < 0 ? (direction === 1 ? -1 : rows.length) : selectedIndex) + direction))];
+    const list = rowsRef.current;
+    if (!list.length) return;
+    const current = selectedRef.current;
+    const index = current ? list.findIndex(row => targetKey(row) === targetKey(current)) : -1;
+    const next = list[Math.min(list.length - 1, Math.max(0, (index < 0 ? (direction === 1 ? -1 : list.length) : index) + direction))];
     setSelected(next); setPendingDraft(undefined);
   }
+  /** Confirm & next: the neighbour in the current list, whether the saved product is still listed or left the filter. */
   function advance() {
-    if (selectedIndex >= 0 && selectedIndex < rows.length - 1) { setSelected(rows[selectedIndex + 1]); setPendingDraft(undefined); }
+    const list = rowsRef.current;
+    const current = selectedRef.current;
+    const index = current ? list.findIndex(row => targetKey(row) === targetKey(current)) : -1;
+    const next = index >= 0 ? list[index + 1] : list[Math.min(lastIndex.current, list.length - 1)];
+    if (next) { setSelected(next); setPendingDraft(undefined); }
     else if (narrow()) closeSheet();
   }
 
-  // Queue keyboard: up/down and J/K move the selection, Escape closes the mobile sheet.
+  // Queue keyboard (bound once; the handler always sees the latest state through refs and these functions).
+  const keyHandler = useRef<(event: KeyboardEvent) => void>(() => {});
+  keyHandler.current = event => {
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+    const element = event.target as HTMLElement | null;
+    if (element?.closest('input, select, textarea, [role="combobox"], [role="listbox"], details')) return;
+    if (event.key === 'Escape' && sheetOpen) { closeSheet(); return; }
+    if (sheetOpen) return;
+    const down = event.key === 'ArrowDown' || event.key === 'j';
+    const up = event.key === 'ArrowUp' || event.key === 'k';
+    if (!down && !up) return;
+    event.preventDefault();
+    move(down ? 1 : -1);
+  };
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      const element = event.target as HTMLElement | null;
-      if (element?.closest('input, select, textarea, [role="combobox"], [role="listbox"], [role="dialog"], details')) return;
-      if (event.key === 'Escape' && sheetOpen) { closeSheet(); return; }
-      const down = event.key === 'ArrowDown' || event.key === 'j';
-      const up = event.key === 'ArrowUp' || event.key === 'k';
-      if (!down && !up) return;
-      event.preventDefault();
-      move(down ? 1 : -1);
-    };
+    const onKey = (event: KeyboardEvent) => keyHandler.current(event);
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  });
+  }, []);
 
   async function decide(suggestion: Suggestion, action: 'accept' | 'reject') {
     try {
@@ -139,7 +168,8 @@ export function ProductsTab({ overview, reloadOverview, initialQuery = '', goToP
       if (action === 'accept' && result.mapping) {
         const mapping = result.mapping;
         const product = catalog.products.find(candidate => candidate.providerId === mapping.providerId && candidate.externalId === mapping.retailerProductId);
-        const target: TargetOption = {
+        // Prefer the full inventory row (source, linked foods, attention); the mapping only knows its own target.
+        const target = await resolveTarget(mapping.targetKind, mapping.targetId, mapping.targetName) ?? {
           kind: mapping.targetKind as TargetOption['kind'], id: mapping.targetId, name: mapping.targetName,
           baseUnitId: mapping.targetKind === 'grocy_product' ? mapping.packageBaseUnitId : null,
           baseUnitName: mapping.targetKind === 'grocy_product' ? mapping.packageBaseUnitName : null,
@@ -168,9 +198,13 @@ export function ProductsTab({ overview, reloadOverview, initialQuery = '', goToP
   const searches = catalog.searches ?? [];
 
   function resetPaging<T>(setter: (value: T) => void) { return (value: T) => { setter(value); setOffset(0); }; }
-  function reviewResults(search: NonNullable<CatalogData['searches']>[number]) {
-    focusAfterLoad.current = `${search.targetKind}:${search.targetId}`;
-    setTab('todo'); setStatus('all'); setSource('all'); setQuery(search.targetName); setOffset(0);
+  /** Show a product from the ingredients panel: put the queue on a view that lists it and open its detail. */
+  async function reviewResults(search: NonNullable<CatalogData['searches']>[number]) {
+    const target = await resolveTarget(search.targetKind, search.targetId, search.targetName);
+    if (!target) { toast.error('That product is no longer in the list'); return; }
+    const hasPreferred = catalog.mappings.some(mapping => mapping.role === 'preferred' && forTarget(mapping, target));
+    setTab(hasPreferred ? 'mapped' : 'todo'); setStatus('all'); setSource('all'); setQuery(search.targetName); setOffset(0);
+    select(target);
   }
 
   if (!providers.length) return <p className="text-sm text-muted-foreground">Connect a shop plugin first.</p>;
@@ -224,7 +258,7 @@ export function ProductsTab({ overview, reloadOverview, initialQuery = '', goToP
                 testId="ingredient-search"
                 actions={<>
                   <DButton variant="ghost" disabled={search.status === 'pending'} onClick={async () => { try { await apiJson(`/api/shop/searches/${search.id}/retry`, { method: 'POST', body: '{}' }); await loadCatalog(); } catch (err) { toast.error((err as Error).message); } }}><RefreshCw className="size-3.5" /> Search again</DButton>
-                  {search.status !== 'pending' && !search.lastError && search.resultCount > 0 ? <DButton variant="ghost" onClick={() => reviewResults(search)}><ArrowRight className="size-3.5" /> Review results</DButton> : null}
+                  {search.status !== 'pending' && !search.lastError && search.resultCount > 0 ? <DButton variant="ghost" onClick={() => void reviewResults(search)}><ArrowRight className="size-3.5" /> Review results</DButton> : null}
                 </>}
               >
                 <strong>{search.targetName}</strong>
@@ -288,6 +322,7 @@ export function ProductsTab({ overview, reloadOverview, initialQuery = '', goToP
         onClose={() => setConfirmBulk(false)}
         onConfirm={() => void acceptConfident()}
         running={bulkRunning}
+        variant="default"
         title={`Accept ${confident.length} suggestion${confident.length === 1 ? '' : 's'} above ${BULK_THRESHOLD_PERCENT}%?`}
         description="The mappings are saved without a confirmed package amount, so they appear under Needs attention until you check each amount. Suggestions that conflict with an existing mapping are skipped and reported."
         itemNames={confident.slice(0, 10).map(suggestion => `${suggestion.targetName} (${Math.round(suggestion.score * 100)}%)`)}

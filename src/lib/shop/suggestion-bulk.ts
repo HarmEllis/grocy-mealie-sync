@@ -1,3 +1,6 @@
+import { eq } from 'drizzle-orm';
+import { db } from '../db';
+import { productMappings } from '../db/schema';
 import { ShopApiError } from './api-helpers';
 import { refreshCatalogProducts } from './catalog-service';
 import { saveRetailerMapping } from './mapping-save';
@@ -11,13 +14,32 @@ export interface BulkAcceptResult {
   skipped: Array<{ id: string; providerId: string; retailerProductId: string; reason: string }>;
 }
 
-/** Another retailer product that is already the preferred one for this target at this retailer. */
-function preferredElsewhere(suggestion: { providerId: string; retailerProductId: string; targetKind: string; targetId: string }) {
-  return listRetailerMappings(suggestion.providerId).find(mapping => mapping.role === 'preferred'
-    && mapping.retailerProductId !== suggestion.retailerProductId && mapping.targetKind === suggestion.targetKind && mapping.targetId === suggestion.targetId);
-}
 const PREFERRED_TAKEN = 'This product already has a preferred retailer product at this retailer; review it in Products instead.';
 
+/** A Grocy product and the Mealie food linked to it are one logical product. */
+function sameProduct(kind: string, id: string): Array<{ kind: string; id: string }> {
+  const own = { kind, id };
+  if (kind === 'grocy_product') {
+    return [own, ...db.select().from(productMappings).where(eq(productMappings.grocyProductId, Number(id))).all().map(link => ({ kind: 'mealie_food', id: link.mealieFoodId }))];
+  }
+  const link = db.select().from(productMappings).where(eq(productMappings.mealieFoodId, id)).get();
+  return link ? [own, { kind: 'grocy_product', id: String(link.grocyProductId) }] : [own];
+}
+
+/** Another retailer product that is already the preferred one for this product at this retailer. */
+function preferredElsewhere(suggestion: { providerId: string; retailerProductId: string; targetKind: string; targetId: string }) {
+  const targets = sameProduct(suggestion.targetKind, suggestion.targetId);
+  return listRetailerMappings(suggestion.providerId).find(mapping => mapping.role === 'preferred'
+    && mapping.retailerProductId !== suggestion.retailerProductId && targets.some(target => target.kind === mapping.targetKind && target.id === mapping.targetId));
+}
+/** Why a suggestion must not be applied right now, read fresh so it holds at the moment of writing. */
+function conflict(suggestion: { id: string; providerId: string; retailerProductId: string; targetKind: string; targetId: string }): string | null {
+  if (getSuggestion(suggestion.id)?.status !== 'pending') return 'Suggestion was already decided';
+  // Saving over an existing mapping would drop its confirmed amount; that is a decision for Products, not a batch.
+  if (getRetailerMapping(suggestion.providerId, suggestion.retailerProductId)) return 'This retailer product is already mapped; review it in Products instead.';
+  if (preferredElsewhere(suggestion)) return PREFERRED_TAKEN;
+  return null;
+}
 /**
  * Accept every pending suggestion whose displayed score (rounded percent) is above the threshold.
  * Mappings are saved exactly like a single accept without confirming an amount, so they stay
@@ -45,24 +67,24 @@ export async function acceptSuggestionsBulk(options: { minScore?: number } = {})
   for (const suggestion of candidates) {
     const ref = { id: suggestion.id, providerId: suggestion.providerId, retailerProductId: suggestion.retailerProductId };
     try {
-      if (getSuggestion(suggestion.id)?.status !== 'pending') throw new ShopApiError(409, 'Suggestion was already decided');
-      const existing = getRetailerMapping(suggestion.providerId, suggestion.retailerProductId);
-      if (existing?.role !== 'alternative' && preferredElsewhere(suggestion)) throw new ShopApiError(409, PREFERRED_TAKEN);
+      const blocked = conflict(suggestion);
+      if (blocked) throw new ShopApiError(409, blocked);
       await saveRetailerMapping({
         providerId: suggestion.providerId,
         retailerProductId: suggestion.retailerProductId,
         targetKind: suggestion.targetKind as 'grocy_product' | 'mealie_food',
         targetId: suggestion.targetId,
         targetName: suggestion.targetName,
-        role: existing?.role === 'alternative' ? 'alternative' : 'preferred',
+        role: 'preferred',
         baseUnitId: null,
         baseUnitName: null,
         confirm: false,
         reassign: false,
       }, {
         beforeWrite: () => {
-          if (getSuggestion(suggestion.id)?.status !== 'pending') throw new ShopApiError(409, 'Suggestion was already decided while its target was being resolved');
-          if (existing?.role !== 'alternative' && preferredElsewhere(suggestion)) throw new ShopApiError(409, PREFERRED_TAKEN);
+          // Resolving the target is asynchronous: check again at the write boundary.
+          const raced = conflict(suggestion);
+          if (raced) throw new ShopApiError(409, raced);
         },
       });
       result.accepted.push({ ...ref, targetName: suggestion.targetName });

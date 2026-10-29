@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { attentionCount, blockedProjectionRows, receiptCheckWindow } from '../shop-common';
+import { attentionCount, blockedProjectionRows, PROJECTION_FIX, projectionSearchTerm, receiptCheckWindow } from '../shop-common';
 import type { ShopOverview } from '@/lib/shop/overview';
 
 function overview(overrides: Partial<ShopOverview>): ShopOverview {
@@ -55,5 +55,22 @@ describe('receiptCheckWindow', () => {
 
   it('returns nulls when nothing was ever checked', () => {
     expect(receiptCheckWindow({ lastJob: null, nextProcessingAt: null, receipts: [] })).toEqual({ last: null, next: null });
+  });
+});
+
+describe('projection fix links', () => {
+  it('searches sub-product rows by their product and plain rows by their label', () => {
+    expect(projectionSearchTerm('Melk (Halfvolle melk 1 l)')).toBe('Halfvolle melk 1 l');
+    expect(projectionSearchTerm('Basil')).toBe('Basil');
+    expect(projectionSearchTerm('Kaas (jong) (Jong belegen)')).toBe('Jong belegen');
+  });
+
+  it('opens the queue view that can list the row, and offers nothing for a row without an ingredient', () => {
+    expect(PROJECTION_FIX.no_retailer_mapping).toMatchObject({ target: 'products', tab: 'todo' });
+    expect(PROJECTION_FIX.mapping_unconfirmed.tab).toBe('attention');
+    expect(PROJECTION_FIX.mapping_unit_changed.tab).toBe('attention');
+    expect(PROJECTION_FIX.missing_unit.tab).toBe('mapped');
+    expect(PROJECTION_FIX.no_food.target).toBe('none');
+    expect(PROJECTION_FIX.no_conversion.target).toBe('conversions');
   });
 });

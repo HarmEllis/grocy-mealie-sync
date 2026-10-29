@@ -14,7 +14,7 @@ vi.mock('@/lib/grocy/types', () => ({
 vi.mock('@/lib/mealie', () => ({ RecipesFoodsService: {}, RecipesUnitsService: {} }));
 
 import { db } from '@/lib/db';
-import { retailerMappings, retailerProducts, retailerSuggestions } from '@/lib/db/schema';
+import { productMappings, retailerMappings, retailerProducts, retailerSuggestions } from '@/lib/db/schema';
 import { upsertRetailerProducts } from '@/lib/shop/retailer-catalog';
 import { POST } from './route';
 
@@ -24,7 +24,7 @@ function suggest(id: string, retailerProductId: string, targetId: string, target
 const post = (body: unknown = {}) => POST(new Request('http://localhost/api/shop/suggestions/bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
 
 beforeEach(() => {
-  for (const table of [retailerMappings, retailerSuggestions, retailerProducts]) db.delete(table).run();
+  for (const table of [retailerMappings, retailerSuggestions, retailerProducts, productMappings]) db.delete(table).run();
   upstream.products = [{ id: 1, name: 'Milk', qu_id_stock: 10 }, { id: 2, name: 'Bread', qu_id_stock: 10 }, { id: 3, name: 'Eggs', qu_id_stock: 10 }];
   upsertRetailerProducts('demo', ['milk', 'bread', 'eggs', 'butter'].map(id => ({ id, name: id, measure: 'unit' as const })));
 });
@@ -74,6 +74,25 @@ describe('bulk suggestion acceptance', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ retailerProductId: 'butter', role: 'preferred', confirmed: true });
     expect(db.select().from(retailerSuggestions).all()[0].status).toBe('pending');
+  });
+
+  it('counts a Mealie food linked to the Grocy product as the same product', async () => {
+    db.insert(productMappings).values({ id: 'link', mealieFoodId: 'food-milk', mealieFoodName: 'Melk', grocyProductId: 1, grocyProductName: 'Milk', createdAt: new Date(), updatedAt: new Date() }).run();
+    db.insert(retailerMappings).values({ id: 'legacy', providerId: 'demo', retailerProductId: 'butter', retailerProductName: 'butter', targetKind: 'mealie_food', targetId: 'food-milk', targetName: 'Melk', role: 'preferred', packageBaseAmount: 1, packageBaseUnitId: 'l', packageBaseUnitName: 'liter', packageSource: 'user', confirmed: true, fulfilsAllDemand: false, createdAt: new Date(), updatedAt: new Date() }).run();
+    suggest('s1', 'milk', '1', 'Milk', 0.97);
+    const body = await (await post()).json();
+    expect(body.accepted).toEqual([]);
+    expect(body.skipped).toEqual([expect.objectContaining({ id: 's1', reason: expect.stringContaining('already has a preferred') })]);
+    expect(db.select().from(retailerMappings).all()).toHaveLength(1);
+  });
+
+  it('never overwrites a retailer product that is already mapped, even to its canonical Grocy product', async () => {
+    db.insert(productMappings).values({ id: 'link', mealieFoodId: 'food-milk', mealieFoodName: 'Melk', grocyProductId: 1, grocyProductName: 'Milk', createdAt: new Date(), updatedAt: new Date() }).run();
+    db.insert(retailerMappings).values({ id: 'legacy', providerId: 'demo', retailerProductId: 'milk', retailerProductName: 'milk', targetKind: 'mealie_food', targetId: 'food-milk', targetName: 'Melk', role: 'preferred', packageBaseAmount: 2, packageBaseUnitId: 'l', packageBaseUnitName: 'liter', packageSource: 'user', confirmed: true, fulfilsAllDemand: false, createdAt: new Date(), updatedAt: new Date() }).run();
+    suggest('s1', 'milk', '1', 'Milk', 0.97);
+    const body = await (await post()).json();
+    expect(body.skipped).toEqual([expect.objectContaining({ id: 's1', reason: expect.stringContaining('already mapped') })]);
+    expect(db.select().from(retailerMappings).all()).toEqual([expect.objectContaining({ targetKind: 'mealie_food', packageBaseAmount: 2, confirmed: true })]);
   });
 
   it('keeps the highest scoring suggestion preferred when several target the same product', async () => {

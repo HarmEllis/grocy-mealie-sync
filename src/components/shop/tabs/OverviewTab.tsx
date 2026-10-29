@@ -3,7 +3,7 @@
 import { Leaf, Plug, ReceiptText, ShoppingCart, History } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ShopOverview } from '@/lib/shop/overview';
-import { installationName } from '../shop-common';
+import { installationName, type FixTab } from '../shop-common';
 import { useWhen } from '../shop-format';
 import { Badge, DataRow, DataTable, DButton, EmptyState, Panel, PluginChip, RowItem, RowList, ShopLogo } from '../shop-ui';
 import { PausedLines } from './PausedLines';
@@ -13,7 +13,7 @@ export function OverviewTab({ overview, reload, goTo, openProducts }: {
   overview: ShopOverview;
   reload: () => Promise<void>;
   goTo: (tab: 'review' | 'diagnostics') => void;
-  openProducts: (query: string) => void;
+  openProducts: (query: string, tab?: FixTab) => void;
 }) {
   const when = useWhen();
   const notes = overview.lines.filter(line => line.kind === 'note' && line.noteText && !line.pausedReason);
