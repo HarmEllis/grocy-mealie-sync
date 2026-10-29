@@ -1,13 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { Leaf } from 'lucide-react';
-import { AppBadge } from '@/components/redesign/primitives';
+import { ArrowRight, Clock, Leaf, Plug } from 'lucide-react';
 import { formatRunCountdown, useAppClock, useAppStatus } from '@/components/sync/AppStatusProvider';
 import { formatDateTime } from '@/lib/date-time';
 import type { ShopOverview } from '@/lib/shop/overview';
 import { installationName, PAUSE_LABELS, receiptCheckWindow } from '../shop-common';
-import { DataRow, DataTable, EmptyState, KeyValues, Panel, PluginChip } from '../shop-ui';
+import { Badge, DataRow, DataTable, EmptyState, KeyValues, Panel, PluginChip, ShopLogo } from '../shop-ui';
 
 const STATE_LABELS = {
   disabled: 'Receipt processing disabled',
@@ -17,7 +16,7 @@ const STATE_LABELS = {
   ready: 'Connected',
 };
 
-const STATE_TONE = { disabled: 'default', disconnected: 'warning', unsupported: 'default', signed_out: 'warning', ready: 'success' } as const;
+const STATE_TONE = { disabled: '', disconnected: 'warning', unsupported: '', signed_out: 'warning', ready: 'success' } as const;
 
 export function DiagnosticsTab({ overview, timeZone, locale }: { overview: ShopOverview | null; timeZone: string | null; locale: string | null }) {
   const shared = useAppStatus();
@@ -26,25 +25,35 @@ export function DiagnosticsTab({ overview, timeZone, locale }: { overview: ShopO
   const unavailable = shared.unavailable || Boolean(shared.status && !shared.status.shop);
   const date = (value: string | null) => formatDateTime(value, { fallback: 'Never', timeZone, locale });
   const countdown = (value: string | null) => formatRunCountdown(value, now, unavailable, 'Due / waiting for worker');
-
   const { last: lastReceiptCheck, next: nextReceiptCheck } = status ? receiptCheckWindow(status) : { last: null, next: null };
+  const countdownText = countdown(nextReceiptCheck);
+  const due = countdownText.startsWith('Due');
+  const jobTone = status?.lastJob ? (status.lastJob.status === 'success' ? 'success' : status.lastJob.status === 'error' ? 'danger' : 'warning') : '';
 
   return (
-    <div className="space-y-4">
-      <Panel title="Sync diagnostics" tools={<Link href="/history" className="text-sm text-primary underline">View full history</Link>}>
-        {!status ? <EmptyState>{unavailable ? 'Status unavailable' : 'Loading sync status…'}</EmptyState> : (
-          <div className="grid gap-4 border-t border-border px-4 py-3 sm:grid-cols-3 md:px-5">
-            <div>
-              <p title="Latest receipt fetch attempt, including failed checks" className="text-[11px] font-bold tracking-wider text-text-3 uppercase">Last receipt fetch</p>
-              <p className="font-mono text-sm font-semibold text-text-1">{date(lastReceiptCheck)}</p>
+    <>
+      <Panel
+        testId="panel-sync-diagnostics"
+        icon={<Clock className="size-4" />}
+        title="Sync diagnostics"
+        tools={<Link href="/history" className="button ghost" data-testid="view-full-history"><ArrowRight className="size-3.5" /> View full history</Link>}
+      >
+        {!status ? <EmptyState icon={<Clock className="size-5" />} title={unavailable ? 'Status unavailable' : 'Loading sync status…'} /> : (
+          <div className="diag-top">
+            <div className="diag-cell">
+              <span title="Latest receipt fetch attempt, including failed checks">Last receipt fetch</span>
+              <strong>{date(lastReceiptCheck)}</strong>
+              <small>Reference data only</small>
             </div>
-            <div>
-              <p className="text-[11px] font-bold tracking-wider text-text-3 uppercase">Next receipt fetch</p>
-              <p className="font-mono text-sm font-semibold text-text-1">{countdown(nextReceiptCheck)}</p>
+            <div className="diag-cell">
+              <span>Next receipt fetch</span>
+              <strong>{due ? 'Due / waiting for worker' : date(nextReceiptCheck)}</strong>
+              <small>{due ? 'The worker picks this up within a minute' : `in ${countdownText}`}</small>
             </div>
-            <div>
-              <p className="text-[11px] font-bold tracking-wider text-text-3 uppercase">Last shopping job</p>
-              <p className="font-mono text-sm font-semibold text-text-1">{date(status.lastJob?.finishedAt ?? null)}{status.lastJob ? ` · ${status.lastJob.status}` : ''}</p>
+            <div className="diag-cell">
+              <span>Last shopping job</span>
+              <strong>{date(status.lastJob?.finishedAt ?? null)}</strong>
+              <small>{status.lastJob ? <Badge tone={jobTone}>{status.lastJob.status}</Badge> : null}</small>
             </div>
           </div>
         )}
@@ -52,27 +61,30 @@ export function DiagnosticsTab({ overview, timeZone, locale }: { overview: ShopO
 
       {status ? (
         <Panel
+          testId="panel-plugin-diagnostics"
+          icon={<Plug className="size-4" />}
           title="Per plugin"
           subtitle="State, schedule and the result of the last list sync."
-          footer={<><Leaf className="mt-0.5 size-3.5 shrink-0" /><span>Receipt checks run every 30 minutes, and on reconnect or a new-receipt notification. The worker checks the schedule every minute. Processing follows the regular sync cycle; busy jobs can delay it.</span></>}
+          footer={<><Clock className="size-3.5" /><span>Receipt checks run every 30 minutes and on reconnect or a new-receipt notification. The worker checks the schedule every minute. Processing follows the regular sync cycle, so a busy job can delay it.</span></>}
         >
-          {!status.receipts.length ? <EmptyState>No shop plugins installed.</EmptyState> : (
-            <div className="grid gap-3 border-t border-border p-4 md:grid-cols-2 md:p-5 xl:grid-cols-3">
+          {!status.receipts.length ? <EmptyState icon={<Plug className="size-5" />} title="No plugins to report on">Diagnostics appear once a shop plugin is installed.</EmptyState> : (
+            <div className="diag-grid">
               {status.receipts.map(receipt => (
-                <div key={receipt.installationId} className="min-w-0 space-y-2 rounded-lg border border-border bg-bg-0/40 p-3 text-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <PluginChip name={receipt.name} className="font-semibold text-text-1" />
-                    <AppBadge small tone={STATE_TONE[receipt.state]}>{STATE_LABELS[receipt.state]}</AppBadge>
+                <article key={receipt.installationId} className="diag-card" data-testid={`diag-${receipt.installationId}`}>
+                  <div className="diag-card-head">
+                    <ShopLogo name={receipt.name} />
+                    <h3>{receipt.name}</h3>
+                    <Badge tone={STATE_TONE[receipt.state]}>{STATE_LABELS[receipt.state]}</Badge>
                   </div>
                   <KeyValues rows={[
                     ['Last receipt check', date(receipt.lastCheckedAt)],
                     ['Next check', countdown(receipt.nextCheckAt)],
-                    ['Last list sync', `${date(receipt.listSync?.finishedAt ?? null)}${receipt.listSync ? ` · ${receipt.listSync.result.status}` : ''}`],
-                    ...(receipt.listSync ? [['Applied / failed / conflicts', `${receipt.listSync.result.applied} / ${receipt.listSync.result.failed} / ${receipt.listSync.result.conflicts}`] as [string, string]] : []),
+                    ['Last list sync', receipt.listSync ? `${date(receipt.listSync.finishedAt)} · ${receipt.listSync.result.status}` : 'Never'],
+                    ['Applied / failed / conflicts', receipt.listSync ? `${receipt.listSync.result.applied} / ${receipt.listSync.result.failed} / ${receipt.listSync.result.conflicts}` : '0 / 0 / 0'],
                   ]} />
-                  {receipt.listSync?.result.message ? <p className="text-xs text-text-2">{receipt.listSync.result.message}</p> : null}
-                  {receipt.lastError ? <p className="rounded-md border border-[var(--badge-error-text)]/40 bg-[var(--badge-error-bg)] p-2 text-xs text-destructive">Last check failed: {receipt.lastError}</p> : null}
-                </div>
+                  {receipt.listSync?.result.message ? <p className="row-hint">{receipt.listSync.result.message}</p> : null}
+                  {receipt.lastError ? <div className="diag-error"><strong>Last check error</strong><span>Last check failed: {receipt.lastError}</span></div> : null}
+                </article>
               ))}
             </div>
           )}
@@ -80,19 +92,19 @@ export function DiagnosticsTab({ overview, timeZone, locale }: { overview: ShopO
       ) : null}
 
       {overview ? (
-        <Panel title="List cleanup" subtitle="When open demand disappears, gm-sync removes its managed quantity. Quantities added by the household remain.">
-          {overview.lines.length === 0 ? <EmptyState>gm-sync manages no list lines right now.</EmptyState> : (
-            <DataTable headers={['Product', 'Plugin', 'Managed', 'Household', 'Desired', 'Pause reason']}>
+        <Panel testId="panel-cleanup" icon={<Leaf className="size-4" />} title="List cleanup" subtitle="When open demand disappears gm-sync removes its own managed quantity. Household quantities stay exactly as they are.">
+          {overview.lines.length === 0 ? <EmptyState tone="good" title="Nothing to clean up">Every managed quantity matches the current demand.</EmptyState> : (
+            <DataTable headers={['Product', 'Plugin', 'Managed qty', 'Household qty', 'Desired packages', 'Pause reason']} cols="minmax(0,1.3fr) minmax(100px,.7fr) minmax(90px,.6fr) minmax(90px,.6fr) minmax(120px,.9fr) minmax(130px,1fr)">
               {overview.lines.map(line => {
                 const desired = line.kind === 'note' ? 'Not applicable (replacement note)' : String(overview.exports.find(row => row.installationId === line.installationId && row.retailerProductId === line.retailerProductId)?.packages ?? 0);
                 return (
                   <DataRow key={`${line.installationId}:${line.kind}:${line.retailerProductId}`} cells={[
-                    ['Product', <span key="p" className="font-semibold">{line.productName}</span>],
+                    ['Product', <strong key="p">{line.productName}</strong>],
                     ['Plugin', <PluginChip key="i" name={installationName(overview, line.installationId)} />],
-                    ['Managed', <span key="m" className="font-mono">{line.managedQty}</span>],
-                    ['Household', <span key="h" className="font-mono">{line.baselineUserQty}</span>],
-                    ['Desired', <span key="d" className="font-mono">{desired}</span>],
-                    ['Pause reason', line.pausedReason ? <AppBadge key="r" small tone="warning">{PAUSE_LABELS[line.pausedReason] ?? line.pausedReason}</AppBadge> : <span key="r" className="text-text-3">None</span>],
+                    ['Managed qty', <span key="m" className="mono">{line.managedQty}</span>],
+                    ['Household qty', <span key="h" className="mono">{line.baselineUserQty}</span>],
+                    ['Desired packages', <span key="d" className="mono">{desired}</span>],
+                    ['Pause reason', line.pausedReason ? <Badge key="r" tone="warning">{PAUSE_LABELS[line.pausedReason] ?? line.pausedReason}</Badge> : <span key="r" className="muted">—</span>],
                   ]} />
                 );
               })}
@@ -100,6 +112,6 @@ export function DiagnosticsTab({ overview, timeZone, locale }: { overview: ShopO
           )}
         </Panel>
       ) : null}
-    </div>
+    </>
   );
 }

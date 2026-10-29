@@ -1,7 +1,7 @@
 'use client';
 
-import type { CSSProperties, ReactNode } from 'react';
-import { Check, Search } from 'lucide-react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
+import { Check, ChevronRight, Leaf, Search, TriangleAlert } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /*
@@ -51,11 +51,12 @@ export function RowList({ children }: { children: ReactNode }) {
   return <div className="rows" role="list">{children}</div>;
 }
 
-export function RowItem({ children, actions, testId }: { children: ReactNode; actions?: ReactNode; testId?: string }) {
+export function RowItem({ children, actions, below, testId }: { children: ReactNode; actions?: ReactNode; below?: ReactNode; testId?: string }) {
   return (
     <div className="rowitem" role="listitem" data-testid={testId}>
       <div className="row-main">{children}</div>
       {actions ? <div className="row-actions">{actions}</div> : null}
+      {below}
     </div>
   );
 }
@@ -78,8 +79,8 @@ export function EmptyState({ title, children, tone = '', celebrate = false, icon
 }
 
 /** Retailer logo chip: short code from the name. */
-export function ShopLogo({ name }: { name: string }) {
-  const parts = name.split(/\s+/).filter(Boolean);
+export function ShopLogo({ name }: { name?: string | null }) {
+  const parts = (name ?? '').split(/\s+/).filter(Boolean);
   const code = (parts.length > 1 ? parts.map(part => part[0]).join('') : (parts[0] ?? '')).slice(0, 2).toUpperCase();
   return <span className="shop-logo" aria-hidden="true">{code}</span>;
 }
@@ -151,5 +152,61 @@ export function DataRow({ cells, testId }: { cells: Array<[string, ReactNode]>; 
     <div className="dt-row" role="row" data-testid={testId}>
       {cells.map(([label, value]) => <div key={label} role="cell" data-label={label}>{value}</div>)}
     </div>
+  );
+}
+
+/** Key/value evidence block (`.evidence`), shown instead of raw JSON. */
+export function Evidence({ rows }: { rows: Array<[string, ReactNode]> }) {
+  return (
+    <div className="evidence">
+      {rows.map(([key, value]) => <div key={key}><span>{key}</span><span>{value}</span></div>)}
+    </div>
+  );
+}
+
+export function ErrorBar({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="errorbar" role="alert">
+      <TriangleAlert className="size-4" aria-hidden="true" />
+      <div><strong>{title}</strong>{children}{action ? <div>{action}</div> : null}</div>
+    </div>
+  );
+}
+
+export function Field({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
+  return <label className={cn('field', className)}><span>{label}</span>{children}</label>;
+}
+
+export function CheckLine({ checked, onChange, disabled, children, testId }: { checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean; children: ReactNode; testId?: string }) {
+  return (
+    <label className="checkline">
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={event => onChange(event.target.checked)} data-testid={testId} />
+      <span>{children}</span>
+    </label>
+  );
+}
+
+/** Collapsible group of decisions (`.review-group`) with a count. */
+export function ReviewGroup({ title, icon, count, intro, children, testId }: {
+  title: string;
+  icon: ReactNode;
+  count: number;
+  intro?: ReactNode;
+  children: ReactNode;
+  testId?: string;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <section className="review-group" data-testid={testId}>
+      <button type="button" className="group-head" aria-expanded={open} onClick={() => setOpen(value => !value)}>
+        {icon}<h2>{title}</h2><span className="count">{count}</span><ChevronRight aria-hidden="true" />
+      </button>
+      {open ? (
+        <>
+          {intro ? <div className="panel-foot" style={{ borderTop: 0, borderBottom: '1px solid var(--shop-border)' }}><Leaf className="size-3.5" aria-hidden="true" /><span>{intro}</span></div> : null}
+          {children}
+        </>
+      ) : null}
+    </section>
   );
 }

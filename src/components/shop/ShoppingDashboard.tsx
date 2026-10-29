@@ -28,6 +28,7 @@ const TABS: Array<{ id: Tab; label: string; icon: ReactNode }> = [
 export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone?: string | null; locale?: string | null }) {
   const [overview, setOverview] = useState<ShopOverview | null>(null);
   const [tab, setTab] = useState<Tab>('overview');
+  const [productsQuery, setProductsQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [nextRefresh, setNextRefresh] = useState(REFRESH_SECONDS);
   const swipeStart = useRef<{ x: number; y: number } | null>(null);
@@ -78,6 +79,10 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
   function select(id: Tab, focus = false) {
     setTab(id);
     if (focus) window.requestAnimationFrame(() => document.getElementById(`shop-tab-${id}`)?.focus());
+  }
+  function openProducts(query: string) {
+    setProductsQuery(query);
+    select('products');
   }
   function step(direction: 1 | -1, focus = false) {
     const index = TABS.findIndex(item => item.id === tab);
@@ -202,10 +207,10 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
           >
             <section role="tabpanel" id={`shop-panel-${tab}`} aria-labelledby={`shop-tab-${tab}`} className="stack">
               {!overview ? <div className="panel"><div className="skeleton" aria-hidden="true"><div className="sk w40" /><div className="sk" /><div className="sk w80" /><div className="sk w60" /></div></div> : null}
-              {overview && tab === 'overview' ? <OverviewTab overview={overview} reload={load} goTo={select} /> : null}
-              {overview && tab === 'products' ? <OwnProductsTab overview={overview} reloadOverview={load} /> : null}
+              {overview && tab === 'overview' ? <OverviewTab overview={overview} reload={load} goTo={select} openProducts={openProducts} /> : null}
+              {overview && tab === 'products' ? <OwnProductsTab overview={overview} reloadOverview={load} initialQuery={productsQuery} /> : null}
               {overview && tab === 'receipts' ? <ReceiptsTab overview={overview} reload={load} /> : null}
-              {overview && tab === 'review' ? <ReviewTab overview={overview} reload={load} /> : null}
+              {overview && tab === 'review' ? <ReviewTab overview={overview} reload={load} openProducts={openProducts} goTo={select} /> : null}
               {overview && tab === 'diagnostics' ? <DiagnosticsTab overview={overview} timeZone={timeZone} locale={locale} /> : null}
             </section>
           </div>

@@ -3,6 +3,7 @@ import { apiJson } from './api';
 import type { ShopOverview } from '@/lib/shop/overview';
 import type { ShopDashboardStatus } from '@/lib/shop/status';
 import { needsProjectionAttention } from '@/lib/shop/projection-reasons';
+import type { ProjectionReviewReason } from '@/lib/shop/projection';
 
 export const PAUSE_LABELS: Record<string, string> = {
   reduced_by_other: 'Someone reduced this line',
@@ -43,8 +44,9 @@ export async function post(url: string, body: unknown, success: string): Promise
   }
 }
 
-export function installationName(overview: ShopOverview, id: string): string {
-  return overview.installations.find(installation => installation.id === id)?.name ?? id;
+/** Name of an installation; stored receipts can outlive the installation they came from. */
+export function installationName(overview: ShopOverview, id: string | null | undefined): string {
+  return overview.installations.find(installation => installation.id === id)?.name ?? id ?? 'Unknown plugin';
 }
 
 export function pausedLines(overview: ShopOverview): ShopOverview['lines'] {
@@ -72,3 +74,27 @@ export function receiptCheckWindow(status: ShopDashboardStatus): { last: string 
   }
   return { last, next };
 }
+
+/** Short badge text per blocked-row reason; the full sentence stays `PROJECTION_LABELS`. */
+export const PROJECTION_SHORT: Record<ProjectionReviewReason, string> = {
+  no_food: 'No product',
+  no_retailer_mapping: 'No preferred retailer product mapped',
+  mapping_unconfirmed: 'Mapping unconfirmed',
+  mapping_unit_changed: 'Mapped base unit changed, confirm amount again',
+  unknown_product: 'Grocy product or stock unit missing',
+  missing_unit: 'Missing unit',
+  purchase_unit_ambiguous: 'Purchase unit differs from stock unit',
+  no_conversion: 'No conversion between Mealie unit and base unit',
+};
+
+/** Where each blocked-row reason is fixed. Products opens with the row's name as the search. */
+export const PROJECTION_FIX: Record<ProjectionReviewReason, { label: string; target: 'products' | 'conversions' }> = {
+  no_food: { label: 'Select a Mealie ingredient', target: 'products' },
+  no_retailer_mapping: { label: 'Open the mapping', target: 'products' },
+  mapping_unconfirmed: { label: 'Confirm the amount', target: 'products' },
+  mapping_unit_changed: { label: 'Re-confirm the conversion', target: 'products' },
+  unknown_product: { label: 'Open the product', target: 'products' },
+  missing_unit: { label: 'Open the mapping', target: 'products' },
+  purchase_unit_ambiguous: { label: 'Set the package amount', target: 'products' },
+  no_conversion: { label: 'Add a conversion', target: 'conversions' },
+};

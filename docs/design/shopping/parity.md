@@ -48,35 +48,35 @@ Switch them in the prototype footer (`demo-bar`).
 
 | Real-app feature | Where | Notes | Implementation | Status |
 |---|---|---|---|---|
-| Plugins list per installation | `panel-plugins` / `plugin-<id>` | name + connected/offline |  | todo |
-| Badge *text items* (supports `list.notes`) | `plugin-<id>` | with an explanation line per capability |  | todo |
-| Badge *list sync* | `plugin-<id>` | |  | todo |
-| Badge *receipts* | `plugin-<id>` | |  | todo |
-| Warning *list write pending confirmation* | `plugin-ah` | points at Review |  | todo |
-| Projection review *Not sent to retailer* | `panel-projection` / `projection-<id>` | label + plugin + reason + fix action; Overview shows the first 3 with `projection-show-all` / `projection-open-review`, Review lists all of them |  | todo |
-| Reason: no product (select a Mealie ingredient) | `projection-p1` | |  | todo |
-| Reason: no preferred retailer product mapped | `projection-p2` | |  | todo |
-| Reason: mapping unconfirmed | `projection-p3` | |  | todo |
-| Reason: mapped base unit changed, confirm amount again | `projection-p4` | |  | todo |
-| Reason: Grocy product or stock unit missing | `projection-p5` | |  | todo |
-| Reason: missing unit | `projection-p6` | |  | todo |
-| Reason: purchase unit differs from stock unit | `projection-p7` | |  | todo |
-| Reason: no conversion between Mealie unit and base unit | `projection-p8` | |  | todo |
-| Hint: fix mapping/unit, next sync retries automatically | `panel-projection` row hint | on every row |  | todo |
-| Empty: *No blocked shopping rows reported.* | `panel-projection` | All clear snapshot |  | todo |
-| *On the shared list* (Plugin, Product, Packages, Since) | `panel-shared` / `shared-<i>` | table → cards under 800px; the Plugin cell is a compact inline `.plug` chip |  | todo |
-| Note: your own additions are kept | `panel-shared` footer | |  | todo |
-| Empty: *Nothing exported.* | `panel-shared` | No plugins snapshot |  | todo |
-| *Replacement text items* | `panel-notes` / `note-<i>` | note text + plugin + “replaces {product}” |  | todo |
-| Explanation: a note never fulfils Mealie demand, receipts decide | `panel-notes` footer | |  | todo |
-| *Paused list lines* | `panel-paused` / `paused-<id>` | product + pause reason + “now X, last written Y” |  | todo |
-| Pause reason: someone reduced this line | `paused-l1` | |  | todo |
-| Pause reason: the line disappeared | `paused-l2` | |  | todo |
-| Pause reason: product on the list more than once | `paused-l3` | Release only |  | todo |
-| Pause reason: line now holds another product | `paused-l4` | Release only |  | todo |
-| Pause reason: discontinued, plugin cannot add a text item | `paused-l5` | Release only |  | todo |
-| Actions: removed their own units / add mine again / release | `line-removed-*`, `line-readd-*`, `line-release-*` | first two disabled for notes, duplicates and reused lines |  | todo |
-| Empty: *No paused lines.* | `panel-paused` | All clear snapshot |  | todo |
+| Plugins list per installation | `panel-plugins` / `plugin-<id>` | name + connected/offline | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Badge *text items* (supports `list.notes`) | `plugin-<id>` | with an explanation line per capability | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Badge *list sync* | `plugin-<id>` | | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Badge *receipts* | `plugin-<id>` | | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Warning *list write pending confirmation* | `plugin-ah` | points at Review | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Projection review *Not sent to retailer* | `panel-projection` / `projection-<id>` | label + plugin + reason + fix action; Overview shows the first 3 with `projection-show-all` / `projection-open-review`, Review lists all of them | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Reason: no product (select a Mealie ingredient) | `projection-p1` | | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Reason: no preferred retailer product mapped | `projection-p2` | | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Reason: mapping unconfirmed | `projection-p3` | | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Reason: mapped base unit changed, confirm amount again | `projection-p4` | | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Reason: Grocy product or stock unit missing | `projection-p5` | | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Reason: missing unit | `projection-p6` | | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Reason: purchase unit differs from stock unit | `projection-p7` | | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Reason: no conversion between Mealie unit and base unit | `projection-p8` | | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Hint: fix mapping/unit, next sync retries automatically | `panel-projection` row hint | on every row | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Empty: *No blocked shopping rows reported.* | `panel-projection` | All clear snapshot | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| *On the shared list* (Plugin, Product, Packages, Since) | `panel-shared` / `shared-<i>` | table → cards under 800px; the Plugin cell is a compact inline `.plug` chip | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Note: your own additions are kept | `panel-shared` footer | | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Empty: *Nothing exported.* | `panel-shared` | No plugins snapshot | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| *Replacement text items* | `panel-notes` / `note-<i>` | note text + plugin + “replaces {product}” | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Explanation: a note never fulfils Mealie demand, receipts decide | `panel-notes` footer | | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| *Paused list lines* | `panel-paused` / `paused-<id>` | product + pause reason + “now X, last written Y” | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Pause reason: someone reduced this line | `paused-l1` | | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Pause reason: the line disappeared | `paused-l2` | | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Pause reason: product on the list more than once | `paused-l3` | Release only | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Pause reason: line now holds another product | `paused-l4` | Release only | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Pause reason: discontinued, plugin cannot add a text item | `paused-l5` | Release only | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Actions: removed their own units / add mine again / release | `line-removed-*`, `line-readd-*`, `line-release-*` | first two disabled for notes, duplicates and reused lines | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
+| Empty: *No paused lines.* | `panel-paused` | All clear snapshot | `tabs/OverviewTab.tsx`, `tabs/ProjectionReview.tsx`, `tabs/PausedLines.tsx` | done |
 
 ## 2. Products
 
@@ -137,77 +137,77 @@ Switch them in the prototype footer (`demo-bar`).
 
 | Real-app feature | Where | Notes | Implementation | Status |
 |---|---|---|---|---|
-| *Pull receipts now* | `pull-receipts` | loading state |  | todo |
-| Retailer picker | `receipt-retailer` | only receipt-capable plugins |  | todo |
-| Latest 5 / Latest 10 receipts | `receipt-count` | |  | todo |
-| *Load receipts for setup* + loading state | `load-receipts` | skeleton rows while loading |  | todo |
-| Explanation: reference only, never books stock or checks items off | `panel-receipt-pull` subtitle + footer | |  | todo |
-| Receipt cards: date, store, status, total | `receipt-<id>` | |  | todo |
-| Lines: description, mapping summary, qty+unit, amount | `rline-<id>-<i>` | “Mapped to X, 500 g per package” |  | todo |
-| Line status with review reason | badges on each line | |  | todo |
-| Attribution of what was linked | badges `stock 3`, `list 1` | |  | todo |
-| *Map product* / *Change mapping* | `map-line-<id>-<i>` | opens the mapping editor |  | todo |
-| Header-only receipts | `receipt-r3` | “Bought before receipt processing was enabled; kept as a header only.” |  | todo |
-| Empty: *No receipts stored yet.* | No plugins snapshot | |  | todo |
-| From-receipt bulk mapping reachable | `bulk-receipt-mapping` | links to `shop-mappings.html` |  | todo |
-| Failed receipt check surfaced | `receipt-error-jumbo` | danger banner + retry |  | todo |
+| *Pull receipts now* | `pull-receipts` | loading state | `tabs/ReceiptsTab.tsx` | done |
+| Retailer picker | `receipt-retailer` | only receipt-capable plugins | `tabs/ReceiptsTab.tsx` | done |
+| Latest 5 / Latest 10 receipts | `receipt-count` | | `tabs/ReceiptsTab.tsx` | done |
+| *Load receipts for setup* + loading state | `load-receipts` | skeleton rows while loading | `tabs/ReceiptsTab.tsx` | done |
+| Explanation: reference only, never books stock or checks items off | `panel-receipt-pull` subtitle + footer | | `tabs/ReceiptsTab.tsx` | done |
+| Receipt cards: date, store, status, total | `receipt-<id>` | | `tabs/ReceiptsTab.tsx` | done |
+| Lines: description, mapping summary, qty+unit, amount | `rline-<id>-<i>` | “Mapped to X, 500 g per package” | `tabs/ReceiptsTab.tsx` | done |
+| Line status with review reason | badges on each line | | `tabs/ReceiptsTab.tsx` | done |
+| Attribution of what was linked | badges `stock 3`, `list 1` | | `tabs/ReceiptsTab.tsx` | done |
+| *Map product* / *Change mapping* | `map-line-<id>-<i>` | opens the mapping editor | `tabs/ReceiptsTab.tsx` | done |
+| Header-only receipts | `receipt-r3` | “Bought before receipt processing was enabled; kept as a header only.” | `tabs/ReceiptsTab.tsx` | done |
+| Empty: *No receipts stored yet.* | No plugins snapshot | | `tabs/ReceiptsTab.tsx` | done |
+| From-receipt bulk mapping reachable | `bulk-receipt-mapping` | links to `shop-mappings.html` | `tabs/ReceiptsTab.tsx` | adapted |
+| Failed receipt check surfaced | `receipt-error-jumbo` | danger banner + retry | `tabs/ReceiptsTab.tsx` | done |
 
 ## 4. Review
 
 | Real-app feature | Where | Notes | Implementation | Status |
 |---|---|---|---|---|
-| Grouped inbox with counts per group | `review-projection|lines|disc|writes` | collapsible |  | todo |
-| Not sent to retailer (same projection rows) | `review-projection` | |  | todo |
-| Receipt lines to review — *Nothing here was booked* | `review-lines` group note | |  | todo |
-| Line detail: description, qty, unit, amount, reason | `review-line-<id>` | |  | todo |
-| Reason: retailer did not identify product | `review-line-rv3` | |  | todo |
-| Reason: no mapping yet | `review-line-rv1` | |  | todo |
-| Reason: package amount not confirmed | `review-line-rv2` | |  | todo |
-| Reason: return or correction | `review-line-rv4` | |  | todo |
-| Reason: receipt unit does not fit mapping | `review-line-rv5` | |  | todo |
-| Reason: product unit changed, confirm again | `review-line-rv6` | |  | todo |
-| Reason: several manual checks could match | `review-line-rv7` | |  | todo |
-| *One-off substitution* (expands) | `substitution-<id>` → `subform-<id>` | |  | todo |
-| … checkbox *Fulfil demand only, book nothing in Grocy* | `fulfil-only-<id>` | disables the product + amount fields |  | todo |
-| … Grocy product searchable select | `sub-product-<id>` | datalist `grocy-targets` |  | todo |
-| … stock amount | `sub-amount-<id>` | |  | todo |
-| … *Remember as alternative* | `sub-remember-<id>` | |  | todo |
-| … multi-select of open shopping rows this fulfils (removed) | `sub-open-*` | note explains removal |  | todo |
-| … multi-select of rows already checked off (flagged for review) | `sub-checked-*` | |  | todo |
-| … *Confirm substitution* | `confirm-substitution-<id>` | |  | todo |
-| *Process again (after mapping)* | `process-again-<id>` | |  | todo |
-| *Dismiss* | `dismiss-<id>` | |  | todo |
-| Discrepancy: manual check booked X, receipt shows Y | `discrepancy-d1` | undo booking #4821, amount + consume difference, keep stock as is |  | todo |
-| Discrepancy: substitute bought, original already booked | `discrepancy-d2` | |  | todo |
-| Discrepancy: row checked off while a receipt already fulfilled it | `discrepancy-d3` | *The receipt covers it* / *It was an additional purchase, book it* |  | todo |
-| Booking evidence readable, not raw JSON | `.evidence` key/value list | |  | todo |
-| Writes needing a decision | `write-<id>` | label, status badge unknown/failed, kind, source, attempts, last error, evidence |  | todo |
-| Actions *It happened* / *It did not happen, retry* / *Skip* | `write-happened-*`, `write-retry-*`, `write-skip-*` | retry only for `unknown` |  | todo |
-| Note: never retried automatically | `review-writes` group note | |  | todo |
-| Empty: *All writes are settled.* | All clear snapshot | |  | todo |
-| Zero-state celebration | `review-clear` | |  | todo |
+| Grouped inbox with counts per group | `review-projection|lines|disc|writes` | collapsible | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| Not sent to retailer (same projection rows) | `review-projection` | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| Receipt lines to review — *Nothing here was booked* | `review-lines` group note | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| Line detail: description, qty, unit, amount, reason | `review-line-<id>` | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| Reason: retailer did not identify product | `review-line-rv3` | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| Reason: no mapping yet | `review-line-rv1` | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| Reason: package amount not confirmed | `review-line-rv2` | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| Reason: return or correction | `review-line-rv4` | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| Reason: receipt unit does not fit mapping | `review-line-rv5` | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| Reason: product unit changed, confirm again | `review-line-rv6` | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| Reason: several manual checks could match | `review-line-rv7` | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| *One-off substitution* (expands) | `substitution-<id>` → `subform-<id>` | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| … checkbox *Fulfil demand only, book nothing in Grocy* | `fulfil-only-<id>` | disables the product + amount fields | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| … Grocy product searchable select | `sub-product-<id>` | datalist `grocy-targets` | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| … stock amount | `sub-amount-<id>` | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| … *Remember as alternative* | `sub-remember-<id>` | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| … multi-select of open shopping rows this fulfils (removed) | `sub-open-*` | note explains removal | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| … multi-select of rows already checked off (flagged for review) | `sub-checked-*` | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| … *Confirm substitution* | `confirm-substitution-<id>` | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| *Process again (after mapping)* | `process-again-<id>` | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| *Dismiss* | `dismiss-<id>` | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| Discrepancy: manual check booked X, receipt shows Y | `discrepancy-d1` | undo booking #4821, amount + consume difference, keep stock as is | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| Discrepancy: substitute bought, original already booked | `discrepancy-d2` | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| Discrepancy: row checked off while a receipt already fulfilled it | `discrepancy-d3` | *The receipt covers it* / *It was an additional purchase, book it* | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| Booking evidence readable, not raw JSON | `.evidence` key/value list | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| Writes needing a decision | `write-<id>` | label, status badge unknown/failed, kind, source, attempts, last error, evidence | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| Actions *It happened* / *It did not happen, retry* / *Skip* | `write-happened-*`, `write-retry-*`, `write-skip-*` | retry only for `unknown` | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| Note: never retried automatically | `review-writes` group note | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| Empty: *All writes are settled.* | All clear snapshot | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
+| Zero-state celebration | `review-clear` | | `tabs/ReviewTab.tsx`, `tabs/PausedLines.tsx` | done |
 
 ## 5. Diagnostics
 
 | Real-app feature | Where | Notes | Implementation | Status |
 |---|---|---|---|---|
-| *Sync diagnostics* + *View full history* | `panel-sync-diagnostics`, `view-full-history` | |  | todo |
-| Last receipt fetch | `diag-top` cell 1 | |  | todo |
-| Next receipt fetch with countdown / *Due / waiting for worker* | `#next-fetch`, `#next-fetch-countdown` | live countdown, flips to Due at 0 |  | todo |
-| Last shopping job (time + status) | `diag-top` cell 3 | |  | todo |
-| Per plugin card with state | `diag-<id>` | |  | todo |
-| State: Receipt processing disabled | `diag-picnic` (All clear) | |  | todo |
-| State: Waiting for plugin connection and active scheduler | `diag-crisp` (Busy) | Crisp is installed but never connected, so it has no catalogue and is left out of the Products workflow; its long badge wraps under the plugin name |  | todo |
-| State: Plugin does not support receipts | `diag-picnic` (Busy) | |  | todo |
-| State: Waiting for retailer sign-in | `diag-jumbo` (Busy) | |  | todo |
-| State: Connected | `diag-ah` | |  | todo |
-| Last receipt check / next check | `diag-<id>` kv list | |  | todo |
-| Last list sync: result status, applied, failed, conflicts, message | `diag-<id>` kv list + hint | |  | todo |
-| Last check error in danger tone | `diag-jumbo` → `.diag-error` | |  | todo |
-| Footnote on schedules | `panel-plugin-diagnostics` footer | 30 min checks, reconnect/notification, worker every minute, busy jobs delay processing |  | todo |
-| *List cleanup* explanation | `panel-cleanup` subtitle | managed quantity removed, household quantity kept |  | todo |
-| Cleanup per line: product, plugin, managed, household, desired, pause | `cleanup-<i>` | the Plugin cell is a compact inline `.plug` chip |  | todo |
-| Desired *Not applicable (replacement note)* | `cleanup-2` | |  | todo |
+| *Sync diagnostics* + *View full history* | `panel-sync-diagnostics`, `view-full-history` | | `tabs/DiagnosticsTab.tsx` | done |
+| Last receipt fetch | `diag-top` cell 1 | | `tabs/DiagnosticsTab.tsx` | done |
+| Next receipt fetch with countdown / *Due / waiting for worker* | `#next-fetch`, `#next-fetch-countdown` | live countdown, flips to Due at 0 | `tabs/DiagnosticsTab.tsx` | done |
+| Last shopping job (time + status) | `diag-top` cell 3 | | `tabs/DiagnosticsTab.tsx` | done |
+| Per plugin card with state | `diag-<id>` | | `tabs/DiagnosticsTab.tsx` | done |
+| State: Receipt processing disabled | `diag-picnic` (All clear) | | `tabs/DiagnosticsTab.tsx` | done |
+| State: Waiting for plugin connection and active scheduler | `diag-crisp` (Busy) | Crisp is installed but never connected, so it has no catalogue and is left out of the Products workflow; its long badge wraps under the plugin name | `tabs/DiagnosticsTab.tsx` | done |
+| State: Plugin does not support receipts | `diag-picnic` (Busy) | | `tabs/DiagnosticsTab.tsx` | done |
+| State: Waiting for retailer sign-in | `diag-jumbo` (Busy) | | `tabs/DiagnosticsTab.tsx` | done |
+| State: Connected | `diag-ah` | | `tabs/DiagnosticsTab.tsx` | done |
+| Last receipt check / next check | `diag-<id>` kv list | | `tabs/DiagnosticsTab.tsx` | done |
+| Last list sync: result status, applied, failed, conflicts, message | `diag-<id>` kv list + hint | | `tabs/DiagnosticsTab.tsx` | done |
+| Last check error in danger tone | `diag-jumbo` → `.diag-error` | | `tabs/DiagnosticsTab.tsx` | done |
+| Footnote on schedules | `panel-plugin-diagnostics` footer | 30 min checks, reconnect/notification, worker every minute, busy jobs delay processing | `tabs/DiagnosticsTab.tsx` | done |
+| *List cleanup* explanation | `panel-cleanup` subtitle | managed quantity removed, household quantity kept | `tabs/DiagnosticsTab.tsx` | done |
+| Cleanup per line: product, plugin, managed, household, desired, pause | `cleanup-<i>` | the Plugin cell is a compact inline `.plug` chip | `tabs/DiagnosticsTab.tsx` | done |
+| Desired *Not applicable (replacement note)* | `cleanup-2` | | `tabs/DiagnosticsTab.tsx` | done |
 
 ## Retailer accounts in the sample data
 

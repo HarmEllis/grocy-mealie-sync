@@ -1,81 +1,172 @@
 'use client';
 
 import { useState } from 'react';
+import { ArrowLeftRight, Check, Link2, Receipt, Search } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
-import { AppBadge } from '@/components/redesign/primitives';
-import { ThemedSelect } from '@/components/shared/ThemedSelect';
 import { apiJson } from '../api';
 import { MappingEditor, type MappingRow, type ProductRow } from '../MappingEditor';
-import { money, REVIEW_LABELS, when } from '../shop-common';
-import { DataRow, DataTable, EmptyState, Panel, Spinner } from '../shop-ui';
+import { installationName, money, post, REVIEW_LABELS, when } from '../shop-common';
+import { Badge, CheckLine, DButton, EmptyState, ErrorBar, Field, Panel, ShopLogo, Spinner } from '../shop-ui';
 import type { ShopOverview } from '@/lib/shop/overview';
-import { post } from '../shop-common';
+
+type ReceiptView = ShopOverview['receipts'][number];
+
+function statusTone(receipt: ReceiptView): 'success' | 'warning' | '' {
+  if (receipt.referenceOnly) return '';
+  return receipt.status === 'processed' || receipt.status === 'booked' ? 'success' : 'warning';
+}
 
 export function ReceiptsTab({ overview, reload }: { overview: ShopOverview; reload: () => Promise<void> }) {
-  const [installationId, setInstallationId] = useState(overview.installations[0]?.id ?? '');
-  const [historyLimit, setHistoryLimit] = useState<5 | 10>(5);
+  const receiptPlugins = overview.installations.filter(installation => installation.capabilities.includes('receipts') || installation.settings.receiptsEnabled);
+  const retailers = receiptPlugins.length ? receiptPlugins : overview.installations;
+  const [retailer, setRetailer] = useState('all');
+  const [historyLimit, setHistoryLimit] = useState<'5' | '10'>('5');
+  const [onlyToMap, setOnlyToMap] = useState(false);
   const [fetching, setFetching] = useState(false);
+  const [pulling, setPulling] = useState(false);
   const [editing, setEditing] = useState<{ providerId: string; product: ProductRow; mapping: MappingRow | null } | null>(null);
+
+  const providerOf = (installationId: string) => overview.installations.find(installation => installation.id === installationId)?.providerId ?? null;
+  // Loading history for setup needs one installation: the only retailer counts as selected.
+  const selected = retailers.find(installation => installation.id === retailer) ?? (retailer === 'all' && retailers.length === 1 ? retailers[0] : undefined);
+  const visible = overview.receipts
+    .filter(receipt => retailer === 'all' || receipt.installationId === retailer || (selected?.providerId && receipt.providerId === selected.providerId))
+    .map(receipt => ({ receipt, lines: onlyToMap ? receipt.lines.filter(line => !line.mapping && line.retailerProductId) : receipt.lines }))
+    .filter(({ receipt, lines }) => !onlyToMap || (receipt.lines.length > 0 && lines.length > 0));
+  const failing = overview.installations.filter(installation => installation.settings.receiptsEnabled && installation.receiptCursor?.lastError);
+
+  async function pull() {
+    setPulling(true);
+    try {
+      if (await post('/api/shop/receipts/pull', {}, 'Receipt pull requested')) window.setTimeout(() => void reload(), 3000);
+    } finally {
+      setPulling(false);
+    }
+  }
+
+  async function loadForSetup() {
+    if (!selected) return;
+    setFetching(true);
+    try {
+      const result = await apiJson<{ imported: number; activeSkipped: number; catalogueWarning: string | null }>('/api/shop/receipts/history', { method: 'POST', body: JSON.stringify({ installationId: selected.id, limit: Number(historyLimit) }) });
+      toast.success(`${result.imported} receipt(s) loaded for setup`, { description: result.activeSkipped ? `${result.activeSkipped} recent purchase(s) remain for normal processing. Use Pull receipts now to retrieve them.` : undefined });
+      if (result.catalogueWarning) toast.warning(result.catalogueWarning);
+      await reload();
+    } catch (error) {
+      toast.error('Could not load receipts', { description: (error as Error).message });
+    } finally {
+      setFetching(false);
+    }
+  }
+
+  async function openMapping(receipt: ReceiptView, retailerProductId: string) {
+    try {
+      const data = await apiJson<{ products: ProductRow[]; mappings: MappingRow[] }>(`/api/shop/mappings?providerId=${encodeURIComponent(receipt.providerId)}`);
+      const product = data.products.find(item => item.externalId === retailerProductId);
+      if (!product) throw new Error('Receipt product is unavailable');
+      setEditing({ providerId: receipt.providerId, product, mapping: data.mappings.find(item => item.retailerProductId === retailerProductId) ?? null });
+    } catch (error) {
+      toast.error('Could not open mapping', { description: (error as Error).message });
+    }
+  }
+
   return (
-    <div className="space-y-4">
+    <>
       <Panel
+        testId="panel-receipt-pull"
+        icon={<Receipt className="size-4" />}
         title="Receipts"
-        subtitle="Reference-only receipts help configure mappings. They never book stock or check off shopping items, even after processing is enabled."
-        tools={<Button size="sm" variant="outline" onClick={async () => { if (await post('/api/shop/receipts/pull', {}, 'Receipt pull requested')) window.setTimeout(() => void reload(), 3000); }}>Pull receipts now</Button>}
+        subtitle="Reference only. Receipts help you configure mappings and explain what was bought. They never book stock and never check items off a list, even after processing is enabled."
+        tools={<DButton onClick={() => void pull()} disabled={pulling} data-testid="pull-receipts">{pulling ? <Spinner /> : <ArrowLeftRight className="size-3.5" />} Pull receipts now</DButton>}
+        footer={<span>Stored receipts stay in gm-sync. Mapping a line here only teaches gm-sync which product the retailer text means.</span>}
       >
-        <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3 md:px-5">
-          <ThemedSelect ariaLabel="Receipt retailer" value={installationId} onChange={setInstallationId} options={overview.installations.map(item => ({ value: item.id, label: item.name }))} className="w-full sm:w-56" />
-          <ThemedSelect ariaLabel="Historical receipt count" value={historyLimit} onChange={setHistoryLimit} options={[{ value: 5, label: 'Latest 5 receipts' }, { value: 10, label: 'Latest 10 receipts' }]} className="w-full sm:w-48" />
-          <Button size="sm" variant="outline" disabled={!installationId || fetching} onClick={async () => {
-            setFetching(true);
-            try {
-              const result = await apiJson<{ imported: number; activeSkipped: number; catalogueWarning: string | null }>('/api/shop/receipts/history', { method: 'POST', body: JSON.stringify({ installationId, limit: historyLimit }) });
-              toast.success(`${result.imported} receipt(s) loaded for setup`, { description: result.activeSkipped ? `${result.activeSkipped} recent purchase(s) remain for normal processing. Use Pull receipts now to retrieve them.` : undefined });
-              if (result.catalogueWarning) toast.warning(result.catalogueWarning);
-              await reload();
-            } catch (error) { toast.error('Could not load receipts', { description: (error as Error).message }); }
-            finally { setFetching(false); }
-          }}>{fetching ? <><Spinner /> Loading receipts…</> : 'Load receipts for setup'}</Button>
+        {failing.length ? (
+          <div style={{ padding: '18px 20px 0', display: 'grid', gap: 10 }}>
+            {failing.map(installation => (
+              <ErrorBar key={installation.id} title={`${installation.name}: the last receipt check failed`} action={<DButton onClick={() => void pull()}><ArrowLeftRight className="size-3.5" /> Try this retailer again</DButton>}>
+                {installation.receiptCursor?.lastError}
+              </ErrorBar>
+            ))}
+          </div>
+        ) : null}
+        <div className="receipt-controls">
+          <Field label="Retailer">
+            <select aria-label="Receipt retailer" value={retailer} onChange={event => setRetailer(event.target.value)}>
+              <option value="all">All retailers</option>
+              {retailers.map(installation => <option key={installation.id} value={installation.id}>{installation.name}</option>)}
+            </select>
+          </Field>
+          <Field label="How many">
+            <select aria-label="Historical receipt count" value={historyLimit} onChange={event => setHistoryLimit(event.target.value as '5' | '10')}>
+              <option value="5">Latest 5 receipts</option>
+              <option value="10">Latest 10 receipts</option>
+            </select>
+          </Field>
+          <div className="field field-actions">
+            <DButton disabled={!selected || fetching} onClick={() => void loadForSetup()} title={selected ? undefined : 'Choose one retailer to load receipts for setup'}>
+              {fetching ? <Spinner /> : <Receipt className="size-3.5" />} {fetching ? 'Loading receipts…' : 'Load receipts for setup'}
+            </DButton>
+          </div>
         </div>
+        <div style={{ padding: '0 20px 12px' }}>
+          <CheckLine checked={onlyToMap} onChange={setOnlyToMap}>Show only lines that still need a product mapping</CheckLine>
+        </div>
+        {fetching ? (
+          <div className="skeleton" aria-hidden="true"><div className="sk w40" /><div className="sk" /><div className="sk w80" /><div className="sk w60" /></div>
+        ) : visible.length === 0 ? (
+          <EmptyState icon={<Receipt className="size-5" />} title={onlyToMap ? 'No lines need a mapping' : 'No receipts stored yet'}>
+            {onlyToMap ? 'Every receipt line with a retailer product is mapped.' : 'Pull receipts to build up a reference history. Receipts help configure mappings; they never book stock and never check items off.'}
+          </EmptyState>
+        ) : (
+          <div className="rcards" style={{ padding: '0 20px 18px' }}>
+            {visible.map(({ receipt, lines }) => (
+              <article key={receipt.id} className="rcard" data-testid="receipt">
+                <div className="rcard-head">
+                  <ShopLogo name={installationName(overview, receipt.installationId)} />
+                  <div className="rcard-id">
+                    <strong>{receipt.storeLabel ?? installationName(overview, receipt.installationId)}</strong>
+                    <small>{when(receipt.purchasedAt)}</small>
+                  </div>
+                  <Badge tone={statusTone(receipt)}>{receipt.referenceOnly ? 'Reference only, setup' : receipt.status.replaceAll('_', ' ')}</Badge>
+                  {receipt.totalCents !== null ? <span className="rcard-total">{money(receipt.totalCents)}</span> : null}
+                </div>
+                {receipt.lines.length === 0 ? (
+                  <div className="state" style={{ padding: 24 }}><p>Bought before receipt processing was enabled; kept as a header only.</p></div>
+                ) : (
+                  <div className="rlines">
+                    {lines.map(line => (
+                      <div key={line.id} className="rline" data-testid="receipt-line">
+                        <div className="rline-main">
+                          <div className="rline-desc">{line.description}</div>
+                          <div className={`rline-map${line.mapping ? '' : ' unmapped'}`}>
+                            {line.mapping ? <Check aria-hidden="true" /> : <Search aria-hidden="true" />}
+                            <span>{line.mapping ? `Mapped to ${line.mapping.targetName} · ${line.mapping.packageBaseAmount ?? '?'} ${line.mapping.packageBaseUnitName ?? 'units'} per package` : 'No product mapping yet'}</span>
+                          </div>
+                          <div className="rline-tags">
+                            <Badge tone={line.reviewReason ? 'warning' : ''}>{line.status}</Badge>
+                            {line.reviewReason ? <Badge tone="warning">{REVIEW_LABELS[line.reviewReason] ?? line.reviewReason}</Badge> : null}
+                            {line.links.map((link, index) => <Badge key={index} tone="info">{link.kind} {Math.round(link.baseAmount * 1000) / 1000}</Badge>)}
+                          </div>
+                        </div>
+                        <div className="rline-right">
+                          <span className="rline-qty">{line.quantity} {line.unit}</span>
+                          <span className="rline-amount">{money(line.amountCents)}</span>
+                          {line.retailerProductId && receipt.providerId ? (
+                            <DButton variant="ghost" onClick={() => void openMapping(receipt, line.retailerProductId as string)}>
+                              <Link2 className="size-3.5" /> {line.mapping ? 'Change mapping' : 'Map product'}
+                            </DButton>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
       </Panel>
       {editing ? <MappingEditor {...editing} onClose={() => { setEditing(null); void reload(); }} /> : null}
-      {overview.receipts.length === 0 ? <Panel title="No receipts stored yet"><EmptyState>Pull receipts, or load a few for setup, to build a reference history.</EmptyState></Panel> : null}
-      {overview.receipts.map(receipt => (
-        <Panel
-          key={receipt.id}
-          title={`${when(receipt.purchasedAt)} ${receipt.storeLabel ?? ''}`}
-          subtitle={`Status: ${receipt.referenceOnly ? 'Reference only, setup' : receipt.status.replaceAll('_', ' ')}${receipt.totalCents !== null ? ` · total ${money(receipt.totalCents)}` : ''}`}
-        >
-          {receipt.lines.length === 0 ? <EmptyState>Bought before receipt processing was enabled; kept as a header only.</EmptyState> : (
-            <DataTable headers={['Line', 'Qty', 'Amount', 'Status', 'Attribution']}>
-              {receipt.lines.map(line => (
-                <DataRow key={line.id} cells={[
-                  ['Line', <div key="l" className="space-y-1">
-                    <p>{line.description}</p>
-                    {line.mapping ? <p className="text-xs text-muted-foreground">Mapped to {line.mapping.targetName} · {line.mapping.packageBaseAmount ?? '?'} {line.mapping.packageBaseUnitName ?? 'units'} per package</p> : null}
-                    {line.retailerProductId && receipt.providerId ? <Button size="sm" variant="outline" onClick={async () => {
-                      try {
-                        const data = await apiJson<{ products: ProductRow[]; mappings: MappingRow[] }>(`/api/shop/mappings?providerId=${encodeURIComponent(receipt.providerId)}`);
-                        const product = data.products.find(item => item.externalId === line.retailerProductId);
-                        if (!product) throw new Error('Receipt product is unavailable');
-                        setEditing({ providerId: receipt.providerId, product, mapping: data.mappings.find(item => item.retailerProductId === line.retailerProductId) ?? null });
-                      } catch (error) { toast.error('Could not open mapping', { description: (error as Error).message }); }
-                    }}>{line.mapping ? 'Change mapping' : 'Map product'}</Button> : null}
-                  </div>],
-                  ['Qty', <span key="q" className="font-mono">{line.quantity} {line.unit}</span>],
-                  ['Amount', <span key="a" className="font-mono">{money(line.amountCents)}</span>],
-                  ['Status', <div key="s" className="space-y-1">
-                    <AppBadge small tone={line.reviewReason ? 'warning' : 'default'}>{line.status}</AppBadge>
-                    {line.reviewReason ? <p className="text-xs text-text-2">{REVIEW_LABELS[line.reviewReason] ?? line.reviewReason}</p> : null}
-                  </div>],
-                  ['Attribution', <span key="t" className="text-xs text-muted-foreground">{line.links.map(link => `${link.kind} ${Math.round(link.baseAmount * 1000) / 1000}`).join(', ')}</span>],
-                ]} />
-              ))}
-            </DataTable>
-          )}
-        </Panel>
-      ))}
-    </div>
+    </>
   );
 }

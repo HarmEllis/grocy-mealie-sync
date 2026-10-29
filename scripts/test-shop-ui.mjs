@@ -236,10 +236,25 @@ try {
       await page.getByRole('tab', { name: new RegExp(`^${tab}`) }).click();
       await assertNoPageOverflow(`${width}px ${tab}`);
       if (tab === 'Overview' || tab === 'Review') {
-        await page.getByText('Basil ·', { exact: false }).waitFor();
+        await page.getByText('Basil', { exact: true }).waitFor();
         await page.getByText('No preferred retailer product is mapped to this ingredient.', { exact: true }).waitFor();
       }
+      if (tab === 'Overview') {
+        await page.getByTestId('attention-badge').waitFor();
+        await page.getByTestId('refresh-control').waitFor();
+        await page.getByTestId('plugin-chips').waitFor();
+        await page.getByTestId('panel-paused').waitFor();
+      }
+      if (tab === 'Review') {
+        const group = page.getByTestId('review-projection').getByRole('button', { name: /Not sent to retailer/ });
+        assert.equal(await group.getAttribute('aria-expanded'), 'true', 'review groups start expanded');
+        await group.click();
+        assert.equal(await group.getAttribute('aria-expanded'), 'false', 'review groups collapse');
+        await group.click();
+      }
       if (tab === 'Diagnostics') {
+        await page.getByTestId('panel-cleanup').waitFor();
+        await page.getByTestId('view-full-history').waitFor();
         await page.getByText('AH list read failed', { exact: true }).waitFor();
         await page.getByText('Last check failed: Receipt service unavailable', { exact: true }).waitFor();
       }

@@ -1,44 +1,70 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, ChevronDown, TriangleAlert } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import Link from 'next/link';
+import { ArrowRight, ChevronRight, Clock, Link2, TriangleAlert } from 'lucide-react';
 import { PROJECTION_LABELS } from '@/lib/shop/projection-reasons';
 import type { ShopOverview } from '@/lib/shop/overview';
-import { installationName } from '../shop-common';
-import { EmptyState, Panel, RowItem, RowList } from '../shop-ui';
+import { installationName, PROJECTION_FIX, PROJECTION_SHORT } from '../shop-common';
+import { Badge, DButton, EmptyState, Panel, PluginChip, RowItem, RowList } from '../shop-ui';
 
-const HINT = 'Fix the mapping or unit; the next sync retries automatically.';
+const HINT = 'Fix the mapping or the unit; the next sync retries every row automatically.';
 
-/** Shopping rows gm-sync could not project. `limit` shows a compact summary with a toggle. */
-export function ProjectionReview({ overview, limit, onOpenReview }: { overview: ShopOverview; limit?: number; onOpenReview?: () => void }) {
+type Row = NonNullable<ShopOverview['projectionReview']>[number];
+
+export function ProjectionRows({ overview, rows, openProducts }: { overview: ShopOverview; rows: Row[]; openProducts: (query: string) => void }) {
+  return (
+    <RowList>
+      {rows.map((row, index) => {
+        const fix = PROJECTION_FIX[row.reason];
+        return (
+          <RowItem
+            key={`${row.installationId}:${row.revisionId}:${index}`}
+            testId="projection-row"
+            actions={fix.target === 'conversions'
+              ? <Link href="/conversions" className="button ghost"><Link2 className="size-3.5" /> {fix.label}</Link>
+              : <DButton variant="ghost" onClick={() => openProducts(row.label)}><Link2 className="size-3.5" /> {fix.label}</DButton>}
+          >
+            <strong>{row.label}</strong>
+            <div className="row-sub"><PluginChip name={installationName(overview, row.installationId)} /></div>
+            <div className="row-badges"><Badge tone="warning">{PROJECTION_SHORT[row.reason]}</Badge></div>
+            <p className="row-reason">{PROJECTION_LABELS[row.reason]}</p>
+          </RowItem>
+        );
+      })}
+    </RowList>
+  );
+}
+
+/** Shopping rows gm-sync could not project. `limit` shows a compact summary with a toggle (Overview). */
+export function ProjectionReview({ overview, limit, onOpenReview, openProducts }: {
+  overview: ShopOverview;
+  limit?: number;
+  onOpenReview?: () => void;
+  openProducts: (query: string) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const rows = overview.projectionReview ?? [];
   const shown = limit && !expanded ? rows.slice(0, limit) : rows;
   const collapsible = Boolean(limit) && rows.length > (limit ?? 0);
   return (
     <Panel
+      testId="panel-projection"
       title="Not sent to retailer"
       icon={<TriangleAlert className="size-4" />}
-      subtitle={`Reasons from the latest shopping projection. ${HINT}`}
-      tools={onOpenReview && rows.length ? <Button size="sm" variant="outline" onClick={onOpenReview}>Open in Review</Button> : null}
+      subtitle={`Shopping rows gm-sync wanted to project but could not. Nothing is lost: each row is retried on the next sync once its cause is fixed.${collapsible ? ` Showing ${expanded ? 'all' : `the first ${limit}`} of ${rows.length}.` : ''}`}
+      footer={collapsible || rows.length === 0 ? undefined : <><Clock className="size-3.5" /><span>{HINT}</span></>}
     >
-      {rows.length === 0 ? <EmptyState title="No blocked shopping rows reported." tone="good">The latest projection held no shopping row back.</EmptyState> : (
-        <RowList>
-          {shown.map((row, index) => (
-            <RowItem key={`${row.installationId}:${row.revisionId}:${index}`}>
-              <p className="font-semibold">{row.label} · {installationName(overview, row.installationId)}</p>
-              <p className="text-text-2">{PROJECTION_LABELS[row.reason]}</p>
-            </RowItem>
-          ))}
-        </RowList>
-      )}
+      {rows.length === 0
+        ? <EmptyState tone="good" title="No blocked shopping rows reported">The latest projection held no shopping row back.</EmptyState>
+        : <ProjectionRows overview={overview} rows={shown} openProducts={openProducts} />}
       {collapsible ? (
-        <div className="flex items-center gap-2 border-t border-border px-4 py-2 md:px-5">
-          <Button size="sm" variant="ghost" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>
-            {expanded ? <Check className="size-3.5" /> : <ChevronDown className="size-3.5" />}
-            {expanded ? `Show first ${limit} only` : `Show all ${rows.length}`}
-          </Button>
+        <div className="show-more">
+          <DButton variant="ghost" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>
+            <ChevronRight className="size-3.5" /> {expanded ? `Show first ${limit} only` : `Show all ${rows.length}`}
+          </DButton>
+          {onOpenReview ? <DButton variant="ghost" onClick={onOpenReview}><ArrowRight className="size-3.5" /> Open in Review</DButton> : null}
+          <p>{HINT}</p>
         </div>
       ) : null}
     </Panel>

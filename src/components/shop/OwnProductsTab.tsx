@@ -100,14 +100,14 @@ function RetailerSelect({ provider, products, target, value, selectedName, sugge
   </div>;
 }
 
-export function OwnProductsTab({ overview, reloadOverview }: { overview: ShopOverview; reloadOverview: () => Promise<void> }) {
+export function OwnProductsTab({ overview, reloadOverview, initialQuery = '' }: { overview: ShopOverview; reloadOverview: () => Promise<void>; initialQuery?: string }) {
   const providers = useMemo<Provider[]>(() => [...new Set(overview.installations.map(installation => installation.providerId).filter((id): id is string => Boolean(id)))].map(id => {
     const installations = overview.installations.filter(installation => installation.providerId === id);
     return { id, name: installations[0].providerLabel ?? installations[0].name, installationId: installations.find(installation => installation.connected)?.id ?? null, installations };
   }), [overview]);
   const [catalog, setCatalog] = useState<CatalogData>({ mappings: [], products: [], suggestions: [] });
   const [inventory, setInventory] = useState<Inventory | null>(null);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [source, setSource] = useState<ProductSource>('all');
   const [mapped, setMapped] = useState<'all' | 'mapped' | 'unmapped'>('all');
   const [offset, setOffset] = useState(0);
