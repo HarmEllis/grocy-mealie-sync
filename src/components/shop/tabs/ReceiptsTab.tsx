@@ -36,7 +36,7 @@ export function ReceiptsTab({ overview, reload }: { overview: ShopOverview; relo
               await reload();
             } catch (error) { toast.error('Could not load receipts', { description: (error as Error).message }); }
             finally { setFetching(false); }
-          }}>{fetching ? <><Spinner className="size-3.5" /> Loading receipts…</> : 'Load receipts for setup'}</Button>
+          }}>{fetching ? <><Spinner /> Loading receipts…</> : 'Load receipts for setup'}</Button>
         </div>
       </Panel>
       {editing ? <MappingEditor {...editing} onClose={() => { setEditing(null); void reload(); }} /> : null}
@@ -50,7 +50,7 @@ export function ReceiptsTab({ overview, reload }: { overview: ShopOverview; relo
           {receipt.lines.length === 0 ? <EmptyState>Bought before receipt processing was enabled; kept as a header only.</EmptyState> : (
             <DataTable headers={['Line', 'Qty', 'Amount', 'Status', 'Attribution']}>
               {receipt.lines.map(line => (
-                <DataRow key={line.id} columns={5} cells={[
+                <DataRow key={line.id} cells={[
                   ['Line', <div key="l" className="space-y-1">
                     <p>{line.description}</p>
                     {line.mapping ? <p className="text-xs text-muted-foreground">Mapped to {line.mapping.targetName} · {line.mapping.packageBaseAmount ?? '?'} {line.mapping.packageBaseUnitName ?? 'units'} per package</p> : null}

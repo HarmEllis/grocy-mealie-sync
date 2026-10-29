@@ -46,7 +46,7 @@ export function OverviewTab({ overview, reload, goTo }: { overview: ShopOverview
         {overview.exports.length === 0 ? <EmptyState title="Nothing exported.">gm-sync has no packages to put on a shared retailer list right now.</EmptyState> : (
           <DataTable headers={['Plugin', 'Product', 'Packages', 'Since']}>
             {overview.exports.map(row => (
-              <DataRow key={row.id} columns={4} cells={[
+              <DataRow key={row.id} cells={[
                 ['Plugin', <PluginChip key="p" name={installationName(overview, row.installationId)} />],
                 ['Product', <span key="n" className="font-semibold">{row.productName}</span>],
                 ['Packages', <span key="k" className="font-mono">{row.packages}</span>],

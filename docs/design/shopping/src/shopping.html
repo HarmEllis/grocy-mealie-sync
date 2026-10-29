@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-accent="teal">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shopping · Grocy Mealie Sync</title>
+<link rel="stylesheet" href="shared.css">
+<link rel="stylesheet" href="shop-workspace.css">
+<link rel="stylesheet" href="receipt-mappings.css">
+<link rel="stylesheet" href="shopping.css">
+</head>
+<body>
+<app-shell></app-shell>
+<main class="app-main" data-od-id="shopping-page">
+ <header class="topbar" data-od-id="topbar">
+  <div class="topbar-path"><span>Workspace</span><span>/</span><strong>Shopping</strong></div>
+  <div class="topbar-end">
+   <button class="icon-button theme-toggle" onclick="ui.theme()" aria-label="Toggle dark or light theme" data-od-id="mobile-theme-toggle"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/></svg></button>
+   <span class="muted local-copy">Kitchen workspace</span>
+   <span class="avatar" aria-label="Local workspace">JV</span>
+  </div>
+ </header>
+
+ <div class="page">
+  <header class="page-head" data-od-id="page-head">
+   <div class="head-top">
+    <div class="head-copy">
+     <h1 data-od-id="page-title">Shopping</h1>
+     <p>Shared retailer lists, receipts and everything that needs your decision.</p>
+    </div>
+    <div class="toolbar" id="toolbar" data-od-id="page-toolbar"></div>
+   </div>
+   <div class="plugin-chips" id="plugin-chips" data-od-id="plugin-chips" aria-label="Shop plugin connections"></div>
+  </header>
+
+  <div id="no-plugins" data-od-id="no-plugins-state" hidden></div>
+
+  <div id="shop-body">
+   <section class="hero" id="hero" data-od-id="status-hero" aria-label="Shopping status"></section>
+   <div class="sectabs" role="tablist" id="sectabs" aria-label="Shopping sections" data-od-id="section-tabs"></div>
+
+   <div class="sections" id="sections">
+    <section class="stack" id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="-1" data-od-id="panel-overview"></section>
+
+    <section id="panel-products" role="tabpanel" aria-labelledby="tab-products" tabindex="-1" data-od-id="panel-products" hidden>
+     <section class="inbox" id="inbox" data-od-id="suggestions-inbox" aria-label="Suggested matches"></section>
+     <section class="panel" id="ingredients-panel" data-od-id="ingredients-panel" style="margin:18px 0"></section>
+     <div class="workspace" data-od-id="mapping-workspace">
+      <section class="queue" id="own-queue" aria-label="Own product work queue">
+       <div class="queue-heading">
+        <div class="queue-progress">
+         <div id="progress" class="ring-container"></div>
+         <div><h2 data-od-id="queue-title">Your products</h2><p id="progress-text"></p></div>
+        </div>
+        <span class="eyebrow">Work queue</span>
+       </div>
+       <div class="tabs" id="tabs" role="tablist" aria-label="Mapping status"></div>
+       <div class="queue-filters">
+        <div class="search">
+         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg>
+         <input id="queue-search" aria-label="Search your products" placeholder="Find a product..." data-od-id="product-search">
+        </div>
+        <div class="filter-row">
+         <select id="source-filter" aria-label="Filter by source" data-od-id="source-filter">
+          <option value="all">All sources</option>
+          <option value="G+M">Grocy + Mealie</option>
+          <option value="G">Grocy only</option>
+          <option value="M">Mealie only</option>
+         </select>
+         <select id="status-filter" aria-label="Filter by attention status" data-od-id="status-filter">
+          <option value="all">All statuses</option>
+          <option>Unit changed</option>
+          <option>Unconfirmed amount</option>
+          <option>Discontinued</option>
+          <option>Missing conversion</option>
+         </select>
+        </div>
+       </div>
+       <div class="list-label"><span id="list-count"></span><span>SHOPS MAPPED</span></div>
+       <div id="product-list"></div>
+       <div class="queue-note" id="queue-note"></div>
+      </section>
+      <section class="detail" id="detail" data-od-id="product-detail" aria-label="Product mapping detail"></section>
+     </div>
+     <div class="panel" style="margin-top:18px"><div class="legend" id="target-legend" data-od-id="target-legend"></div></div>
+     <div class="keyboard-hints">
+      <span><kbd>↑</kbd><kbd>↓</kbd> or <kbd>J</kbd><kbd>K</kbd> Navigate</span>
+      <span><kbd>Enter</kbd> Confirm &amp; next</span>
+      <span><kbd>Esc</kbd> Close panel</span>
+     </div>
+    </section>
+
+    <section class="stack" id="panel-receipts" role="tabpanel" aria-labelledby="tab-receipts" tabindex="-1" data-od-id="panel-receipts" hidden></section>
+    <section class="stack" id="panel-review" role="tabpanel" aria-labelledby="tab-review" tabindex="-1" data-od-id="panel-review" hidden></section>
+    <section class="stack" id="panel-diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics" tabindex="-1" data-od-id="panel-diagnostics" hidden></section>
+   </div>
+  </div>
+
+  <div class="demo-bar" data-od-id="demo-bar">
+   <p><strong>Interactive prototype</strong> · Sample data only, no retailer connection and no stock changes. Switch the sample snapshot to review each state.</p>
+   <div class="seg" role="group" aria-label="Demo data state" id="demo-seg">
+    <button type="button" data-state="busy" aria-pressed="true" data-od-id="demo-busy">Busy</button>
+    <button type="button" data-state="clear" aria-pressed="false" data-od-id="demo-clear">All clear</button>
+    <button type="button" data-state="none" aria-pressed="false" data-od-id="demo-none">No plugins</button>
+   </div>
+  </div>
+ </div>
+</main>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="shared-components.js"></script>
+<script src="shopping-data.js"></script>
+<script src="shopping-products.js"></script>
+<script src="shopping-app.js"></script>
+</body>
+</html>

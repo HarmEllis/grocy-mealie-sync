@@ -1,0 +1,239 @@
+# Shopping design parity
+
+Acceptance checklist for the Shopping redesign (PR #78). Source of truth is the design snapshot in `src/`
+(open `src/shopping.html` in a browser; the demo switcher in the footer toggles Busy, All clear and No plugins).
+Reference screenshots live in `screenshots/` (`<tab>-<state>-<width>.jpg`).
+
+Status values: `todo`, `done`, `adapted` (see the table below), `n/a` (prototype only).
+Every row must be `done`, `adapted` or `n/a` before the redesign is complete. Update this file in each step.
+
+## Intentional adaptations (prototype behaviour the backend does not have)
+
+| Design feature | Real invariant | Adaptation |
+|---|---|---|
+| Free-text "Text-item fallback" input | Backend stores only a boolean per account and retailer product (`src/lib/shop/note-preferences.ts`) and requires a preferred mapping; text is derived | Account selector and toggle with the real locked/unbound/no-`list.notes` states; derived text shown, no free text, no text item without a preferred mapping |
+| "Linked Mealie mapping" with its own amount and unit | `saveRetailerMapping` rejects Mealie-food mappings of Grocy-linked foods (409) | Legacy row shown with the real migrate-on-confirm flow; new mappings never get a separate Mealie amount |
+| Target-kind switcher; arbitrary conversion units on Grocy targets | Source is derived from `product_mappings`; a Grocy target's base unit is its stock unit | Source read-only; unit picker only for Mealie-food targets; stock unit and derived conversions for Grocy targets |
+| Disconnect/Reconnect plugin toggle | Connectivity comes from `overview.installations` | Real connectivity and the "known products only" offline state with Retry |
+| "From-receipt bulk mapping" link to a separate page | No such page in the app | "Lines to map only" filter on receipt lines with the existing Map product dialog |
+| Detail footer "Confirm & next" requires every shop settled | A household may use one retailer | Saves every pending valid draft and advances; never requires all retailers |
+| Hero ring with a delivery percentage | Exports are projected demand, not confirmed writes, and rows and rejections have different units | Status icon (warning or check) in the ring slot; no percentage |
+| Demo-state switcher, "Interactive prototype" note | Prototype only | Not shipped |
+| "Auto-refresh" indicator | Page already polls every 30 s | Shown, driven by the real poll |
+
+## Feature matrix (from the design coverage checklist)
+
+Checklist for validating `shopping.html` against the real gm-sync Shopping page.
+Column *Where* names the section and, where useful, the `data-od-id` to look for.
+
+Demo snapshots: **Busy** (everything needs attention), **All clear** (zero state), **No plugins**.
+Switch them in the prototype footer (`demo-bar`).
+
+## Page frame
+
+| Real-app feature | Where | Notes | Implementation | Status |
+|---|---|---|---|---|
+| Title *Shopping* + subtitle | `page-head` / `page-title` | | `src/app/shopping/page.tsx` (`PageHeader`) | done |
+| Refresh with loading spinner | `refresh-control` / `refresh-now` | Spinner replaces the icon; button disabled while busy | `ShoppingDashboard.tsx` refresh control | done |
+| Auto-refresh every 30s indicator | `refresh-control` → `#auto-in` | Live countdown, fires a silent refresh at 0 | `ShoppingDashboard.tsx` countdown, silent reload at 0 | done |
+| *Sync lists now* | `sync-lists-now` | Only primary button in the header | `ShoppingDashboard.tsx`, `POST /api/shop/run` | done |
+| Attention badge `{n} item(s) need attention` | `attention-badge` | n = review lines + blocked projection rows + discrepancies + uncertain writes + paused lines; links to Review | `ShoppingDashboard.tsx` `attention-badge`; shows held-back rows and pending writes when no decisions wait | done |
+| Plugin connection chips per retailer | `plugin-chips` / `chip-<id>` | connected / offline | `ShoppingDashboard.tsx` `plugin-chips` | done |
+| Empty state when no plugins installed | `no-plugins-panel` | Exact copy incl. “Without plugins the regular sync is unchanged.” | `ShoppingDashboard.tsx` `no-plugins-panel` | done |
+| Five sections as tabs | `section-tabs` | Overview, Products, Receipts, Review (count badge), Diagnostics | `ShoppingDashboard.tsx` `section-tabs` (ARIA tablist, arrow keys, Home/End) | done |
+| Swipeable tabs on mobile | `#sections` touch handler | Horizontal swipe ≥70px; ←/→ keys on the tablist | `ShoppingDashboard.tsx` swipe >= 70px on the panel area | done |
+| Status hero + KPI tiles | `status-hero` / `kpi-tiles` | Each tile jumps to its section | `shop-ui.tsx` `StatusHero`, `KpiTile`; ring shows a status icon (adaptation, see top) | adapted |
+
+## 1. Overview
+
+| Real-app feature | Where | Notes | Implementation | Status |
+|---|---|---|---|---|
+| Plugins list per installation | `panel-plugins` / `plugin-<id>` | name + connected/offline |  | todo |
+| Badge *text items* (supports `list.notes`) | `plugin-<id>` | with an explanation line per capability |  | todo |
+| Badge *list sync* | `plugin-<id>` | |  | todo |
+| Badge *receipts* | `plugin-<id>` | |  | todo |
+| Warning *list write pending confirmation* | `plugin-ah` | points at Review |  | todo |
+| Projection review *Not sent to retailer* | `panel-projection` / `projection-<id>` | label + plugin + reason + fix action; Overview shows the first 3 with `projection-show-all` / `projection-open-review`, Review lists all of them |  | todo |
+| Reason: no product (select a Mealie ingredient) | `projection-p1` | |  | todo |
+| Reason: no preferred retailer product mapped | `projection-p2` | |  | todo |
+| Reason: mapping unconfirmed | `projection-p3` | |  | todo |
+| Reason: mapped base unit changed, confirm amount again | `projection-p4` | |  | todo |
+| Reason: Grocy product or stock unit missing | `projection-p5` | |  | todo |
+| Reason: missing unit | `projection-p6` | |  | todo |
+| Reason: purchase unit differs from stock unit | `projection-p7` | |  | todo |
+| Reason: no conversion between Mealie unit and base unit | `projection-p8` | |  | todo |
+| Hint: fix mapping/unit, next sync retries automatically | `panel-projection` row hint | on every row |  | todo |
+| Empty: *No blocked shopping rows reported.* | `panel-projection` | All clear snapshot |  | todo |
+| *On the shared list* (Plugin, Product, Packages, Since) | `panel-shared` / `shared-<i>` | table → cards under 800px; the Plugin cell is a compact inline `.plug` chip |  | todo |
+| Note: your own additions are kept | `panel-shared` footer | |  | todo |
+| Empty: *Nothing exported.* | `panel-shared` | No plugins snapshot |  | todo |
+| *Replacement text items* | `panel-notes` / `note-<i>` | note text + plugin + “replaces {product}” |  | todo |
+| Explanation: a note never fulfils Mealie demand, receipts decide | `panel-notes` footer | |  | todo |
+| *Paused list lines* | `panel-paused` / `paused-<id>` | product + pause reason + “now X, last written Y” |  | todo |
+| Pause reason: someone reduced this line | `paused-l1` | |  | todo |
+| Pause reason: the line disappeared | `paused-l2` | |  | todo |
+| Pause reason: product on the list more than once | `paused-l3` | Release only |  | todo |
+| Pause reason: line now holds another product | `paused-l4` | Release only |  | todo |
+| Pause reason: discontinued, plugin cannot add a text item | `paused-l5` | Release only |  | todo |
+| Actions: removed their own units / add mine again / release | `line-removed-*`, `line-readd-*`, `line-release-*` | first two disabled for notes, duplicates and reused lines |  | todo |
+| Empty: *No paused lines.* | `panel-paused` | All clear snapshot |  | todo |
+
+## 2. Products
+
+| Real-app feature | Where | Notes | Implementation | Status |
+|---|---|---|---|---|
+| Work queue To map / Mapped / Needs attention | `queue-tab-todo|mapped|attention` | with counts and a progress ring |  | todo |
+| Search | `product-search` | |  | todo |
+| Source filter Grocy+Mealie / Grocy only / Mealie only | `source-filter` | |  | todo |
+| Status filter | `status-filter` | unit changed, unconfirmed amount, discontinued, missing conversion |  | todo |
+| Per-shop detail with suggested match + score | `shop-<id>` | one section per installed plugin |  | todo |
+| Catalogue search | `catalogue-search-<id>` | debounce → searching → results / no results |  | todo |
+| Alternatives | `alternative-<id>-<i>` | |  | todo |
+| Conversion / unit & amount | `conversion-<id>`, `amount-<id>`, `unit-<id>` | |  | todo |
+| Discontinued replacement | product *Pasta penne* | warning banner + text-item fallback field |  | todo |
+| Plugin disconnect / reconnect | `connection-<id>` | disconnected search state with retry |  | todo |
+| Keyboard navigation | ↑↓ / J K, Enter confirms, Esc closes the sheet | hints under the workspace |  | todo |
+| **(a)** Suggestions inbox with Accept / Reject | `suggestions-inbox`, `accept-*`, `reject-*` | |  | todo |
+| **(a)** Score % | `.score` in each suggestion | |  | todo |
+| **(a)** show 5 / show all | `toggle-suggestion-count` | 7 suggestions in the Busy snapshot |  | todo |
+| **(b)** Shopping ingredients to map | `ingredients-panel` / `ingredient-<id>` | |  | todo |
+| **(b)** Status: waiting for catalogue search | `ingredient-i-2` | spinner |  | todo |
+| **(b)** Status: error | `ingredient-i-3` | error text, never retried on its own |  | todo |
+| **(b)** Status: found N products | `ingredient-i-1`, `-i-4`, `-i-5` (0 found) | |  | todo |
+| **(b)** *Search again* | `search-again-<id>` | |  | todo |
+| **(c)** Role: Preferred product / Remembered alternative | `role-line` in each mapped shop | |  | todo |
+| **(c)** *Use as preferred* | `use-preferred-<id>`, alternatives list | |  | todo |
+| **(c)** Remove (trash) | `remove-mapping-<id>`, alternative trash | |  | todo |
+| **(d)** *Fulfils all demand* toggle for loose produce | `settles-<id>` | only for per-kg products (Appels, Tomaten los) |  | todo |
+| **(e)** Mapping target legend G+M / G / M | `target-legend` | G+M marked recommended |  | todo |
+| **(e)** Move-mapping warning | `target-<id>` → warning banner | “Moving this mapping removes its link to X. Check the amount in the new target unit” |  | todo |
+| **(f)** Unit preview | `preview-<id>` | shows the resulting stock amount |  | todo |
+| **(f)** Retry | `retry-conversion-<id>` | product *Yoghurt naturel* starts in the failed state |  | todo |
+| **(f)** *Use suggested amount* derivation | `suggested-amount-<id>` | derives from the package size |  | todo |
+| **(f)** Conversion availability + link to Units & Conversions | `units-link-<id>` | also shown when units are incompatible |  | todo |
+| **(g)** Mealie unit picker incl. *Count (no unit)* | `mealie-unit-<id>` | product-level unit under More options, hidden for Grocy-only targets |  | todo |
+| **(a2)** Text item account selector per retailer | `text-account-<id>` | only when the retailer has several installations; option label is *retailer — account* |  | todo |
+| **(a2)** Single-account retailers name the account inline | text-item block | no selector, just *Albert Heijn — Household list* |  | todo |
+| **(a2)** Toggle *Use an ingredient + quantity text item…* | `text-item-toggle-<id>` | manual on / off |  | todo |
+| **(a2)** Discontinued product locks the toggle on | *Pasta penne* → Albert Heijn | “Locked on — this retailer product is discontinued…” |  | todo |
+| **(a2)** Disabled: plugin has no `list.notes` | *any product* → Jumbo, Picnic | “Jumbo cannot add list notes… A discontinued product pauses the line instead.” |  | todo |
+| **(a2)** Disabled: account not bound | Albert Heijn → *Shared household* | “Sign in to the retailer first.” |  | todo |
+| **(a2)** Status line on the product row | `.row-flags` → *Text item for AH — Household list* | shown while a text item is active |  | todo |
+| **(a2)** Free-text *Text-item fallback* | `fallback-<id>` | moved into the text-item block, disabled when the block is |  | todo |
+| **(a2)** A text item settles a retailer for confirming | `confirm-mapping` | a discontinued retailer no longer blocks the save; the hint counts the text-item retailers |  | todo |
+| **(b2)** Replacement waiting notice | `replacement-<id>` | “Waiting for {old product} to leave the list ({account}). Review the old line in Overview → Paused list lines if it remains paused.” |  | todo |
+| **(b2)** Paused escalation | *Pasta penne* → Jumbo | adds “Waiting for the paused product line. Resolve it before the text item can replace it.” |  | todo |
+| **(b2)** Link to the paused lines | `replacement-link-<id>` | jumps to Overview → Paused list lines |  | todo |
+| **(b2)** Notice on the product row | `.row-flags` amber flag | on *Pasta penne* (paused) and *Olijfolie* (not paused) |  | todo |
+| **(c2)** Availability: Discontinued | *Pasta penne* → Albert Heijn | danger, “list sync needs a text item or a new preferred product” |  | todo |
+| **(c2)** Availability: Temporarily out of stock | *Rijst basmati* → Jumbo | warning, “preferred product stays on the list” |  | todo |
+| **(c2)** Availability: Availability unknown | *Havermout* → Picnic | muted, “the retailer did not report a status” |  | todo |
+| **(c2)** Availability on the queue row | `.row-flags` | worst status across the retailers, tone carried by the icon |  | todo |
+| **(d2)** Linked Mealie mapping row | `mealie-row-<id>` | labelled *Linked Mealie mapping · {food}*, only for Grocy + Mealie targets |  | todo |
+| **(d2)** Its own unit & amount | `mealie-amount-<id>`, `mealie-food-unit-<id>` | edited separately from the Grocy package amount and from the product-level Mealie unit |  | todo |
+| **(e2)** Mapping count line | `.row-flags` → *1 alternative* | sums the remembered alternatives across retailers |  | todo |
+
+## 3. Receipts
+
+| Real-app feature | Where | Notes | Implementation | Status |
+|---|---|---|---|---|
+| *Pull receipts now* | `pull-receipts` | loading state |  | todo |
+| Retailer picker | `receipt-retailer` | only receipt-capable plugins |  | todo |
+| Latest 5 / Latest 10 receipts | `receipt-count` | |  | todo |
+| *Load receipts for setup* + loading state | `load-receipts` | skeleton rows while loading |  | todo |
+| Explanation: reference only, never books stock or checks items off | `panel-receipt-pull` subtitle + footer | |  | todo |
+| Receipt cards: date, store, status, total | `receipt-<id>` | |  | todo |
+| Lines: description, mapping summary, qty+unit, amount | `rline-<id>-<i>` | “Mapped to X, 500 g per package” |  | todo |
+| Line status with review reason | badges on each line | |  | todo |
+| Attribution of what was linked | badges `stock 3`, `list 1` | |  | todo |
+| *Map product* / *Change mapping* | `map-line-<id>-<i>` | opens the mapping editor |  | todo |
+| Header-only receipts | `receipt-r3` | “Bought before receipt processing was enabled; kept as a header only.” |  | todo |
+| Empty: *No receipts stored yet.* | No plugins snapshot | |  | todo |
+| From-receipt bulk mapping reachable | `bulk-receipt-mapping` | links to `shop-mappings.html` |  | todo |
+| Failed receipt check surfaced | `receipt-error-jumbo` | danger banner + retry |  | todo |
+
+## 4. Review
+
+| Real-app feature | Where | Notes | Implementation | Status |
+|---|---|---|---|---|
+| Grouped inbox with counts per group | `review-projection|lines|disc|writes` | collapsible |  | todo |
+| Not sent to retailer (same projection rows) | `review-projection` | |  | todo |
+| Receipt lines to review — *Nothing here was booked* | `review-lines` group note | |  | todo |
+| Line detail: description, qty, unit, amount, reason | `review-line-<id>` | |  | todo |
+| Reason: retailer did not identify product | `review-line-rv3` | |  | todo |
+| Reason: no mapping yet | `review-line-rv1` | |  | todo |
+| Reason: package amount not confirmed | `review-line-rv2` | |  | todo |
+| Reason: return or correction | `review-line-rv4` | |  | todo |
+| Reason: receipt unit does not fit mapping | `review-line-rv5` | |  | todo |
+| Reason: product unit changed, confirm again | `review-line-rv6` | |  | todo |
+| Reason: several manual checks could match | `review-line-rv7` | |  | todo |
+| *One-off substitution* (expands) | `substitution-<id>` → `subform-<id>` | |  | todo |
+| … checkbox *Fulfil demand only, book nothing in Grocy* | `fulfil-only-<id>` | disables the product + amount fields |  | todo |
+| … Grocy product searchable select | `sub-product-<id>` | datalist `grocy-targets` |  | todo |
+| … stock amount | `sub-amount-<id>` | |  | todo |
+| … *Remember as alternative* | `sub-remember-<id>` | |  | todo |
+| … multi-select of open shopping rows this fulfils (removed) | `sub-open-*` | note explains removal |  | todo |
+| … multi-select of rows already checked off (flagged for review) | `sub-checked-*` | |  | todo |
+| … *Confirm substitution* | `confirm-substitution-<id>` | |  | todo |
+| *Process again (after mapping)* | `process-again-<id>` | |  | todo |
+| *Dismiss* | `dismiss-<id>` | |  | todo |
+| Discrepancy: manual check booked X, receipt shows Y | `discrepancy-d1` | undo booking #4821, amount + consume difference, keep stock as is |  | todo |
+| Discrepancy: substitute bought, original already booked | `discrepancy-d2` | |  | todo |
+| Discrepancy: row checked off while a receipt already fulfilled it | `discrepancy-d3` | *The receipt covers it* / *It was an additional purchase, book it* |  | todo |
+| Booking evidence readable, not raw JSON | `.evidence` key/value list | |  | todo |
+| Writes needing a decision | `write-<id>` | label, status badge unknown/failed, kind, source, attempts, last error, evidence |  | todo |
+| Actions *It happened* / *It did not happen, retry* / *Skip* | `write-happened-*`, `write-retry-*`, `write-skip-*` | retry only for `unknown` |  | todo |
+| Note: never retried automatically | `review-writes` group note | |  | todo |
+| Empty: *All writes are settled.* | All clear snapshot | |  | todo |
+| Zero-state celebration | `review-clear` | |  | todo |
+
+## 5. Diagnostics
+
+| Real-app feature | Where | Notes | Implementation | Status |
+|---|---|---|---|---|
+| *Sync diagnostics* + *View full history* | `panel-sync-diagnostics`, `view-full-history` | |  | todo |
+| Last receipt fetch | `diag-top` cell 1 | |  | todo |
+| Next receipt fetch with countdown / *Due / waiting for worker* | `#next-fetch`, `#next-fetch-countdown` | live countdown, flips to Due at 0 |  | todo |
+| Last shopping job (time + status) | `diag-top` cell 3 | |  | todo |
+| Per plugin card with state | `diag-<id>` | |  | todo |
+| State: Receipt processing disabled | `diag-picnic` (All clear) | |  | todo |
+| State: Waiting for plugin connection and active scheduler | `diag-crisp` (Busy) | Crisp is installed but never connected, so it has no catalogue and is left out of the Products workflow; its long badge wraps under the plugin name |  | todo |
+| State: Plugin does not support receipts | `diag-picnic` (Busy) | |  | todo |
+| State: Waiting for retailer sign-in | `diag-jumbo` (Busy) | |  | todo |
+| State: Connected | `diag-ah` | |  | todo |
+| Last receipt check / next check | `diag-<id>` kv list | |  | todo |
+| Last list sync: result status, applied, failed, conflicts, message | `diag-<id>` kv list + hint | |  | todo |
+| Last check error in danger tone | `diag-jumbo` → `.diag-error` | |  | todo |
+| Footnote on schedules | `panel-plugin-diagnostics` footer | 30 min checks, reconnect/notification, worker every minute, busy jobs delay processing |  | todo |
+| *List cleanup* explanation | `panel-cleanup` subtitle | managed quantity removed, household quantity kept |  | todo |
+| Cleanup per line: product, plugin, managed, household, desired, pause | `cleanup-<i>` | the Plugin cell is a compact inline `.plug` chip |  | todo |
+| Desired *Not applicable (replacement note)* | `cleanup-2` | |  | todo |
+
+## Retailer accounts in the sample data
+
+| Plugin | `list.notes` | Accounts | What it demonstrates |  | todo |
+|---|---|---|---|---|---|
+| Albert Heijn | yes | Household list, Second account, Shared household (not signed in) | the account selector, a working toggle, the locked-on discontinued case, and the not-signed-in explanation |  | todo |
+| Jumbo | no | Main account | the text-item block disabled because the plugin cannot add notes |  | todo |
+| Picnic | no | Main account | same, on a plugin that also has no receipts |  | todo |
+| Crisp | no | Main account (not signed in) | installed but never connected: no catalogue, so it is absent from Products |  | todo |
+
+In the All clear snapshot Albert Heijn keeps two bound accounts and no product is waiting on a replacement.
+
+## How this revision was verified
+
+- Every one of the three snapshots was driven through all five tabs, plus ~100 interactions
+  (tab switches, projection expand/collapse, receipt pull and load, every Review action, the
+  substitution form, and the full Products workflow including the text-item states). 485 render
+  passes, no runtime errors, no unbalanced markup, and no `undefined` / `NaN` reaching the copy.
+- 50 assertions check that each fix and each new feature is actually present in the rendered
+  markup — see the *Where* column above for the ids they look for.
+- The 1440px and 390px layouts were reviewed statically against the stylesheet (grid minimums,
+  wrapping, touch targets and foreground/background contrast pairs in both themes), not from a
+  pixel render.
+
+## Known gaps
+
+- The Products workflow is a parallel implementation that reuses `shop-workspace.css` from `shop-mappings.html`; it does not share JS with `shop-mappings.js`, so behaviour changes must be made in both places.
+- All amounts, receipts, errors and timestamps are illustrative demo data.
+- Text-item configuration lives in a per-product/per-retailer store in `shopping-products.js`; it survives a confirm but, like the rest of the prototype, resets when the demo snapshot is switched.

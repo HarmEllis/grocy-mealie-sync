@@ -86,7 +86,7 @@ export function DiagnosticsTab({ overview, timeZone, locale }: { overview: ShopO
               {overview.lines.map(line => {
                 const desired = line.kind === 'note' ? 'Not applicable (replacement note)' : String(overview.exports.find(row => row.installationId === line.installationId && row.retailerProductId === line.retailerProductId)?.packages ?? 0);
                 return (
-                  <DataRow key={`${line.installationId}:${line.kind}:${line.retailerProductId}`} columns={6} cells={[
+                  <DataRow key={`${line.installationId}:${line.kind}:${line.retailerProductId}`} cells={[
                     ['Product', <span key="p" className="font-semibold">{line.productName}</span>],
                     ['Plugin', <PluginChip key="i" name={installationName(overview, line.installationId)} />],
                     ['Managed', <span key="m" className="font-mono">{line.managedQty}</span>],
