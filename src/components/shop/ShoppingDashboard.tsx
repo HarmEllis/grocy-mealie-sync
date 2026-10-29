@@ -5,6 +5,7 @@ import { ArrowLeftRight, Check, History, LayoutDashboard, Package, Receipt, Shop
 import { toast } from 'sonner';
 import { apiJson } from './api';
 import { OwnProductsTab } from './OwnProductsTab';
+import { ShopFormatProvider } from './shop-format';
 import { attentionCount, pausedLines, post } from './shop-common';
 import { DButton, EmptyState, KpiTile, ShopLogo, Spinner, StatusHero } from './shop-ui';
 import { DiagnosticsTab } from './tabs/DiagnosticsTab';
@@ -28,7 +29,9 @@ const TABS: Array<{ id: Tab; label: string; icon: ReactNode }> = [
 export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone?: string | null; locale?: string | null }) {
   const [overview, setOverview] = useState<ShopOverview | null>(null);
   const [tab, setTab] = useState<Tab>('overview');
+  // A search handed over from another tab (a blocked row's fix link); `productsKey` remounts the tab so it applies.
   const [productsQuery, setProductsQuery] = useState('');
+  const [productsKey, setProductsKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [nextRefresh, setNextRefresh] = useState(REFRESH_SECONDS);
   const swipeStart = useRef<{ x: number; y: number } | null>(null);
@@ -77,12 +80,14 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
         : { headline: 'Nothing needs your decision', badge: <>Nothing needs attention</>, tab: 'review' as const };
 
   function select(id: Tab, focus = false) {
+    if (id !== 'products') setProductsQuery('');
     setTab(id);
     if (focus) window.requestAnimationFrame(() => document.getElementById(`shop-tab-${id}`)?.focus());
   }
   function openProducts(query: string) {
     setProductsQuery(query);
-    select('products');
+    setProductsKey(key => key + 1);
+    setTab('products');
   }
   function step(direction: 1 | -1, focus = false) {
     const index = TABS.findIndex(item => item.id === tab);
@@ -113,6 +118,7 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
   }
 
   return (
+    <ShopFormatProvider timeZone={timeZone} locale={locale}>
     <div className="shop-v2 min-w-0 break-words">
       <div className="page-head" data-testid="shop-toolbar">
         <div className="head-top">
@@ -208,7 +214,7 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
             <section role="tabpanel" id={`shop-panel-${tab}`} aria-labelledby={`shop-tab-${tab}`} className="stack">
               {!overview ? <div className="panel"><div className="skeleton" aria-hidden="true"><div className="sk w40" /><div className="sk" /><div className="sk w80" /><div className="sk w60" /></div></div> : null}
               {overview && tab === 'overview' ? <OverviewTab overview={overview} reload={load} goTo={select} openProducts={openProducts} /> : null}
-              {overview && tab === 'products' ? <OwnProductsTab overview={overview} reloadOverview={load} initialQuery={productsQuery} /> : null}
+              {overview && tab === 'products' ? <OwnProductsTab key={productsKey} overview={overview} reloadOverview={load} initialQuery={productsQuery} /> : null}
               {overview && tab === 'receipts' ? <ReceiptsTab overview={overview} reload={load} /> : null}
               {overview && tab === 'review' ? <ReviewTab overview={overview} reload={load} openProducts={openProducts} goTo={select} /> : null}
               {overview && tab === 'diagnostics' ? <DiagnosticsTab overview={overview} timeZone={timeZone} locale={locale} /> : null}
@@ -217,5 +223,6 @@ export function ShoppingDashboard({ timeZone = null, locale = null }: { timeZone
         </>
       ) : null}
     </div>
+    </ShopFormatProvider>
   );
 }

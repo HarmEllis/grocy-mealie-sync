@@ -5,7 +5,9 @@ import { ArrowLeft, ArrowLeftRight, Check, Clock, Receipt, TriangleAlert, X } fr
 import { toast } from 'sonner';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
 import { apiJson } from '../api';
-import { money, pausedLines, post, REVIEW_LABELS, when } from '../shop-common';
+import { money, pausedLines, post, REVIEW_LABELS } from '../shop-common';
+import { useAction } from '../shop-actions';
+import { useWhen } from '../shop-format';
 import type { ShopOverview } from '@/lib/shop/overview';
 import type { TargetOption } from '@/lib/shop/targets';
 import { Badge, CheckLine, DButton, EmptyState, Evidence, Field, ReviewGroup, RowItem, RowList } from '../shop-ui';
@@ -58,37 +60,43 @@ export function ReviewTab({ overview, reload, openProducts, goTo }: {
           : <RowList>{overview.discrepancies.map(discrepancy => <DiscrepancyItem key={discrepancy.id} discrepancy={discrepancy} reload={reload} />)}</RowList>}
       </ReviewGroup>
 
-      <PausedLines overview={overview} reload={reload} />
+      <PausedLines overview={overview} reload={reload} grouped />
 
       <ReviewGroup testId="review-writes" title="Writes needing a decision" icon={<Clock />} count={overview.effects.length}
         intro="gm-sync never retries an uncertain write on its own: a double write would silently add units to a shared list.">
         {overview.effects.length === 0
           ? <EmptyState tone="good" title="All writes are settled">Nothing is waiting on an uncertain retailer response.</EmptyState>
           : <RowList>
-            {overview.effects.map(effect => (
-              <RowItem
-                key={effect.id}
-                testId="uncertain-effect"
-                actions={<>
-                  <DButton onClick={async () => { if (await post(`/api/shop/effects/${effect.id}`, { action: 'booked_elsewhere' }, 'Marked as done')) await reload(); }}>It happened</DButton>
-                  {effect.status === 'unknown' ? <DButton onClick={async () => { if (await post(`/api/shop/effects/${effect.id}`, { action: 'not_booked_retry' }, 'Will retry once')) await reload(); }}>It did not happen, retry</DButton> : null}
-                  <DButton variant="ghost" onClick={async () => { if (await post(`/api/shop/effects/${effect.id}`, { action: 'skip' }, 'Skipped')) await reload(); }}>Skip</DButton>
-                </>}
-              >
-                <strong>{String((effect.payload as { label?: string }).label ?? effect.kind)}</strong>
-                <div className="row-sub">
-                  <Badge tone={effect.status === 'unknown' ? 'warning' : 'danger'}>{effect.status.replace('_', ' ')}</Badge>
-                  <Badge tone="info">{effect.kind}</Badge>
-                  <span>{effect.sourceKind}</span>
-                  <span className="mono">{effect.attempts} attempt{effect.attempts === 1 ? '' : 's'}</span>
-                </div>
-                {effect.error ? <p className="row-reason">{effect.error}</p> : null}
-                {effect.evidence ? <Evidence rows={evidenceRows(effect.evidence)} /> : null}
-              </RowItem>
-            ))}
+            {overview.effects.map(effect => <EffectItem key={effect.id} effect={effect} reload={reload} />)}
           </RowList>}
       </ReviewGroup>
     </>
+  );
+}
+
+function EffectItem({ effect, reload }: { effect: ShopOverview['effects'][number]; reload: () => Promise<void> }) {
+  const { busy, run } = useAction();
+  const resolve = (action: string, success: string) => run(async () => { if (await post(`/api/shop/effects/${effect.id}`, { action }, success)) await reload(); });
+  return (
+    <RowItem
+      testId="uncertain-effect"
+      actions={<>
+        {/* The backend only accepts these two resolutions for an outcome that is still unknown. */}
+        {effect.status === 'unknown' ? <DButton disabled={busy} onClick={() => void resolve('booked_elsewhere', 'Marked as done')}>It happened</DButton> : null}
+        {effect.status === 'unknown' ? <DButton disabled={busy} onClick={() => void resolve('not_booked_retry', 'Will retry once')}>It did not happen, retry</DButton> : null}
+        <DButton variant="ghost" disabled={busy} onClick={() => void resolve('skip', 'Skipped')}>Skip</DButton>
+      </>}
+    >
+      <strong>{String((effect.payload as { label?: string }).label ?? effect.kind)}</strong>
+      <div className="row-sub">
+        <Badge tone={effect.status === 'unknown' ? 'warning' : 'danger'}>{effect.status.replace('_', ' ')}</Badge>
+        <Badge tone="info">{effect.kind}</Badge>
+        <span>{effect.sourceKind}</span>
+        <span className="mono">{effect.attempts} attempt{effect.attempts === 1 ? '' : 's'}</span>
+      </div>
+      {effect.error ? <p className="row-reason">{effect.error}</p> : null}
+      {effect.evidence ? <Evidence rows={evidenceRows(effect.evidence)} /> : null}
+    </RowItem>
   );
 }
 
@@ -99,6 +107,8 @@ function evidenceRows(value: unknown): Array<[string, string]> {
 }
 
 function ReviewLine({ line, overview, reload }: { line: ShopOverview['review'][number]; overview: ShopOverview; reload: () => Promise<void> }) {
+  const when = useWhen();
+  const { busy, run } = useAction();
   const [open, setOpen] = useState(false);
   const [targets, setTargets] = useState<TargetOption[]>([]);
   const [productId, setProductId] = useState('');
@@ -167,8 +177,8 @@ function ReviewLine({ line, overview, reload }: { line: ShopOverview['review'][n
             <DButton variant="ghost" onClick={() => setOpen(false)}>Cancel</DButton>
             <DButton
               variant="primary"
-              disabled={!fulfilOnly && (!productId || !(Number(stockAmount) > 0))}
-              onClick={async () => {
+              disabled={busy || (!fulfilOnly && (!productId || !(Number(stockAmount) > 0)))}
+              onClick={() => void run(async () => {
                 const body = {
                   action: 'substitute',
                   bookGrocyProductId: fulfilOnly ? null : Number(productId),
@@ -179,7 +189,7 @@ function ReviewLine({ line, overview, reload }: { line: ShopOverview['review'][n
                   rememberAsAlternative: !fulfilOnly && remember,
                 };
                 if (await post(`/api/shop/review/${line.id}`, body, 'Substitution confirmed')) await reload();
-              }}
+              })}
             >
               <Check className="size-3.5" /> Confirm substitution
             </DButton>
@@ -188,8 +198,8 @@ function ReviewLine({ line, overview, reload }: { line: ShopOverview['review'][n
       ) : null}
       actions={<>
         <DButton aria-expanded={open} onClick={() => { setOpen(!open); if (!open) void loadTargets(); }}><ArrowLeftRight className="size-3.5" /> One-off substitution</DButton>
-        <DButton variant="ghost" onClick={async () => { if (await post(`/api/shop/review/${line.id}`, { action: 'requeue' }, 'Line will be processed again')) await reload(); }}><Clock className="size-3.5" /> Process again (after mapping)</DButton>
-        <DButton variant="ghost" onClick={async () => { if (await post(`/api/shop/review/${line.id}`, { action: 'dismiss' }, 'Line dismissed')) await reload(); }}><X className="size-3.5" /> Dismiss</DButton>
+        <DButton variant="ghost" disabled={busy} onClick={() => void run(async () => { if (await post(`/api/shop/review/${line.id}`, { action: 'requeue' }, 'Line will be processed again')) await reload(); })}><Clock className="size-3.5" /> Process again (after mapping)</DButton>
+        <DButton variant="ghost" disabled={busy} onClick={() => void run(async () => { if (await post(`/api/shop/review/${line.id}`, { action: 'dismiss' }, 'Line dismissed')) await reload(); })}><X className="size-3.5" /> Dismiss</DButton>
       </>}
     >
       <strong className="mono">{line.description}</strong>
@@ -214,17 +224,18 @@ function DiscrepancyItem({ discrepancy, reload }: { discrepancy: ShopOverview['d
     evidence.bookedAmount !== undefined && evidence.receiptAmount !== undefined ? String(Math.max(0, evidence.bookedAmount - evidence.receiptAmount)) : '',
   );
   const productId = evidence.productId ?? evidence.bookings?.[0]?.productId;
-  const resolve = async (body: Record<string, unknown>, success: string) => {
+  const { busy, run } = useAction();
+  const resolve = (body: Record<string, unknown>, success: string) => run(async () => {
     if (await post(`/api/shop/discrepancies/${discrepancy.id}`, body, success)) await reload();
-  };
+  });
 
   if (discrepancy.kind === 'check_after_receipt') {
     return (
       <RowItem
         testId="discrepancy"
         actions={<>
-          <DButton onClick={() => void resolve({ action: 'skip_check' }, 'The receipt covers it; the check books nothing')}>The receipt covers it</DButton>
-          <DButton variant="ghost" onClick={() => void resolve({ action: 'book_check' }, 'The check will be booked as an extra purchase')}>It was an additional purchase, book it</DButton>
+          <DButton disabled={busy} onClick={() => void resolve({ action: 'skip_check' }, 'The receipt covers it; the check books nothing')}>The receipt covers it</DButton>
+          <DButton variant="ghost" disabled={busy} onClick={() => void resolve({ action: 'book_check' }, 'The check will be booked as an extra purchase')}>It was an additional purchase, book it</DButton>
         </>}
       >
         <strong>A shopping row was checked off while a receipt was already fulfilling it.</strong>
@@ -252,10 +263,10 @@ function DiscrepancyItem({ discrepancy, reload }: { discrepancy: ShopOverview['d
             <Field label="Consume" className="min-w-[120px]">
               <input type="number" step="any" min="0" inputMode="decimal" aria-label="Amount to consume" value={amount} onChange={event => setAmount(event.target.value)} />
             </Field>
-            <DButton disabled={!(Number(amount) > 0)} onClick={() => void resolve({ action: 'consume_difference', productId, amount: Number(amount) }, 'Difference consumed')}>Consume difference</DButton>
+            <DButton disabled={busy || !(Number(amount) > 0)} onClick={() => void resolve({ action: 'consume_difference', productId, amount: Number(amount) }, 'Difference consumed')}>Consume difference</DButton>
           </>
         ) : null}
-        <DButton variant="ghost" onClick={() => void resolve({ action: 'keep_stock' }, 'Stock kept as is')}>Keep stock as is</DButton>
+        <DButton variant="ghost" disabled={busy} onClick={() => void resolve({ action: 'keep_stock' }, 'Stock kept as is')}>Keep stock as is</DButton>
       </>}
     >
       <strong>

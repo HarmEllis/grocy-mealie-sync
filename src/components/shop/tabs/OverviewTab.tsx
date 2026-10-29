@@ -3,7 +3,8 @@
 import { Leaf, Plug, ReceiptText, ShoppingCart, History } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ShopOverview } from '@/lib/shop/overview';
-import { installationName, when } from '../shop-common';
+import { installationName } from '../shop-common';
+import { useWhen } from '../shop-format';
 import { Badge, DataRow, DataTable, DButton, EmptyState, Panel, PluginChip, RowItem, RowList, ShopLogo } from '../shop-ui';
 import { PausedLines } from './PausedLines';
 import { ProjectionReview } from './ProjectionReview';
@@ -14,6 +15,7 @@ export function OverviewTab({ overview, reload, goTo, openProducts }: {
   goTo: (tab: 'review' | 'diagnostics') => void;
   openProducts: (query: string) => void;
 }) {
+  const when = useWhen();
   const notes = overview.lines.filter(line => line.kind === 'note' && line.noteText && !line.pausedReason);
   return (
     <>
@@ -39,7 +41,7 @@ export function OverviewTab({ overview, reload, goTo, openProducts }: {
                   : 'No text-item support: a discontinued product pauses the line instead of becoming a note.'}
               </p>
               {installation.pendingListApply ? (
-                <div className="row-reason"><Badge tone="warning">list write pending confirmation</Badge> One write to this list could not be confirmed. It is waiting for your decision under Review.</div>
+                <div className="row-reason"><Badge tone="warning">list write pending confirmation</Badge> The retailer did not confirm the last write to this list. gm-sync checks it again at the start of the next list sync and leaves the list alone until then.</div>
               ) : null}
             </RowItem>
           ))}

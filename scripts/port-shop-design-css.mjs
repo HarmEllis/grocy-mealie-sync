@@ -22,8 +22,8 @@ const GLOBAL = /^(\*|html|body|:root|\[data-theme[^\]]*\]$|\[data-accent[^\]]*\]
 function scopeSelector(selector) {
   const sel = selector.trim();
   if (GLOBAL.test(sel) || SHELL.test(sel)) return null;
-  if (sel.startsWith('[data-theme')) {
-    const m = sel.match(/^(\[data-theme[^\]]*\])\s+(.*)$/);
+  if (sel.startsWith('[data-theme') || sel.startsWith('[data-accent')) {
+    const m = sel.match(/^(\[data-(?:theme|accent)[^\]]*\])\s+(.*)$/);
     return m ? `${m[1]} ${SCOPE} ${m[2]}` : null;
   }
   const guarded = sel

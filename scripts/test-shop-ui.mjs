@@ -235,6 +235,7 @@ try {
     for (const tab of ['Overview', 'Products', 'Receipts', 'Review', 'Diagnostics']) {
       await page.getByRole('tab', { name: new RegExp(`^${tab}`) }).click();
       await assertNoPageOverflow(`${width}px ${tab}`);
+      assert.equal(await page.locator('select').count(), 0, `${width}px ${tab}: shop controls use themed popups`);
       if (tab === 'Overview' || tab === 'Review') {
         await page.getByText('Basil', { exact: true }).waitFor();
         await page.getByText('No preferred retailer product is mapped to this ingredient.', { exact: true }).waitFor();

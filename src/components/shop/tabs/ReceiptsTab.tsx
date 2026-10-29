@@ -5,8 +5,10 @@ import { ArrowLeftRight, Check, Link2, Receipt, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiJson } from '../api';
 import { MappingEditor, type MappingRow, type ProductRow } from '../MappingEditor';
-import { installationName, money, post, REVIEW_LABELS, when } from '../shop-common';
-import { Badge, CheckLine, DButton, EmptyState, ErrorBar, Field, Panel, ShopLogo, Spinner } from '../shop-ui';
+import { ThemedSelect } from '@/components/shared/ThemedSelect';
+import { installationName, money, post, REVIEW_LABELS } from '../shop-common';
+import { useWhen } from '../shop-format';
+import { Badge, CheckLine, DButton, EmptyState, ErrorBar, Panel, ShopLogo, Spinner } from '../shop-ui';
 import type { ShopOverview } from '@/lib/shop/overview';
 
 type ReceiptView = ShopOverview['receipts'][number];
@@ -17,6 +19,7 @@ function statusTone(receipt: ReceiptView): 'success' | 'warning' | '' {
 }
 
 export function ReceiptsTab({ overview, reload }: { overview: ShopOverview; reload: () => Promise<void> }) {
+  const when = useWhen();
   const receiptPlugins = overview.installations.filter(installation => installation.capabilities.includes('receipts') || installation.settings.receiptsEnabled);
   const retailers = receiptPlugins.length ? receiptPlugins : overview.installations;
   const [retailer, setRetailer] = useState('all');
@@ -90,18 +93,14 @@ export function ReceiptsTab({ overview, reload }: { overview: ShopOverview; relo
           </div>
         ) : null}
         <div className="receipt-controls">
-          <Field label="Retailer">
-            <select aria-label="Receipt retailer" value={retailer} onChange={event => setRetailer(event.target.value)}>
-              <option value="all">All retailers</option>
-              {retailers.map(installation => <option key={installation.id} value={installation.id}>{installation.name}</option>)}
-            </select>
-          </Field>
-          <Field label="How many">
-            <select aria-label="Historical receipt count" value={historyLimit} onChange={event => setHistoryLimit(event.target.value as '5' | '10')}>
-              <option value="5">Latest 5 receipts</option>
-              <option value="10">Latest 10 receipts</option>
-            </select>
-          </Field>
+          <div className="field">
+            <span>Retailer</span>
+            <ThemedSelect ariaLabel="Receipt retailer" value={retailer} onChange={setRetailer} className="w-full" options={[{ value: 'all', label: 'All retailers' }, ...retailers.map(installation => ({ value: installation.id, label: installation.name }))]} />
+          </div>
+          <div className="field">
+            <span>How many</span>
+            <ThemedSelect ariaLabel="Historical receipt count" value={historyLimit} onChange={setHistoryLimit} className="w-full" options={[{ value: '5' as const, label: 'Latest 5 receipts' }, { value: '10' as const, label: 'Latest 10 receipts' }]} />
+          </div>
           <div className="field field-actions">
             <DButton disabled={!selected || fetching} onClick={() => void loadForSetup()} title={selected ? undefined : 'Choose one retailer to load receipts for setup'}>
               {fetching ? <Spinner /> : <Receipt className="size-3.5" />} {fetching ? 'Loading receipts…' : 'Load receipts for setup'}
