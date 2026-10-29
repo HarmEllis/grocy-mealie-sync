@@ -19,7 +19,8 @@ export function packageMismatch(
   amount: number | null | undefined,
   baseUnitName: string | null | undefined,
 ): PackageMismatch | null {
-  if (!product || !amount || amount <= 0) return null;
+  // Without a reported package size there is nothing to contradict: the count-unit fallback of 1 is a default, not a fact.
+  if (!product || !packageLabel(product) || !amount || amount <= 0) return null;
   const derived = derivePackageBaseAmount({
     measure: product.measure === 'weight' ? 'weight' : 'unit',
     packageAmount: product.packageAmount,

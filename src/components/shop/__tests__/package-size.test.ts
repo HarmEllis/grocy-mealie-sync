@@ -32,6 +32,18 @@ describe('packageMismatch', () => {
     expect(packageMismatch(product(200, 'g'), null, 'gram')).toBeNull();
     expect(packageMismatch(undefined, 70, 'gram')).toBeNull();
   });
+
+  it('does not contradict a package size the retailer never reported', () => {
+    // The library falls back to 1 for a count unit; that default says nothing about a multi-pack.
+    expect(packageMismatch(product(null, null), 4, 'stuk')).toBeNull();
+    expect(packageMismatch(product(4, null), 4, 'stuk')).toBeNull();
+    expect(packageMismatch(product(null, 'piece'), 6, 'stuk')).toBeNull();
+  });
+
+  it('judges a package given in pieces against a count unit', () => {
+    expect(packageMismatch(product(6, 'piece'), 6, 'stuk')).toBeNull();
+    expect(packageMismatch(product(6, 'piece'), 1, 'stuk')).toEqual({ expected: 6, actual: 1 });
+  });
 });
 
 describe('formatAmount', () => {

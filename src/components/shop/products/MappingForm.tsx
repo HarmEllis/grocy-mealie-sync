@@ -105,7 +105,7 @@ export function MappingForm({ target, draft, units, onSaved, onCancel, registerS
           <button type="button" className="text-action" onClick={() => setAmount(String(preview.derivation!.amount))}>Use suggested amount</button>
         </div>
       ) : <p className="ti-note">Enter the amount shown on the package or receipt. Unknown conversions are never guessed.</p>}
-      {expected && parsed > 0 && Math.abs(expected - parsed) > expected * 0.01 ? (
+      {packageLabel(draft.product) && expected && parsed > 0 && Math.abs(expected - parsed) > expected * 0.01 ? (
         <div className="preview-box bad" role="alert" data-testid="amount-mismatch">
           <TriangleAlert aria-hidden="true" />
           <span>The package is {packageLabel(draft.product)}, which is {formatAmount(expected)} {baseName}, but you entered {formatAmount(parsed)}. Check the amount before confirming.</span>
