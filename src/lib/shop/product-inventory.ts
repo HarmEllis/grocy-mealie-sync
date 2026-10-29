@@ -119,10 +119,20 @@ export async function productInventory(options: InventoryOptions = {}, useCache 
   // Same rules the table applies per row: a Grocy target whose stock unit moved (or whose preferred mapping still
   // points at a linked Mealie food) must be re-confirmed, an unconfirmed amount is not trusted, and a discontinued
   // retailer product needs a text item or a replacement.
+  const mealieUnitIds = new Set(mealieUnits.map(unit => unit.id));
   const enriched: InventoryTarget[] = targets.map(target => {
-    const own = preferredByTarget.get(key(target)) ?? [];
+    const preferredHere = preferredByTarget.get(key(target)) ?? [];
+    // One effective preferred mapping per provider: a direct mapping wins over a legacy one on the linked Mealie food,
+    // which is what the table and the list projection use, so a shadowed legacy row must not flag the product.
+    const own = [...new Set(preferredHere.map(mapping => mapping.providerId))].map(providerId => {
+      const forProvider = preferredHere.filter(mapping => mapping.providerId === providerId);
+      return forProvider.find(mapping => mapping.targetKind === target.kind && mapping.targetId === target.id) ?? forProvider[0];
+    });
     const reasons = new Set<AttentionReason>();
-    if (target.kind === 'grocy_product' && own.some(mapping => mapping.targetKind !== 'grocy_product' || mapping.packageBaseUnitId !== target.baseUnitId)) reasons.add('unit_changed');
+    const unitInvalid = (mapping: (typeof own)[number]) => target.kind === 'grocy_product'
+      ? target.baseUnitId === null || mapping.targetKind !== 'grocy_product' || mapping.packageBaseUnitId !== target.baseUnitId
+      : mapping.packageBaseUnitId !== null && !mealieUnitIds.has(mapping.packageBaseUnitId);
+    if (own.some(unitInvalid)) reasons.add('unit_changed');
     if (own.some(mapping => !mapping.confirmed)) reasons.add('unconfirmed');
     if (own.some(mapping => availability.get(`${mapping.providerId}:${mapping.retailerProductId}`) === 'discontinued')) reasons.add('discontinued');
     return { ...target, attention: ATTENTION_REASONS.filter(reason => reasons.has(reason)), mappedProviders: [...new Set(own.map(mapping => mapping.providerId))] };

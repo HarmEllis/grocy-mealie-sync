@@ -29,11 +29,12 @@ export function ReceiptsTab({ overview, reload }: { overview: ShopOverview; relo
   const [pulling, setPulling] = useState(false);
   const [editing, setEditing] = useState<{ providerId: string; product: ProductRow; mapping: MappingRow | null } | null>(null);
 
-  const providerOf = (installationId: string) => overview.installations.find(installation => installation.id === installationId)?.providerId ?? null;
   // Loading history for setup needs one installation: the only retailer counts as selected.
   const selected = retailers.find(installation => installation.id === retailer) ?? (retailer === 'all' && retailers.length === 1 ? retailers[0] : undefined);
   const visible = overview.receipts
-    .filter(receipt => retailer === 'all' || receipt.installationId === retailer || (selected?.providerId && receipt.providerId === selected.providerId))
+    // A receipt belongs to one installation; the provider only stands in when its installation is gone.
+    .filter(receipt => retailer === 'all' || receipt.installationId === retailer
+      || (selected?.providerId && receipt.providerId === selected.providerId && !overview.installations.some(installation => installation.id === receipt.installationId)))
     .map(receipt => ({ receipt, lines: onlyToMap ? receipt.lines.filter(line => !line.mapping && line.retailerProductId) : receipt.lines }))
     .filter(({ receipt, lines }) => !onlyToMap || (receipt.lines.length > 0 && lines.length > 0));
   const failing = overview.installations.filter(installation => installation.settings.receiptsEnabled && installation.receiptCursor?.lastError);
@@ -79,9 +80,9 @@ export function ReceiptsTab({ overview, reload }: { overview: ShopOverview; relo
         testId="panel-receipt-pull"
         icon={<Receipt className="size-4" />}
         title="Receipts"
-        subtitle="Reference only. Receipts help you configure mappings and explain what was bought. They never book stock and never check items off a list, even after processing is enabled."
+        subtitle="Receipts pulled from the retailer are processed while receipt processing is enabled. Receipts loaded for setup are reference only: they help you configure mappings and never book stock or check items off a list."
         tools={<DButton onClick={() => void pull()} disabled={pulling} data-testid="pull-receipts">{pulling ? <Spinner /> : <ArrowLeftRight className="size-3.5" />} Pull receipts now</DButton>}
-        footer={<span>Stored receipts stay in gm-sync. Mapping a line here only teaches gm-sync which product the retailer text means.</span>}
+        footer={<span>Mapping a line here only teaches gm-sync which product the retailer text means. It does not book anything.</span>}
       >
         {failing.length ? (
           <div style={{ padding: '18px 20px 0', display: 'grid', gap: 10 }}>
@@ -114,7 +115,7 @@ export function ReceiptsTab({ overview, reload }: { overview: ShopOverview; relo
           <div className="skeleton" aria-hidden="true"><div className="sk w40" /><div className="sk" /><div className="sk w80" /><div className="sk w60" /></div>
         ) : visible.length === 0 ? (
           <EmptyState icon={<Receipt className="size-5" />} title={onlyToMap ? 'No lines need a mapping' : 'No receipts stored yet'}>
-            {onlyToMap ? 'Every receipt line with a retailer product is mapped.' : 'Pull receipts to build up a reference history. Receipts help configure mappings; they never book stock and never check items off.'}
+            {onlyToMap ? 'Every receipt line with a retailer product is mapped.' : 'Pull receipts, or load a few for setup, to build up a history. Receipts loaded for setup are reference only and never book stock or check items off.'}
           </EmptyState>
         ) : (
           <div className="rcards" style={{ padding: '0 20px 18px' }}>

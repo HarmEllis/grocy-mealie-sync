@@ -43,7 +43,7 @@ export function DiagnosticsTab({ overview, timeZone, locale }: { overview: ShopO
             <div className="diag-cell">
               <span title="Latest receipt fetch attempt, including failed checks">Last receipt fetch</span>
               <strong>{date(lastReceiptCheck)}</strong>
-              <small>Reference data only</small>
+              <small>Latest attempt, including failed ones</small>
             </div>
             <div className="diag-cell">
               <span>Next receipt fetch</span>

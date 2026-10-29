@@ -1,7 +1,7 @@
 import { ShopApiError } from './api-helpers';
 import { refreshCatalogProducts } from './catalog-service';
 import { saveRetailerMapping } from './mapping-save';
-import { getRetailerMapping, getSuggestion, listSuggestions } from './retailer-catalog';
+import { getRetailerMapping, getSuggestion, listRetailerMappings, listSuggestions } from './retailer-catalog';
 
 export const DEFAULT_BULK_MIN_SCORE = 0.85;
 const MAX_BULK = 100;
@@ -11,12 +11,21 @@ export interface BulkAcceptResult {
   skipped: Array<{ id: string; providerId: string; retailerProductId: string; reason: string }>;
 }
 
+/** Another retailer product that is already the preferred one for this target at this retailer. */
+function preferredElsewhere(suggestion: { providerId: string; retailerProductId: string; targetKind: string; targetId: string }) {
+  return listRetailerMappings(suggestion.providerId).find(mapping => mapping.role === 'preferred'
+    && mapping.retailerProductId !== suggestion.retailerProductId && mapping.targetKind === suggestion.targetKind && mapping.targetId === suggestion.targetId);
+}
+const PREFERRED_TAKEN = 'This product already has a preferred retailer product at this retailer; review it in Products instead.';
+
 /**
  * Accept every pending suggestion whose displayed score (rounded percent) is above the threshold.
  * Mappings are saved exactly like a single accept without confirming an amount, so they stay
  * unconfirmed and show up as needing attention until the package amount is checked. A suggestion that
  * conflicts (its target was linked to a Grocy product, the retailer product is mapped elsewhere, a
- * Grocy unit vanished) is skipped with its reason; it never aborts the batch.
+ * Grocy unit vanished) is skipped with its reason; it never aborts the batch. A target that already has a
+ * preferred product at the retailer (confirmed, or saved earlier in this batch from a higher score) is never
+ * displaced: saving would demote that mapping to an alternative.
  */
 export async function acceptSuggestionsBulk(options: { minScore?: number } = {}): Promise<BulkAcceptResult> {
   const threshold = Math.round((options.minScore ?? DEFAULT_BULK_MIN_SCORE) * 100);
@@ -38,6 +47,7 @@ export async function acceptSuggestionsBulk(options: { minScore?: number } = {})
     try {
       if (getSuggestion(suggestion.id)?.status !== 'pending') throw new ShopApiError(409, 'Suggestion was already decided');
       const existing = getRetailerMapping(suggestion.providerId, suggestion.retailerProductId);
+      if (existing?.role !== 'alternative' && preferredElsewhere(suggestion)) throw new ShopApiError(409, PREFERRED_TAKEN);
       await saveRetailerMapping({
         providerId: suggestion.providerId,
         retailerProductId: suggestion.retailerProductId,
@@ -52,6 +62,7 @@ export async function acceptSuggestionsBulk(options: { minScore?: number } = {})
       }, {
         beforeWrite: () => {
           if (getSuggestion(suggestion.id)?.status !== 'pending') throw new ShopApiError(409, 'Suggestion was already decided while its target was being resolved');
+          if (existing?.role !== 'alternative' && preferredElsewhere(suggestion)) throw new ShopApiError(409, PREFERRED_TAKEN);
         },
       });
       result.accepted.push({ ...ref, targetName: suggestion.targetName });

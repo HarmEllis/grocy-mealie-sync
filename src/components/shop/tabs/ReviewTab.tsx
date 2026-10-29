@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowLeftRight, Check, Clock, Receipt, TriangleAlert, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { SearchableSelect } from '@/components/shared/SearchableSelect';
@@ -118,17 +118,29 @@ function ReviewLine({ line, overview, reload }: { line: ShopOverview['review'][n
   const [remember, setRemember] = useState(false);
   const [fulfilOnly, setFulfilOnly] = useState(false);
 
-  async function loadTargets() {
-    try {
-      const result = await apiJson<{ targets: TargetOption[] }>(`/api/shop/targets?query=${encodeURIComponent(line.description)}`);
-      setTargets(result.targets.filter(target => target.kind === 'grocy_product'));
-    } catch (error) {
-      toast.error('Search failed', { description: (error as Error).message });
-    }
-  }
+  const [query, setQuery] = useState('');
+  const requestSequence = useRef(0);
+
+  // Suggestions follow the receipt text; typing searches every Grocy product, like the mapping dialog.
+  useEffect(() => {
+    if (!open) return;
+    const sequence = ++requestSequence.current;
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await apiJson<{ targets: TargetOption[] }>(`/api/shop/targets?query=${encodeURIComponent(query.slice(0, 200))}&suggestFor=${encodeURIComponent(line.description.slice(0, 200))}`);
+        if (sequence !== requestSequence.current) return;
+        setTargets(result.targets.filter(target => target.kind === 'grocy_product'));
+      } catch (error) {
+        if (sequence === requestSequence.current) toast.error('Search failed', { description: (error as Error).message });
+      }
+    }, query ? 250 : 0);
+    return () => { window.clearTimeout(timer); requestSequence.current++; };
+  }, [open, query, line.description]);
 
   const toggle = (list: string[], value: string) => (list.includes(value) ? list.filter(entry => entry !== value) : [...list, value]);
   const selectedProduct = targets.find(target => target.id === productId);
+  // Keep the chosen product visible and bookable after a later search no longer lists it.
+  const [selectedMemo, setSelectedMemo] = useState<TargetOption | null>(null);
   const reason = REVIEW_LABELS[line.reviewReason ?? ''] ?? line.reviewReason;
 
   return (
@@ -142,9 +154,15 @@ function ReviewLine({ line, overview, reload }: { line: ShopOverview['review'][n
           </CheckLine>
           {!fulfilOnly ? (
             <div className="fields">
-              <Field label="Grocy product">
-                <SearchableSelect className="w-full" ariaLabel="Product actually bought" placeholder="Search a Grocy product…" value={productId || null} onChange={value => setProductId(value ?? '')} options={targets.map(target => ({ value: target.id, label: `${target.name} (${target.baseUnitName ?? 'stock unit'})` }))} />
-              </Field>
+              <div className="field">
+                <span>Grocy product</span>
+                <SearchableSelect
+                  className="w-full" ariaLabel="Product actually bought" placeholder="Search a Grocy product…" onSearchChange={setQuery}
+                  value={productId || null} onChange={value => { setProductId(value ?? ''); setSelectedMemo(targets.find(target => target.id === value) ?? null); }}
+                  extraOption={selectedProduct ?? selectedMemo ? { value: productId, label: `${(selectedProduct ?? selectedMemo)!.name} (${(selectedProduct ?? selectedMemo)!.baseUnitName ?? 'stock unit'})` } : null}
+                  options={targets.map(target => ({ value: target.id, label: `${target.name} (${target.baseUnitName ?? 'stock unit'})` }))}
+                />
+              </div>
               <Field label="Stock amount">
                 <input type="number" step="any" min="0" inputMode="decimal" placeholder="e.g. 350" aria-label="Stock amount" value={stockAmount} onChange={event => setStockAmount(event.target.value)} />
               </Field>
@@ -182,7 +200,7 @@ function ReviewLine({ line, overview, reload }: { line: ShopOverview['review'][n
                 const body = {
                   action: 'substitute',
                   bookGrocyProductId: fulfilOnly ? null : Number(productId),
-                  bookGrocyProductName: fulfilOnly ? undefined : selectedProduct?.name,
+                  bookGrocyProductName: fulfilOnly ? undefined : (selectedProduct ?? selectedMemo)?.name,
                   stockAmount: fulfilOnly ? null : Number(stockAmount),
                   mealieItemIds: rows,
                   lifecycleIds: checks,
@@ -197,7 +215,7 @@ function ReviewLine({ line, overview, reload }: { line: ShopOverview['review'][n
         </div>
       ) : null}
       actions={<>
-        <DButton aria-expanded={open} onClick={() => { setOpen(!open); if (!open) void loadTargets(); }}><ArrowLeftRight className="size-3.5" /> One-off substitution</DButton>
+        <DButton aria-expanded={open} onClick={() => setOpen(!open)}><ArrowLeftRight className="size-3.5" /> One-off substitution</DButton>
         <DButton variant="ghost" disabled={busy} onClick={() => void run(async () => { if (await post(`/api/shop/review/${line.id}`, { action: 'requeue' }, 'Line will be processed again')) await reload(); })}><Clock className="size-3.5" /> Process again (after mapping)</DButton>
         <DButton variant="ghost" disabled={busy} onClick={() => void run(async () => { if (await post(`/api/shop/review/${line.id}`, { action: 'dismiss' }, 'Line dismissed')) await reload(); })}><X className="size-3.5" /> Dismiss</DButton>
       </>}

@@ -141,3 +141,25 @@ it('accepts the attention filter at the API boundary and rejects unknown values'
   expect(body.counts.attention).toBe(1);
   expect((await GET(new Request('http://test/api/shop/products?attention=bogus'))).status).toBe(400);
 });
+
+it('does not let a shadowed legacy mapping flag a product whose direct preferred mapping is healthy', async () => {
+  db.insert(retailerMappings).values(mapping('direct')).run();
+  db.insert(retailerMappings).values(mapping('legacy', { targetKind: 'mealie_food', targetId: 'f1', targetName: 'Kipfilet', confirmed: false, packageBaseUnitId: '77' })).run();
+  const result = await productInventory({});
+  expect(result.targets.find(target => target.id === '1')).toMatchObject({ attention: [], mappedProviders: ['ah'] });
+  // Another provider with only the legacy mapping is still flagged.
+  db.insert(retailerMappings).values(mapping('other', { providerId: 'picnic', targetKind: 'mealie_food', targetId: 'f1', targetName: 'Kipfilet' })).run();
+  expect((await productInventory({})).targets.find(target => target.id === '1')?.attention).toEqual(['unit_changed']);
+});
+
+it('flags a Mealie food mapped to a unit that no longer exists, but not a count or an existing unit', async () => {
+  const food = (id: string, unit: string | null) => mapping(id, { targetKind: 'mealie_food', targetId: 'f2', targetName: 'Aardappel', packageBaseUnitId: unit });
+  db.insert(retailerMappings).values(food('gone', 'removed-unit')).run();
+  expect((await productInventory({ source: 'mealie' })).targets[0].attention).toEqual(['unit_changed']);
+  db.delete(retailerMappings).run();
+  db.insert(retailerMappings).values(food('known', 'grams')).run();
+  expect((await productInventory({ source: 'mealie' })).targets[0].attention).toEqual([]);
+  db.delete(retailerMappings).run();
+  db.insert(retailerMappings).values(food('count', null)).run();
+  expect((await productInventory({ source: 'mealie' })).targets[0].attention).toEqual([]);
+});

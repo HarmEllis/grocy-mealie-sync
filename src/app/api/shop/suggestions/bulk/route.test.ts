@@ -64,6 +64,27 @@ describe('bulk suggestion acceptance', () => {
     expect(db.select().from(retailerSuggestions).all().find(row => row.id === 's2')?.status).toBe('pending');
   });
 
+  it('never displaces an existing preferred product of the same target', async () => {
+    db.insert(retailerMappings).values({ id: 'm-existing', providerId: 'demo', retailerProductId: 'butter', retailerProductName: 'butter', targetKind: 'grocy_product', targetId: '1', targetName: 'Milk', role: 'preferred', packageBaseAmount: 1, packageBaseUnitId: '10', packageBaseUnitName: 'Liter', packageSource: 'user', confirmed: true, fulfilsAllDemand: false, createdAt: new Date(), updatedAt: new Date() }).run();
+    suggest('s1', 'milk', '1', 'Milk', 0.97);
+    const body = await (await post()).json();
+    expect(body.accepted).toEqual([]);
+    expect(body.skipped).toEqual([expect.objectContaining({ id: 's1', reason: expect.stringContaining('already has a preferred') })]);
+    const rows = db.select().from(retailerMappings).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ retailerProductId: 'butter', role: 'preferred', confirmed: true });
+    expect(db.select().from(retailerSuggestions).all()[0].status).toBe('pending');
+  });
+
+  it('keeps the highest scoring suggestion preferred when several target the same product', async () => {
+    suggest('s1', 'milk', '1', 'Milk', 0.98);
+    suggest('s2', 'butter', '1', 'Milk', 0.88);
+    const body = await (await post()).json();
+    expect(body.accepted.map((item: { id: string }) => item.id)).toEqual(['s1']);
+    expect(body.skipped.map((item: { id: string }) => item.id)).toEqual(['s2']);
+    expect(db.select().from(retailerMappings).all().map(row => [row.retailerProductId, row.role])).toEqual([['milk', 'preferred']]);
+  });
+
   it('reports an empty batch and validates the body', async () => {
     expect(await (await post()).json()).toEqual({ accepted: [], skipped: [] });
     expect((await post({ minScore: 1.5 })).status).toBe(400);
