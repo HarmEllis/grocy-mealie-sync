@@ -3,14 +3,25 @@ import { productMappings } from '../db/schema';
 import { getGrocyEntities } from '../grocy/types';
 import { RecipesFoodsService, RecipesUnitsService } from '../mealie';
 import { extractFoods, extractUnits, type MealieFood, type MealieUnit } from '../mealie/types';
-import { listRetailerMappings } from './retailer-catalog';
+import { listRetailerMappings, listRetailerProducts } from './retailer-catalog';
 import type { TargetOption } from './targets';
 
 export type ProductSource = 'all' | 'grocy_mealie' | 'grocy' | 'mealie';
+/** Why a mapped product needs another look; a product can have several. */
+export type AttentionReason = 'unit_changed' | 'unconfirmed' | 'discontinued';
+export const ATTENTION_REASONS: readonly AttentionReason[] = ['unit_changed', 'unconfirmed', 'discontinued'];
+export type InventoryTarget = TargetOption & {
+  /** Reasons found on the preferred mappings in scope. */
+  attention: AttentionReason[];
+  /** Providers that have a preferred mapping for this target. */
+  mappedProviders: string[];
+};
 export interface InventoryOptions {
   query?: string;
   source?: ProductSource;
   mapped?: 'all' | 'mapped' | 'unmapped';
+  /** Independent of `mapped`: a product can be listed as mapped and as needing attention. */
+  attention?: 'any' | AttentionReason;
   providerId?: string;
   offset?: number;
   limit?: number;
@@ -100,20 +111,37 @@ export async function productInventory(options: InventoryOptions = {}, useCache 
     const linked = mapping.targetKind === 'mealie_food' ? links.find(link => link.mealieFoodId === mapping.targetId && grocyIds.has(String(link.grocyProductId))) : undefined;
     return linked ? `grocy_product:${linked.grocyProductId}` : `${mapping.targetKind}:${mapping.targetId}`;
   };
-  const mapped = new Set(mappings.filter(mapping => mapping.role === 'preferred' && (!options.providerId || mapping.providerId === options.providerId)).map(canonicalKey));
+  const preferred = mappings.filter(mapping => mapping.role === 'preferred' && (!options.providerId || mapping.providerId === options.providerId));
+  const mapped = new Set(preferred.map(canonicalKey));
+  const availability = new Map(listRetailerProducts().map(product => [`${product.providerId}:${product.externalId}`, product.availability]));
+  const preferredByTarget = new Map<string, typeof preferred>();
+  for (const mapping of preferred) preferredByTarget.set(canonicalKey(mapping), [...(preferredByTarget.get(canonicalKey(mapping)) ?? []), mapping]);
+  // Same rules the table applies per row: a Grocy target whose stock unit moved (or whose preferred mapping still
+  // points at a linked Mealie food) must be re-confirmed, an unconfirmed amount is not trusted, and a discontinued
+  // retailer product needs a text item or a replacement.
+  const enriched: InventoryTarget[] = targets.map(target => {
+    const own = preferredByTarget.get(key(target)) ?? [];
+    const reasons = new Set<AttentionReason>();
+    if (target.kind === 'grocy_product' && own.some(mapping => mapping.targetKind !== 'grocy_product' || mapping.packageBaseUnitId !== target.baseUnitId)) reasons.add('unit_changed');
+    if (own.some(mapping => !mapping.confirmed)) reasons.add('unconfirmed');
+    if (own.some(mapping => availability.get(`${mapping.providerId}:${mapping.retailerProductId}`) === 'discontinued')) reasons.add('discontinued');
+    return { ...target, attention: ATTENTION_REASONS.filter(reason => reasons.has(reason)), mappedProviders: [...new Set(own.map(mapping => mapping.providerId))] };
+  });
   const counts = {
     all: targets.length, grocy_mealie: targets.filter(target => target.source === 'grocy_mealie').length,
     grocy: targets.filter(target => target.source === 'grocy').length,
     mealie: targets.filter(target => target.source === 'mealie').length,
     mapped: targets.filter(target => mapped.has(key(target))).length,
     unmapped: targets.filter(target => !mapped.has(key(target))).length,
+    attention: enriched.filter(target => target.attention.length > 0).length,
   };
   const needle = options.query?.trim().toLocaleLowerCase() ?? '';
   const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
-  const rank = (target: TargetOption) => target.source === 'grocy_mealie' ? 0 : target.source === 'grocy' ? 1 : 2;
-  const filtered = targets.filter(target =>
+  const rank = (target: InventoryTarget) => target.source === 'grocy_mealie' ? 0 : target.source === 'grocy' ? 1 : 2;
+  const filtered = enriched.filter(target =>
     (!options.source || options.source === 'all' || target.source === options.source)
     && (!options.mapped || options.mapped === 'all' || mapped.has(key(target)) === (options.mapped === 'mapped'))
+    && (!options.attention || (options.attention === 'any' ? target.attention.length > 0 : target.attention.includes(options.attention)))
     && (!needle || [target.name, ...(target.linkedFoods ?? []).map(food => food.name)].join(' ').toLocaleLowerCase().includes(needle)),
   ).sort((a, b) => rank(a) - rank(b) || collator.compare(a.name, b.name) || collator.compare(a.id, b.id));
   const offset = options.offset ?? 0;

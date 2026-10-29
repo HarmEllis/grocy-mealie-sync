@@ -4,12 +4,12 @@ vi.mock('@/lib/db', async () => { const { createTestDb } = await import('@/test-
 vi.mock('@/lib/grocy/types', () => ({ getGrocyEntities: vi.fn(async (type: string) => type === 'products' ? [{ id: 1, name: 'Chicken breast', qu_id_stock: 10 }, { id: 2, name: 'Unlinked', qu_id_stock: 10 }] : [{ id: 10, name: 'gram' }]) }));
 vi.mock('@/lib/mealie', () => ({ RecipesFoodsService: { getAllApiFoodsGet: vi.fn(async (...args) => { if (fixture.error) throw new Error('Unavailable'); return { items: fixture.pages === 1 ? fixture.foods : args[6] === 1 ? fixture.foods.slice(0, 1) : fixture.foods.slice(1), total_pages: fixture.pages }; }) }, RecipesUnitsService: { getAllApiUnitsGet: vi.fn(async () => ({ items: [{ id: 'grams', name: 'gram' }], total_pages: 1 })) } }));
 import { db } from '@/lib/db';
-import { productMappings, retailerMappings } from '@/lib/db/schema';
+import { productMappings, retailerMappings, retailerProducts } from '@/lib/db/schema';
 import { productInventory, clearProductInventoryCache } from '../product-inventory';
 import { GET } from '@/app/api/shop/products/route';
 beforeEach(() => {
   fixture.pages = 1; fixture.error = false; clearProductInventoryCache();
-  db.delete(productMappings).run(); db.delete(retailerMappings).run();
+  db.delete(productMappings).run(); db.delete(retailerMappings).run(); db.delete(retailerProducts).run();
   db.insert(productMappings).values({ id: 'mapping', createdAt: new Date(), updatedAt: new Date(), grocyProductId: 1, grocyProductName: 'Chicken breast', mealieFoodId: 'f1', mealieFoodName: 'Kipfilet' }).run();
 });
 it('collapses linked products and searches by either name before slicing the canonical table', async () => {
@@ -78,4 +78,66 @@ it('shares metadata across filtered API calls, while explicit refresh and new ma
   expect(mapped.targets.map((target: { id: string }) => target.id)).toEqual(['1']);
   await GET(new Request('http://test/api/shop/products?refresh=true'));
   expect(RecipesFoodsService.getAllApiFoodsGet).toHaveBeenCalledTimes(2);
+});
+
+const mapping = (id: string, overrides: Record<string, unknown> = {}) => ({
+  id, providerId: 'ah', retailerProductId: `shop-${id}`, retailerProductName: `Shop ${id}`, targetKind: 'grocy_product', targetId: '1', targetName: 'Chicken breast',
+  role: 'preferred', packageBaseAmount: 500, packageBaseUnitId: '10', packageBaseUnitName: 'gram', packageSource: 'user', confirmed: true, fulfilsAllDemand: false,
+  createdAt: new Date(), updatedAt: new Date(), ...overrides,
+});
+const product = (externalId: string, availability: string, providerId = 'ah') => ({
+  id: `${providerId}:${externalId}`, providerId, externalId, name: externalId, measure: 'unit', availability, lastSeenAt: new Date(), createdAt: new Date(), updatedAt: new Date(),
+});
+
+it('lists no attention reasons for a healthy mapping and counts it as mapped only', async () => {
+  db.insert(retailerMappings).values(mapping('ok')).run();
+  const result = await productInventory({});
+  expect(result.targets.find(target => target.id === '1')).toMatchObject({ attention: [], mappedProviders: ['ah'] });
+  expect(result.targets.find(target => target.id === '2')).toMatchObject({ attention: [], mappedProviders: [] });
+  expect(result.counts).toMatchObject({ mapped: 1, unmapped: 2, attention: 0 });
+  expect((await productInventory({ attention: 'any' })).total).toBe(0);
+});
+
+it('flags a moved stock unit, an unconfirmed amount and a discontinued retailer product independently of mapped', async () => {
+  db.insert(retailerMappings).values(mapping('moved', { packageBaseUnitId: '99' })).run();
+  db.insert(retailerMappings).values(mapping('open', { providerId: 'picnic', confirmed: false })).run();
+  db.insert(retailerMappings).values(mapping('gone', { providerId: 'jumbo', targetKind: 'grocy_product', targetId: '2', targetName: 'Unlinked' })).run();
+  db.insert(retailerProducts).values(product('shop-gone', 'discontinued', 'jumbo')).run();
+  const all = await productInventory({});
+  expect(all.targets.find(target => target.id === '1')).toMatchObject({ attention: ['unit_changed', 'unconfirmed'], mappedProviders: ['ah', 'picnic'] });
+  expect(all.targets.find(target => target.id === '2')).toMatchObject({ attention: ['discontinued'], mappedProviders: ['jumbo'] });
+  expect(all.counts).toMatchObject({ mapped: 2, attention: 2 });
+  expect((await productInventory({ attention: 'any' })).targets.map(target => target.id)).toEqual(['1', '2']);
+  expect((await productInventory({ attention: 'unit_changed' })).targets.map(target => target.id)).toEqual(['1']);
+  expect((await productInventory({ attention: 'unconfirmed' })).targets.map(target => target.id)).toEqual(['1']);
+  expect((await productInventory({ attention: 'discontinued' })).targets.map(target => target.id)).toEqual(['2']);
+  // attention and mapped narrow independently, and the total stays correct for pagination.
+  expect((await productInventory({ attention: 'any', mapped: 'mapped', limit: 1 })).total).toBe(2);
+  expect((await productInventory({ attention: 'any', mapped: 'unmapped' })).total).toBe(0);
+  expect((await productInventory({ attention: 'any', limit: 1, offset: 1 })).targets.map(target => target.id)).toEqual(['2']);
+});
+
+it('scopes attention to the selected provider and ignores alternatives', async () => {
+  db.insert(retailerMappings).values(mapping('moved', { packageBaseUnitId: '99' })).run();
+  db.insert(retailerMappings).values(mapping('alt', { providerId: 'picnic', role: 'alternative', confirmed: false })).run();
+  expect((await productInventory({ attention: 'any', providerId: 'picnic' })).total).toBe(0);
+  expect((await productInventory({ attention: 'any', providerId: 'ah' })).targets.map(target => target.id)).toEqual(['1']);
+  expect((await productInventory({ attention: 'unconfirmed' })).total).toBe(0);
+});
+
+it('treats a preferred mapping that still points at the linked Mealie food as a changed unit', async () => {
+  db.insert(retailerMappings).values(mapping('legacy', { targetKind: 'mealie_food', targetId: 'f1', targetName: 'Kipfilet', packageBaseUnitId: '10' })).run();
+  const result = await productInventory({ attention: 'unit_changed' });
+  expect(result.targets.map(target => target.id)).toEqual(['1']);
+  expect(result.targets[0].attention).toEqual(['unit_changed']);
+});
+
+it('accepts the attention filter at the API boundary and rejects unknown values', async () => {
+  db.insert(retailerMappings).values(mapping('open', { confirmed: false })).run();
+  const response = await GET(new Request('http://test/api/shop/products?attention=unconfirmed'));
+  expect(response.status).toBe(200);
+  const body = await response.json();
+  expect(body.targets.map((target: { id: string }) => target.id)).toEqual(['1']);
+  expect(body.counts.attention).toBe(1);
+  expect((await GET(new Request('http://test/api/shop/products?attention=bogus'))).status).toBe(400);
 });

@@ -33,7 +33,7 @@ it('exposes every Shop UI action as a discoverable MCP tool', async () => {
       'plugins.list', 'plugins.create', 'plugins.update', 'plugins.revoke', 'plugins.rotate_token', 'plugins.reset_binding',
       'plugins.auth_begin', 'plugins.auth_submit', 'plugins.auth_logout', 'plugins.catalog_search', 'plugins.catalog_refresh',
       'shop.overview', 'shop.products.list', 'shop.mappings.list', 'shop.mappings.save', 'shop.mappings.update', 'shop.mappings.delete', 'shop.targets.search',
-      'shop.suggestions.decide', 'shop.searches.retry', 'shop.lists.sync', 'shop.lists.fallback', 'shop.receipts.pull', 'shop.receipts.history', 'shop.mappings.preview',
+      'shop.suggestions.decide', 'shop.suggestions.accept_bulk', 'shop.searches.retry', 'shop.lists.sync', 'shop.lists.fallback', 'shop.receipts.pull', 'shop.receipts.history', 'shop.mappings.preview',
       'shop.lines.resolve', 'shop.review.resolve', 'shop.effects.resolve', 'shop.discrepancies.resolve',
     ]));
     expect(tools.find(t => t.name === 'plugins.revoke')?.annotations?.destructiveHint).toBe(true);

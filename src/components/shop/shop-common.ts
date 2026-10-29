@@ -27,12 +27,6 @@ export function money(cents: number | null | undefined): string {
   return typeof cents === 'number' ? (cents / 100).toFixed(2) : '';
 }
 
-export function when(value: string | null | undefined): string {
-  if (!value) return '';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
-}
-
 export async function post(url: string, body: unknown, success: string): Promise<boolean> {
   try {
     await apiJson(url, { method: 'POST', body: JSON.stringify(body) });

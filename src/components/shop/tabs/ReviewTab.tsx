@@ -256,7 +256,7 @@ function DiscrepancyItem({ discrepancy, reload }: { discrepancy: ShopOverview['d
       testId="discrepancy"
       actions={<>
         {(evidence.bookings ?? []).filter(booking => booking.transactionId).map(booking => (
-          <DButton key={booking.transactionId} onClick={() => void resolve({ action: 'undo_transaction', transactionId: booking.transactionId }, 'Booking undone')}><ArrowLeft className="size-3.5" /> Undo booking {booking.transactionId}</DButton>
+          <DButton key={booking.transactionId} disabled={busy} onClick={() => void resolve({ action: 'undo_transaction', transactionId: booking.transactionId }, 'Booking undone')}><ArrowLeft className="size-3.5" /> Undo booking {booking.transactionId}</DButton>
         ))}
         {productId ? (
           <>
