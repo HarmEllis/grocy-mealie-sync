@@ -1,6 +1,6 @@
 import { config } from '../config';
 import { log } from '../logger';
-import { buildConflictCheckHistoryOutcome, buildGrocyToMealieHistoryOutcome, buildMealieToGrocyHistoryOutcome, buildProductSyncHistoryOutcome, buildShoppingCleanupHistoryOutcome, prefixHistoryEvents } from '../history-events';
+import { buildConflictCheckHistoryOutcome, buildGrocyCheckedHistoryOutcome, buildGrocyToMealieHistoryOutcome, buildMealieToGrocyHistoryOutcome, buildProductSyncHistoryOutcome, buildShoppingCleanupHistoryOutcome, prefixHistoryEvents } from '../history-events';
 import { recordHistoryRun, type HistoryEventInput } from '../history-store';
 import {
   sendSchedulerNotifications,
@@ -13,6 +13,7 @@ import {
 import { runMappingConflictCheck } from '../mapping-conflicts-store';
 import { runFullProductSync } from './product-sync';
 import { pollGrocyForMissingStock } from './grocy-to-mealie';
+import { pollGrocyCheckedToMealie } from './grocy-checked-to-mealie';
 import { pollMealieForCheckedItems } from './mealie-to-grocy';
 import {
   acquireSchedulerLock,
@@ -99,6 +100,8 @@ function getSchedulerStepLabel(name: SchedulerStepName): string {
       return 'Product sync';
     case 'mealie_to_grocy':
       return 'Mealie to Grocy';
+    case 'grocy_checked_to_mealie':
+      return 'Grocy checked to Mealie';
     case 'grocy_to_mealie':
       return 'Grocy to Mealie';
     case 'conflict_check':
@@ -327,6 +330,18 @@ function startTimers(): void {
 
     try {
       await runSchedulerCycle('poll', [
+        {
+          // Runs first so Grocy-propagated checked states land in
+          // mealieCheckedItems before the Mealie→Grocy poll evaluates the same
+          // items — direction 3 then skips them instead of re-booking a
+          // purchase Grocy has already recorded.
+          name: 'grocy_checked_to_mealie',
+          failureLogPrefix: '[Scheduler] Grocy-checked poll error:',
+          run: async () => {
+            const result = await pollGrocyCheckedToMealie();
+            return buildGrocyCheckedHistoryOutcome(result);
+          },
+        },
         {
           name: 'mealie_to_grocy',
           failureLogPrefix: '[Scheduler] Mealie poll error:',

@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Optional Grocy→Mealie checked-state sync (`SYNC_GROCYSIDE_CHECKED`): checking a Grocy shopping-list row (`done`), a positive stock booking for a mapped product, or undoing such a booking ("put back") now propagate onto the matching Mealie shopping item. Mealie-side unchecks mirror the Grocy row back to unchecked. Stock is never silently reverted — only checked states are mirrored. The new scheduler step runs before the Mealie→Grocy poll and pins the propagated item as already processed, so a purchase recorded in Grocy is never booked a second time. Requires Grocy 4.x (`done` column, `stock_log` entity).
+
 ## [1.18.0] - 2026-10-06
 
 This minor release adds a **Units & Conversions** page for setting up quantity conversions without an external script (#57). Pick metric or US customary presets from a searchable library, preview what will change, and import them into Grocy, with matching units configured in Mealie through its native standardization. It also requires login on every web page when app authentication is enabled.

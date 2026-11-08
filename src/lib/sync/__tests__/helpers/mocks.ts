@@ -63,6 +63,10 @@ export function mockSyncState(overrides: Partial<SyncStateData> = {}): SyncState
     mealieSubRestockProgress: {},
     grocyParentOwnStockDeficit: {},
     grocySkippedRestockAmounts: {},
+    grocyCheckedRowDoneById: {},
+    grocyCheckedJournalCursor: 0,
+    grocyCheckedMealieSnapshotById: {},
+    grocyCheckedBootstrapped: false,
     ...overrides,
   };
 }

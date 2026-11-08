@@ -245,6 +245,16 @@ export const config = {
     false,
     'SYNC_MEALIE_IN_POSSESSION',
   ),
+  /**
+   * Grocy→Mealie "checked" propagation (direction 5): mirror Grocy shopping-list
+   * row completion (`done`), positive stock bookings, and booking undos
+   * ("put back") onto the checked state of the matching Mealie shopping items.
+   */
+  syncGrocySideChecked: parseBooleanEnv(
+    process.env.SYNC_GROCYSIDE_CHECKED,
+    false,
+    'SYNC_GROCYSIDE_CHECKED',
+  ),
   mealieInPossessionOnlyAboveMinStock: parseBooleanEnv(
     process.env.MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK,
     false,

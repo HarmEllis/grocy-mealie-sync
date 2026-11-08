@@ -33,6 +33,20 @@ export type GrocyProductWithParent = Product & {
   parent_product_id?: number | null;
 };
 
+/** Local extension — Grocy 4.x persists the shopping-row completion flag as
+ *  `done` (0|1) on the `shopping_list` entity, but the generated OpenAPI model
+ *  predates the column and omits it. */
+export type GrocyShoppingRow = ShoppingListItem & {
+  done?: number | null;
+};
+
+/** Local extension — Grocy 4.x stock-log rows gained `undone` / `undone_timestamp`
+ *  columns (a booking undo mutates the row in place; no negative twin is written). */
+export type GrocyStockLogRow = StockLogEntry & {
+  undone?: number | null;
+  undone_timestamp?: string | null;
+};
+
 function serializeGrocyBestBeforeDate(bestBeforeDate?: string | null): string | undefined {
   if (bestBeforeDate === null) {
     return GROCY_NO_BEST_BEFORE_DATE;
@@ -61,7 +75,8 @@ export type GrocyListableEntity =
   | 'quantity_units'
   | 'quantity_unit_conversions'
   | 'locations'
-  | 'shopping_list';
+  | 'shopping_list'
+  | 'stock_log';
 
 /** Entity names used for creation/editing (postObjects, putObjects). */
 export type GrocyEditableEntity =
@@ -96,6 +111,7 @@ interface GrocyEntityTypeMap {
   quantity_unit_conversions: QuantityUnitConversion;
   locations: Location;
   shopping_list: ShoppingListItem;
+  stock_log: GrocyStockLogRow;
 }
 
 const EDITABLE_ENTITY_FIELDS = {
@@ -157,6 +173,8 @@ const EDITABLE_ENTITY_FIELDS = {
     'product_id',
     'note',
     'amount',
+    // Grocy 4.x completion flag; required for PUT updates of a shopping row.
+    'done',
   ],
 } as const satisfies Record<GrocyEditableEntity, readonly string[]>;
 
@@ -305,11 +323,53 @@ function assertGrocyArray<T>(raw: unknown, endpoint: string): T[] {
  */
 export async function getGrocyEntities<E extends GrocyListableEntity>(
   entity: E,
+  options?: {
+    /** Grocy 4.x `query[]` conditions, e.g. ['id>5', 'product_id=2'] (ANDed). */
+    query?: string[];
+    /** Grocy 4.x `order` value, e.g. 'id:desc'. */
+    order?: string;
+    limit?: number;
+  },
 ): Promise<GrocyEntityTypeMap[E][]> {
   // The `as any` here is required because the generated ExposedEntity_* types
   // are plain `string` aliases and do not accept string literal types.
-  const raw = await GenericEntityInteractionsService.getObjects(entity as any);
+  const raw = await GenericEntityInteractionsService.getObjects(
+    entity as any,
+    options?.query,
+    options?.order,
+    options?.limit,
+  );
   return assertGrocyArray<GrocyEntityTypeMap[E]>(raw, `/objects/${entity}`);
+}
+
+/**
+ * Stock-log rows newer than `afterId`, oldest first. Grocy 4.x renamed the
+ * v3 `stock_journal` entity to `stock_log` and its query syntax to
+ * `query[]`/`order=k:v` — unknown filter params are silently ignored, so the
+ * cursor filter must go through this wrapper.
+ */
+export async function getGrocyStockLogSince(afterId: number, limit = 500): Promise<GrocyStockLogRow[]> {
+  return getGrocyEntities('stock_log', {
+    query: [`id>${afterId}`],
+    order: 'id:asc',
+    limit,
+  });
+}
+
+/** Newest stock-log row for a product, or null when the product has no bookings. */
+export async function getGrocyNewestStockLogForProduct(productId: number): Promise<GrocyStockLogRow | null> {
+  const rows = await getGrocyEntities('stock_log', {
+    query: [`product_id=${productId}`],
+    order: 'id:desc',
+    limit: 1,
+  });
+  return rows[0] ?? null;
+}
+
+/** Highest stock-log id currently in Grocy (0 when the entity is empty). */
+export async function getGrocyMaxStockLogId(): Promise<number> {
+  const rows = await getGrocyEntities('stock_log', { order: 'id:desc', limit: 1 });
+  return Number(rows[0]?.id ?? 0);
 }
 
 /**

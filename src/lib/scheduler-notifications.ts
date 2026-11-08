@@ -4,7 +4,7 @@ import { buildServerFetchInit } from './server-fetch';
 
 export type SchedulerCycleType = 'initial' | 'poll' | 'product_sync' | 'cleanup';
 export type SchedulerCycleStatus = 'success' | 'partial' | 'failure';
-export type SchedulerStepName = 'product_sync' | 'mealie_to_grocy' | 'grocy_to_mealie' | 'conflict_check' | 'shopping_cleanup';
+export type SchedulerStepName = 'product_sync' | 'mealie_to_grocy' | 'grocy_checked_to_mealie' | 'grocy_to_mealie' | 'conflict_check' | 'shopping_cleanup';
 export type SchedulerStepStatus = 'success' | 'partial' | 'skipped' | 'failure';
 
 export interface SchedulerStepResult {

@@ -23,7 +23,7 @@ function createDeps(overrides: Partial<ResourceReadModelDeps> = {}): ResourceRea
       grocyEffectiveParentByOriginalId: {},
       mealieSubRestockProgress: {},
       grocyParentOwnStockDeficit: {},
-      grocySkippedRestockAmounts: {},
+      grocySkippedRestockAmounts: {}, grocyCheckedRowDoneById: {}, grocyCheckedJournalCursor: 0, grocyCheckedMealieSnapshotById: {}, grocyCheckedBootstrapped: false, 
     }),
     listProductMappings: async () => [
       {

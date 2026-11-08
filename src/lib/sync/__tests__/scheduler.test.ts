@@ -13,6 +13,7 @@ const mockState = vi.hoisted(() => ({
   sendSchedulerNotifications: vi.fn(),
   pollGrocyForMissingStock: vi.fn(),
   pollMealieForCheckedItems: vi.fn(),
+  pollGrocyCheckedToMealie: vi.fn(),
   acquireSyncLock: vi.fn(() => true),
   releaseSyncLock: vi.fn(),
   acquireSchedulerLock: vi.fn(),
@@ -64,6 +65,10 @@ vi.mock('../grocy-to-mealie', () => ({
 
 vi.mock('../mealie-to-grocy', () => ({
   pollMealieForCheckedItems: mockState.pollMealieForCheckedItems,
+}));
+
+vi.mock('../grocy-checked-to-mealie', () => ({
+  pollGrocyCheckedToMealie: mockState.pollGrocyCheckedToMealie,
 }));
 
 vi.mock('../mutex', () => ({
@@ -123,6 +128,14 @@ describe('scheduler startup lock', () => {
     });
     mockState.recordHistoryRun.mockReset();
     mockState.recordHistoryRun.mockResolvedValue(null);
+    mockState.pollGrocyCheckedToMealie.mockReset();
+    mockState.pollGrocyCheckedToMealie.mockResolvedValue({
+      status: 'ok',
+      summary: {
+        rowsChecked: 0, rowsUnchecked: 0, journalAdds: 0,
+        journalReverts: 0, rowMirrorUpdates: 0, failedItems: 0,
+      },
+    });
     mockState.pollGrocyForMissingStock.mockReset();
     mockState.pollGrocyForMissingStock.mockResolvedValue({
       status: 'ok',

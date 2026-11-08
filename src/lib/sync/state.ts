@@ -38,6 +38,16 @@ export interface SyncStateData {
    *  Incorporated into effectivePreviousMap at the start of the next poll so that
    *  quantity adjustments remain accurate. Keyed by effectiveId; reset each poll. */
   grocySkippedRestockAmounts: Record<number, number>;
+  /** Grocy shopping-row completion snapshot from the previous Grocy-checked poll
+   *  (Grocy shopping_list row id → `done` flag as boolean). */
+  grocyCheckedRowDoneById: Record<number, boolean>;
+  /** Highest Grocy stock_log id already examined by the Grocy-checked poll. */
+  grocyCheckedJournalCursor: number;
+  /** Mealie items whose checked state was last propagated by the Grocy-checked poll
+   *  (Mealie itemId → checked value we pushed). Used for row-side "put back" mirroring. */
+  grocyCheckedMealieSnapshotById: Record<string, boolean>;
+  /** True once the first Grocy-checked poll has snapshotted Grocy state without propagating. */
+  grocyCheckedBootstrapped: boolean;
 }
 
 const STATE_ID = 'singleton';
@@ -56,6 +66,10 @@ const DEFAULT_STATE: SyncStateData = {
   mealieSubRestockProgress: {},
   grocyParentOwnStockDeficit: {},
   grocySkippedRestockAmounts: {},
+  grocyCheckedRowDoneById: {},
+  grocyCheckedJournalCursor: 0,
+  grocyCheckedMealieSnapshotById: {},
+  grocyCheckedBootstrapped: false,
 };
 
 export async function getSyncState(): Promise<SyncStateData> {
@@ -86,6 +100,10 @@ export async function getSyncState(): Promise<SyncStateData> {
     mealieSubRestockProgress: (state.mealieSubRestockProgress as Record<string, number[]>) || {},
     grocyParentOwnStockDeficit: (state.grocyParentOwnStockDeficit as Record<number, number>) || {},
     grocySkippedRestockAmounts: (state.grocySkippedRestockAmounts as Record<number, number>) || {},
+    grocyCheckedRowDoneById: (state.grocyCheckedRowDoneById as Record<number, boolean>) || {},
+    grocyCheckedJournalCursor: typeof state.grocyCheckedJournalCursor === 'number' ? state.grocyCheckedJournalCursor : 0,
+    grocyCheckedMealieSnapshotById: (state.grocyCheckedMealieSnapshotById as Record<string, boolean>) || {},
+    grocyCheckedBootstrapped: state.grocyCheckedBootstrapped === true,
   };
 }
 
@@ -104,6 +122,10 @@ export async function saveSyncState(state: SyncStateData) {
     mealieSubRestockProgress: state.mealieSubRestockProgress,
     grocyParentOwnStockDeficit: state.grocyParentOwnStockDeficit,
     grocySkippedRestockAmounts: state.grocySkippedRestockAmounts,
+    grocyCheckedRowDoneById: state.grocyCheckedRowDoneById,
+    grocyCheckedJournalCursor: state.grocyCheckedJournalCursor,
+    grocyCheckedMealieSnapshotById: state.grocyCheckedMealieSnapshotById,
+    grocyCheckedBootstrapped: state.grocyCheckedBootstrapped,
   });
 
   await db.insert(syncState)

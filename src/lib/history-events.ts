@@ -5,6 +5,7 @@ import type { SchedulerStepName } from './scheduler-notifications';
 import type { GrocyMissingStockPollResult } from './sync/grocy-to-mealie';
 import type { MealieInPossessionSyncResult } from './sync/mealie-in-possession';
 import type { MealieToGrocyPollResult } from './sync/mealie-to-grocy';
+import type { GrocyCheckedToMealiePollResult } from './sync/grocy-checked-to-mealie';
 import type { FullProductSyncResult } from './sync/product-sync';
 import type { ShoppingCleanupResult } from './sync/shopping-cleanup';
 
@@ -198,6 +199,8 @@ export function formatSchedulerStepNameLabel(stepName: SchedulerStepName): strin
       return 'Product sync';
     case 'mealie_to_grocy':
       return 'Mealie to Grocy';
+    case 'grocy_checked_to_mealie':
+      return 'Grocy checked to Mealie';
     case 'grocy_to_mealie':
       return 'Grocy to Mealie';
     case 'conflict_check':
@@ -362,6 +365,44 @@ export function buildMealieToGrocyHistoryOutcome(result: MealieToGrocyPollResult
             : result.status === 'partial'
               ? 'Sync partially completed.'
               : 'Sync completed.',
+        details: {
+          reason: result.reason ?? null,
+          summary: result.summary,
+        },
+      },
+      ...(result.events ?? []),
+    ],
+  };
+}
+
+export function buildGrocyCheckedHistoryOutcome(result: GrocyCheckedToMealiePollResult): HistoryOutcome {
+  return {
+    status: toHistoryStatus(result.status),
+    message: `Mirrored ${result.summary.rowsChecked + result.summary.journalAdds} checked / `
+      + `${result.summary.rowsUnchecked + result.summary.journalReverts} put-back / `
+      + `${result.summary.rowMirrorUpdates} row update(s); failed ${result.summary.failedItems}.`,
+    summary: {
+      reason: result.reason ?? null,
+      ...result.summary,
+    },
+    events: [
+      {
+        kind: (result.status === 'error' || result.status === 'partial') && !result.events?.length ? 'issue' : 'diagnostic',
+        level: result.status === 'error'
+          ? 'error'
+          : result.status === 'partial' || result.status === 'skipped' || result.summary.failedItems > 0
+            ? 'warning'
+            : 'info',
+        category: 'sync',
+        entityKind: 'shopping_item',
+        entityRef: 'grocy_checked_to_mealie',
+        message: result.status === 'error'
+          ? 'Grocy-checked sync failed.'
+          : result.status === 'skipped'
+            ? 'Grocy-checked sync skipped.'
+            : result.status === 'partial'
+              ? 'Grocy-checked sync partially completed.'
+              : 'Grocy-checked sync completed.',
         details: {
           reason: result.reason ?? null,
           summary: result.summary,

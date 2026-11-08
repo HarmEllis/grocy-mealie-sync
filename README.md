@@ -337,6 +337,11 @@ Examples:
 - The manual `POST /api/sync/grocy-to-mealie/in-possession` endpoint runs a full reconcile against Mealie's current state immediately, even if the scheduler setting is disabled
 - Implementation note: Mealie's current API exposes this state through `householdsWithIngredientFood`, not a dedicated `onHand` field. See [docs/mealie-in-possession.md](docs/mealie-in-possession.md).
 
+### Grocy → Mealie (shopping list checked)
+- When `SYNC_GROCYSIDE_CHECKED` is enabled, each poll cycle first mirrors Grocy-side shopping completions onto the matching Mealie shopping items: a shopping-list row checked off in Grocy (`done`), a new positive stock booking for the mapped product, or the newest booking for that product being marked undone ("put back")
+- Mealie-side unchecks of previously propagated items mirror the Grocy shopping row back to `done=0`; stock bookings are never silently reverted
+- The step runs before the Mealie→Grocy poll and pins propagated items in the sync state, so a purchase Grocy already recorded is not restocked a second time (no duplicate bookings, no ping-pong)
+
 ### Mealie → Grocy (shopping list check-off)
 - Polls Mealie shopping list items for `checked: true` state changes
 - Checked items add stock in Grocy (`purchase` transaction)
@@ -355,6 +360,7 @@ The following app-level settings can be configured in the web UI at `http://loca
 - Auto-create units in Grocy: `AUTO_CREATE_UNITS`
 - Actively ensure below-min items stay on the Mealie list: `ENSURE_LOW_STOCK_ON_MEALIE_LIST`
 - Sync Mealie `In possession` from Grocy stock: `SYNC_MEALIE_IN_POSSESSION`
+- Mirror Grocy-side shopping completions to Mealie: `SYNC_GROCYSIDE_CHECKED`
 - Only mark Mealie `In possession` above minimum stock: `MEALIE_IN_POSSESSION_ONLY_ABOVE_MIN_STOCK`
 - Mapping Wizard min stock input step: `MAPPING_WIZARD_MIN_STOCK_STEP`
 - Only restock products with min stock: `STOCK_ONLY_MIN_STOCK`
