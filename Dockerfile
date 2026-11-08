@@ -2,6 +2,9 @@ FROM node:24-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40
 
 FROM base AS deps
 WORKDIR /app
+# better-sqlite3 ships no prebuilt musl binaries for current Node 24, so
+# `prebuild-install` falls back to node-gyp, which needs a C++ toolchain.
+RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json ./
 RUN npm ci
 
