@@ -12,6 +12,7 @@ export async function GET(request: Request) {
       query: z.string().trim().max(200).optional(),
       source: z.enum(['all', 'grocy_mealie', 'grocy', 'mealie']).default('all'),
       mapped: z.enum(['all', 'mapped', 'unmapped']).default('all'),
+      attention: z.enum(['any', 'unit_changed', 'unconfirmed', 'discontinued']).optional(),
       providerId: z.string().min(1).max(40).optional(),
       offset: z.coerce.number().int().min(0).default(0),
       limit: z.coerce.number().int().min(1).max(200).default(50),

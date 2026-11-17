@@ -19,6 +19,8 @@ interface ConfirmDialogProps {
   description?: string;
   itemNames?: string[];
   running?: boolean;
+  /** `destructive` (default) for deletions, `default` for an ordinary confirmation. */
+  variant?: 'destructive' | 'default';
 }
 
 export function ConfirmDialog({
@@ -29,6 +31,7 @@ export function ConfirmDialog({
   description = 'This action cannot be undone.',
   itemNames,
   running = false,
+  variant = 'destructive',
 }: ConfirmDialogProps) {
   return (
     <Dialog open={open} onOpenChange={val => { if (!val && !running) onClose(); }}>
@@ -54,7 +57,7 @@ export function ConfirmDialog({
           <Button variant="outline" onClick={onClose} disabled={running}>
             Cancel
           </Button>
-          <Button variant="destructive" onClick={onConfirm} disabled={running}>
+          <Button variant={variant} onClick={onConfirm} disabled={running}>
             {running ? 'Running...' : 'Confirm'}
           </Button>
         </DialogFooter>

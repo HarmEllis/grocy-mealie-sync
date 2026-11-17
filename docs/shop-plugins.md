@@ -189,8 +189,14 @@ retailer:
 `GET /api/shop/products` (MCP `shop.products.list`) lists your own products,
 one canonical row per Grocy product (with its linked Mealie food) or Mealie-only
 food, with their retailer mappings. Filters: `source` (`all`, `grocy_mealie`,
-`grocy`, `mealie`), `mapped` (`all`, `mapped`, `unmapped`), `query`,
-`providerId`, `offset` and `limit` (at most 200). Grocy and Mealie data come
+`grocy`, `mealie`), `mapped` (`all`, `mapped`, `unmapped`), `attention`
+(`any`, `unit_changed`, `unconfirmed`, `discontinued`), `query`, `providerId`,
+`offset` and `limit` (at most 200). `attention` is independent of `mapped`: a
+product can be mapped and still need attention because its stock unit moved
+since the amount was confirmed, its amount was never confirmed, or its retailer
+product is discontinued. Every row carries its `attention` reasons and the
+`mappedProviders` that have a preferred mapping, and `counts.attention` totals
+the flagged products. Grocy and Mealie data come
 from a 30 second snapshot (`refresh=true` bypasses it); mappings are always
 read fresh. A legacy preferred mapping on a Mealie food that is linked to a
 Grocy product is shown on the Grocy row without changing its unit; moving it
@@ -368,8 +374,10 @@ Keep entered sign-in values out of agent logs and source control.
 
 Use `plugins.catalog_search` (with optional `refresh`), `plugins.catalog_refresh`,
 `shop.products.list`, `shop.mappings.list`, `shop.targets.search`,
-`shop.mappings.save/update/delete`, `shop.suggestions.decide` and
-`shop.searches.retry` for products and proposals. `shop.overview` reads all Shop
+`shop.mappings.save/update/delete`, `shop.suggestions.decide`,
+`shop.suggestions.accept_bulk` (`POST /api/shop/suggestions/bulk`, accepts every
+suggestion above a score; mappings stay unconfirmed and conflicts are skipped and
+reported) and `shop.searches.retry` for products and proposals. `shop.overview` reads all Shop
 tabs, including receipt lines, ownership, pending effects and discrepancies.
 `shop.lists.sync`, `shop.receipts.pull`, `shop.lines.resolve`,
 `shop.review.resolve`, `shop.effects.resolve` and `shop.discrepancies.resolve`

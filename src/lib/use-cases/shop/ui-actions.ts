@@ -23,6 +23,7 @@ const handlers: Record<string, { method: string; call: Handler }> = {
   'shop.products.list': { method: 'GET', call: async r => (await import('@/app/api/shop/products/route')).GET(r) },
   'shop.targets.search': { method: 'GET', call: async r => (await import('@/app/api/shop/targets/route')).GET(r) },
   'shop.suggestions.decide': { method: 'POST', call: async (r, c) => (await import('@/app/api/shop/suggestions/[id]/route')).POST(r, c) },
+  'shop.suggestions.bulk': { method: 'POST', call: async r => (await import('@/app/api/shop/suggestions/bulk/route')).POST(r) },
   'shop.searches.retry': { method: 'POST', call: async (r, c) => (await import('@/app/api/shop/searches/[id]/retry/route')).POST(r, c) },
   'shop.lists.fallback': { method: 'POST', call: async r => (await import('@/app/api/shop/lists/fallback/route')).POST(r) },
   'shop.lists.sync': { method: 'POST', call: async () => (await import('@/app/api/shop/run/route')).POST() },
